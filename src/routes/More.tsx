@@ -5,6 +5,7 @@ import { useHousehold } from '../context/HouseholdContext'
 import { useCaregivers } from '../lib/useCaregivers'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
+import { errorMessage } from '../lib/errors'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import type { CaregiverProfile, PayFrequency, PaydayRule, PayPeriodAnchor } from '../lib/types'
@@ -39,6 +40,7 @@ export function More() {
   const [reminderDays, setReminderDays] = useState<number[]>([0, 1])
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const caregiver = caregivers.find((c) => c.id === caregiverId) ?? null
 
@@ -67,6 +69,7 @@ export function More() {
     e.preventDefault()
     if (!caregiver || !household) return
     setSaving(true)
+    setSaveError(null)
     try {
       const updates: Partial<CaregiverProfile> = {
         default_hourly_rate: rate ? Number(rate) : null,
@@ -85,7 +88,8 @@ export function More() {
           paydayRule === 'days_after_period_end' ? Number(paydayDaysAfterPeriodEnd) || 0 : null,
         payment_reminder_days_before: reminderDays.length ? reminderDays : [0],
       }
-      await supabase.from('caregiver_profiles').update(updates).eq('id', caregiver.id)
+      const { error } = await supabase.from('caregiver_profiles').update(updates).eq('id', caregiver.id)
+      if (error) throw error
       await logAuditEvent({
         householdId: household.id,
         actorUserId: user?.id ?? '',
@@ -96,6 +100,8 @@ export function More() {
       })
       await refresh()
       setSavedAt(Date.now())
+    } catch (err) {
+      setSaveError(errorMessage(err, 'Could not save pay settings.'))
     } finally {
       setSaving(false)
     }
@@ -277,7 +283,8 @@ export function More() {
             <Button type="submit" className="w-full" disabled={saving}>
               {saving ? 'Saving…' : 'Save settings'}
             </Button>
-            {savedAt && <p className="text-xs text-green-600">Saved.</p>}
+            {saveError && <p className="text-xs text-red-600">{saveError}</p>}
+            {savedAt && !saveError && <p className="text-xs text-green-600">Saved.</p>}
           </form>
         </Card>
       )}
