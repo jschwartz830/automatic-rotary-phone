@@ -11,7 +11,7 @@ import { generateShiftsForRange } from '../lib/schedule'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
-import type { ScheduleShift, ScheduleTemplate, TimeEntry } from '../lib/types'
+import type { ScheduleShift, ScheduleTemplate, TimeEntry, TimeEntryMethod } from '../lib/types'
 
 const DEFAULT_START_TIME = '09:00'
 const DEFAULT_END_TIME = '17:00'
@@ -34,6 +34,16 @@ export function Time() {
   const [error, setError] = useState<string | null>(null)
   const [clockNote, setClockNote] = useState('')
   const [clockSubmitting, setClockSubmitting] = useState(false)
+
+  // Edit state
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
+  const [editDate, setEditDate] = useState('')
+  const [editStart, setEditStart] = useState('')
+  const [editEnd, setEditEnd] = useState('')
+  const [editBreak, setEditBreak] = useState('0')
+  const [editNote, setEditNote] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
 
   useEffect(() => {
     if (isNanny && caregiverProfile) {
@@ -97,6 +107,7 @@ export function Time() {
       .from('time_entries')
       .select('*')
       .eq('caregiver_id', forCaregiverId)
+      .is('deleted_at', null)
       .order('date', { ascending: false })
       .limit(30)
     setEntries((data ?? []) as TimeEntry[])
@@ -239,6 +250,107 @@ export function Time() {
     }
   }
 
+  function startEdit(entry: TimeEntry) {
+    setEditingEntryId(entry.id)
+    setEditDate(entry.date)
+    // Prefer stored manual times; fall back to clock times for clock entries.
+    setEditStart(
+      entry.manual_start_time?.slice(0, 5) ??
+        (entry.clock_in_at
+          ? new Date(entry.clock_in_at).toTimeString().slice(0, 5)
+          : DEFAULT_START_TIME)
+    )
+    setEditEnd(
+      entry.manual_end_time?.slice(0, 5) ??
+        (entry.clock_out_at
+          ? new Date(entry.clock_out_at).toTimeString().slice(0, 5)
+          : DEFAULT_END_TIME)
+    )
+    setEditBreak(String(entry.break_minutes))
+    setEditNote(isNanny ? (entry.nanny_note ?? '') : (entry.parent_note ?? ''))
+    setEditError(null)
+    setShowForm(false)
+  }
+
+  function cancelEdit() {
+    setEditingEntryId(null)
+    setEditError(null)
+  }
+
+  async function handleSaveEdit(entry: TimeEntry) {
+    if (!household) return
+    if (!isValidCalendarDate(editDate)) {
+      setEditError('Invalid date. Please pick a valid date.')
+      return
+    }
+    setEditSaving(true)
+    setEditError(null)
+    try {
+      const paidHours = hoursBetween(editStart, editEnd, Number(editBreak) || 0)
+      const methodUpdate: Partial<{ method: TimeEntryMethod }> =
+        isParentOrCoAdmin && entry.method === 'clock' ? { method: 'parent_adjustment' } : {}
+      const updates = {
+        date: editDate,
+        manual_start_time: editStart,
+        manual_end_time: editEnd,
+        break_minutes: Number(editBreak) || 0,
+        paid_hours: paidHours,
+        updated_by: user?.id ?? null,
+        ...(isNanny ? { nanny_note: editNote || null } : { parent_note: editNote || null }),
+        ...methodUpdate,
+      }
+      const { error: updateError } = await supabase
+        .from('time_entries')
+        .update(updates)
+        .eq('id', entry.id)
+      if (updateError) throw updateError
+
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'time_entry',
+        entityId: entry.id,
+        action: 'update',
+        before: {
+          date: entry.date,
+          manual_start_time: entry.manual_start_time,
+          manual_end_time: entry.manual_end_time,
+          break_minutes: entry.break_minutes,
+          paid_hours: entry.paid_hours,
+        },
+        after: { date: editDate, manual_start_time: editStart, manual_end_time: editEnd, break_minutes: Number(editBreak) || 0, paid_hours: paidHours },
+      })
+
+      setEditingEntryId(null)
+      if (caregiverId) await loadEntries(caregiverId)
+    } catch (err) {
+      setEditError(errorMessage(err, 'Could not save changes.'))
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  async function handleArchive(entry: TimeEntry) {
+    if (!household) return
+    const { error: archiveError } = await supabase
+      .from('time_entries')
+      .update({ deleted_at: new Date().toISOString(), updated_by: user?.id ?? null })
+      .eq('id', entry.id)
+    if (archiveError) {
+      setError(errorMessage(archiveError, 'Could not archive entry.'))
+      return
+    }
+    await logAuditEvent({
+      householdId: household.id,
+      actorUserId: user?.id ?? '',
+      entityType: 'time_entry',
+      entityId: entry.id,
+      action: 'archive',
+      before: { date: entry.date, status: entry.status, paid_hours: entry.paid_hours },
+    })
+    if (caregiverId) await loadEntries(caregiverId)
+  }
+
   return (
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
@@ -318,35 +430,129 @@ export function Time() {
         <div className="space-y-2">
           {entries.map((entry) => {
             const isActiveClock = entry.id === activeClockEntry?.id
+            const isEditing = entry.id === editingEntryId
             const displayStart =
               entry.manual_start_time ??
               (entry.clock_in_at ? new Date(entry.clock_in_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—')
             const displayEnd =
               entry.manual_end_time ??
               (entry.clock_out_at ? new Date(entry.clock_out_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—')
+            const canEdit =
+              !isActiveClock &&
+              entry.status !== 'locked' &&
+              (isParentOrCoAdmin || (isNanny && (entry.status === 'draft' || entry.status === 'submitted')))
+            const canArchive =
+              !isActiveClock &&
+              entry.status !== 'locked' &&
+              (isParentOrCoAdmin || (isNanny && (entry.status === 'draft' || entry.status === 'submitted')))
+
             return (
               <Card key={entry.id}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{entry.date}</p>
-                    <p className="text-xs text-gray-500">
-                      {displayStart}–{displayEnd} · {entry.paid_hours?.toFixed(2) ?? '0.00'} hrs
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <StatusChip status={isActiveClock ? 'clocked_in' : entry.status} />
-                    {isParentOrCoAdmin && entry.status === 'submitted' && (
-                      <button className="text-xs text-blue-600 underline" onClick={() => approveEntry(entry.id)}>
-                        Approve
+                {isEditing ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-gray-900">Edit entry</p>
+                      <button className="text-xs text-gray-500 underline" onClick={cancelEdit}>
+                        Cancel
                       </button>
+                    </div>
+                    {entry.clock_in_at && (
+                      <p className="text-xs text-gray-400">
+                        Original clock: {new Date(entry.clock_in_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                        {entry.clock_out_at && ` – ${new Date(entry.clock_out_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}
+                      </p>
                     )}
+                    <Field label="Date">
+                      <input
+                        type="date"
+                        className={inputClass}
+                        value={editDate}
+                        onChange={(e) => setEditDate(e.target.value)}
+                      />
+                    </Field>
+                    <div className="flex gap-3">
+                      <Field label="Start">
+                        <input
+                          type="time"
+                          className={inputClass}
+                          value={editStart}
+                          onChange={(e) => setEditStart(e.target.value)}
+                        />
+                      </Field>
+                      <Field label="End">
+                        <input
+                          type="time"
+                          className={inputClass}
+                          value={editEnd}
+                          onChange={(e) => setEditEnd(e.target.value)}
+                        />
+                      </Field>
+                    </div>
+                    <Field label="Unpaid break (minutes)">
+                      <input
+                        type="number"
+                        min="0"
+                        className={inputClass}
+                        value={editBreak}
+                        onChange={(e) => setEditBreak(e.target.value)}
+                      />
+                    </Field>
+                    <Field label="Note (optional)">
+                      <input
+                        className={inputClass}
+                        value={editNote}
+                        onChange={(e) => setEditNote(e.target.value)}
+                      />
+                    </Field>
+                    <p className="text-xs text-gray-500">
+                      {hoursBetween(editStart, editEnd, Number(editBreak) || 0).toFixed(2)} paid hours
+                    </p>
+                    {editError && <p className="text-sm text-red-600">{editError}</p>}
+                    <Button className="w-full" onClick={() => handleSaveEdit(entry)} disabled={editSaving}>
+                      {editSaving ? 'Saving…' : 'Save changes'}
+                    </Button>
                   </div>
-                </div>
+                ) : (
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{entry.date}</p>
+                      <p className="text-xs text-gray-500">
+                        {displayStart}–{displayEnd} · {entry.paid_hours?.toFixed(2) ?? '0.00'} hrs
+                      </p>
+                      {(isNanny ? entry.nanny_note : entry.parent_note) && (
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {isNanny ? entry.nanny_note : entry.parent_note}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <StatusChip status={isActiveClock ? 'clocked_in' : entry.status} />
+                      <div className="flex items-center gap-2">
+                        {isParentOrCoAdmin && entry.status === 'submitted' && (
+                          <button className="text-xs text-blue-600 underline" onClick={() => approveEntry(entry.id)}>
+                            Approve
+                          </button>
+                        )}
+                        {canEdit && (
+                          <button className="text-xs text-gray-600 underline" onClick={() => startEdit(entry)}>
+                            Edit
+                          </button>
+                        )}
+                        {canArchive && (
+                          <button className="text-xs text-red-500 underline" onClick={() => handleArchive(entry)}>
+                            Archive
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </Card>
             )
           })}
         </div>
       )}
+      {error && !showForm && <p className="text-sm text-red-600 px-1">{error}</p>}
     </div>
   )
 }
