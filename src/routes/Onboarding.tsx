@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { supabase } from '../lib/supabase'
@@ -8,6 +9,7 @@ import { Button, Field, inputClass } from '../components/Card'
 export function Onboarding() {
   const { user } = useAuth()
   const { refresh } = useHousehold()
+  const navigate = useNavigate()
   const [householdName, setHouseholdName] = useState('')
   const [nannyName, setNannyName] = useState('')
   const [hourlyRate, setHourlyRate] = useState('')
@@ -46,6 +48,7 @@ export function Onboarding() {
       }
 
       await refresh()
+      navigate('/', { replace: true })
     } catch (err) {
       setError(errorMessage(err, 'Something went wrong.'))
     } finally {
