@@ -1,6 +1,7 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { HouseholdProvider, useHousehold } from './context/HouseholdContext'
+import { isSupabaseConfigured } from './lib/supabase'
 import { Layout } from './components/Layout'
 import { Login } from './routes/Login'
 import { Onboarding } from './routes/Onboarding'
@@ -10,6 +11,7 @@ import { Time } from './routes/Time'
 import { Pay } from './routes/Pay'
 import { Pto } from './routes/Pto'
 import { More } from './routes/More'
+import { SetupRequired } from './routes/SetupRequired'
 
 function Loading() {
   return <div className="flex min-h-svh items-center justify-center text-sm text-gray-400">Loading…</div>
@@ -69,6 +71,10 @@ function AppRoutes() {
 }
 
 function App() {
+  if (!isSupabaseConfigured) {
+    return <SetupRequired />
+  }
+
   return (
     <AuthProvider>
       <HashRouter>
