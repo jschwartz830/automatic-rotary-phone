@@ -12,7 +12,19 @@ import { downloadCsv } from '../lib/csv'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
-import type { LeaveRequest, PaymentRecord, TimeEntry, Timesheet } from '../lib/types'
+import type { CaregiverProfile, LeaveRequest, PaymentRecord, TimeEntry, Timesheet } from '../lib/types'
+
+function computeDueDate(periodEnd: string, caregiver: CaregiverProfile): string {
+  if (caregiver.payday_rule === 'days_after_period_end' && caregiver.payday_days_after_period_end != null) {
+    return format(addDays(new Date(periodEnd), caregiver.payday_days_after_period_end), 'yyyy-MM-dd')
+  }
+  if (caregiver.payday_rule === 'same_day_each_week' && caregiver.payday_day_of_week != null) {
+    const end = new Date(periodEnd)
+    const daysUntil = (caregiver.payday_day_of_week - end.getDay() + 7) % 7 || 7
+    return format(addDays(end, daysUntil), 'yyyy-MM-dd')
+  }
+  return periodEnd
+}
 
 export function Pay() {
   const { user } = useAuth()
@@ -28,6 +40,9 @@ export function Pay() {
   const [error, setError] = useState<string | null>(null)
 
   const activeCaregiver = isNanny ? caregiverProfile : caregivers.find((c) => c.id === caregiverId) ?? null
+  const activeTimesheets = timesheets.filter((t) => !t.deleted_at)
+  const trashedTimesheets = timesheets.filter((t) => t.deleted_at)
+  const activePayments = payments.filter((p) => !p.deleted_at)
 
   useEffect(() => {
     if (isNanny && caregiverProfile) {
@@ -147,10 +162,7 @@ export function Pay() {
         after: { periodStart, periodEnd, grossPayDue: result.grossPayDue },
       })
 
-      const dueDate =
-        activeCaregiver.payday_rule === 'days_after_period_end' && activeCaregiver.payday_days_after_period_end
-          ? format(addDays(new Date(periodEnd), activeCaregiver.payday_days_after_period_end), 'yyyy-MM-dd')
-          : periodEnd
+      const dueDate = computeDueDate(periodEnd, activeCaregiver)
 
       const { error: payError } = await supabase.from('payment_records').insert({
         caregiver_id: caregiverId,
@@ -209,17 +221,24 @@ export function Pay() {
   async function deleteTimesheet(timesheet: Timesheet) {
     if (
       !window.confirm(
-        `Delete the timesheet for ${timesheet.period_start} – ${timesheet.period_end}? This will also remove its payment record. This cannot be undone.`
+        `Move the timesheet for ${timesheet.period_start} – ${timesheet.period_end} to trash? Its payment record moves with it. You can restore it later from the Trash.`
       )
     ) {
       return
     }
     setError(null)
     try {
-      const { error: payDeleteError } = await supabase.from('payment_records').delete().eq('timesheet_id', timesheet.id)
+      const deletedAt = new Date().toISOString()
+      const { error: payDeleteError } = await supabase
+        .from('payment_records')
+        .update({ deleted_at: deletedAt })
+        .eq('timesheet_id', timesheet.id)
       if (payDeleteError) throw payDeleteError
 
-      const { error: tsDeleteError } = await supabase.from('timesheets').delete().eq('id', timesheet.id)
+      const { error: tsDeleteError } = await supabase
+        .from('timesheets')
+        .update({ deleted_at: deletedAt })
+        .eq('id', timesheet.id)
       if (tsDeleteError) throw tsDeleteError
 
       if (household) {
@@ -238,10 +257,41 @@ export function Pay() {
     }
   }
 
+  async function restoreTimesheet(timesheet: Timesheet) {
+    setError(null)
+    try {
+      const { error: payRestoreError } = await supabase
+        .from('payment_records')
+        .update({ deleted_at: null })
+        .eq('timesheet_id', timesheet.id)
+      if (payRestoreError) throw payRestoreError
+
+      const { error: tsRestoreError } = await supabase
+        .from('timesheets')
+        .update({ deleted_at: null })
+        .eq('id', timesheet.id)
+      if (tsRestoreError) throw tsRestoreError
+
+      if (household) {
+        await logAuditEvent({
+          householdId: household.id,
+          actorUserId: user?.id ?? '',
+          entityType: 'timesheet',
+          entityId: timesheet.id,
+          action: 'restore',
+        })
+      }
+
+      if (caregiverId) await loadData(caregiverId)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not restore timesheet.'))
+    }
+  }
+
   function exportTimesheets() {
     downloadCsv(
       'timesheets.csv',
-      timesheets.map((t) => ({
+      activeTimesheets.map((t) => ({
         period_start: t.period_start,
         period_end: t.period_end,
         status: t.status,
@@ -255,7 +305,7 @@ export function Pay() {
   function exportPayments() {
     downloadCsv(
       'payments.csv',
-      payments.map((p) => ({
+      activePayments.map((p) => ({
         period_start: p.period_start,
         period_end: p.period_end,
         due_date: p.due_date,
@@ -313,16 +363,16 @@ export function Pay() {
         </Card>
       )}
 
-      <Card title="Payments" action={isParentOrCoAdmin && payments.length > 0 && (
+      <Card title="Payments" action={isParentOrCoAdmin && activePayments.length > 0 && (
         <button className="text-xs text-blue-600 underline" onClick={exportPayments}>
           Export CSV
         </button>
       )}>
-        {payments.length === 0 ? (
+        {activePayments.length === 0 ? (
           <p className="text-sm text-gray-500">No payment records yet.</p>
         ) : (
           <div className="space-y-2">
-            {payments.map((p) => (
+            {activePayments.map((p) => (
               <div key={p.id} className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0">
                 <div>
                   <p className="text-sm font-medium text-gray-900">
@@ -344,16 +394,16 @@ export function Pay() {
         )}
       </Card>
 
-      <Card title="Timesheets" action={isParentOrCoAdmin && timesheets.length > 0 && (
+      <Card title="Timesheets" action={isParentOrCoAdmin && activeTimesheets.length > 0 && (
         <button className="text-xs text-blue-600 underline" onClick={exportTimesheets}>
           Export CSV
         </button>
       )}>
-        {timesheets.length === 0 ? (
+        {activeTimesheets.length === 0 ? (
           <p className="text-sm text-gray-500">No timesheets yet.</p>
         ) : (
           <div className="space-y-2">
-            {timesheets.map((t) => (
+            {activeTimesheets.map((t) => (
               <div key={t.id} className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0">
                 <div>
                   <p className="text-sm font-medium text-gray-900">
@@ -376,6 +426,28 @@ export function Pay() {
           </div>
         )}
       </Card>
+
+      {isParentOrCoAdmin && trashedTimesheets.length > 0 && (
+        <Card title="Trash">
+          <div className="space-y-2">
+            {trashedTimesheets.map((t) => (
+              <div key={t.id} className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">
+                    {t.period_start} – {t.period_end}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {t.actual_worked_hours.toFixed(2)} hrs worked · ${t.gross_pay_due.toFixed(2)}
+                  </p>
+                </div>
+                <button className="text-xs text-blue-600 underline" onClick={() => restoreTimesheet(t)}>
+                  Restore
+                </button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   )
 }

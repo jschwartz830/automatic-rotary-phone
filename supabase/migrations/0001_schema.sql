@@ -245,6 +245,8 @@ create table public.timesheets (
   reimbursements numeric(10, 2) not null default 0,
   manual_adjustments numeric(10, 2) not null default 0,
 
+  deleted_at timestamptz,
+
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
 
@@ -371,6 +373,7 @@ create table public.payment_records (
   nanny_visible_note text,
   guarantee_override_note text,
   attachment_url text,
+  deleted_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

@@ -236,6 +236,7 @@ export interface Timesheet {
   gross_pay_due: number
   reimbursements: number
   manual_adjustments: number
+  deleted_at: string | null
   created_at: string
   updated_at: string
 }
@@ -364,6 +365,7 @@ export interface PaymentRecord {
   nanny_visible_note: string | null
   guarantee_override_note: string | null
   attachment_url: string | null
+  deleted_at: string | null
   created_at: string
   updated_at: string
 }

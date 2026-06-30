@@ -7,7 +7,11 @@ import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
-import type { CaregiverProfile } from '../lib/types'
+import type { CaregiverProfile, PayFrequency, PaydayRule } from '../lib/types'
+
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const PAY_FREQUENCIES: PayFrequency[] = ['weekly', 'biweekly', 'semi_monthly', 'monthly']
+const PAYDAY_RULES: PaydayRule[] = ['same_day_each_week', 'days_after_period_end', 'manual']
 
 export function More() {
   const { user, signOut } = useAuth()
@@ -19,6 +23,11 @@ export function More() {
   const [overtimeMultiplier, setOvertimeMultiplier] = useState('1.5')
   const [guaranteedEnabled, setGuaranteedEnabled] = useState(false)
   const [guaranteedHours, setGuaranteedHours] = useState('')
+  const [payFrequency, setPayFrequency] = useState<PayFrequency>('weekly')
+  const [payPeriodStartDay, setPayPeriodStartDay] = useState('1')
+  const [paydayRule, setPaydayRule] = useState<PaydayRule>('days_after_period_end')
+  const [paydayDayOfWeek, setPaydayDayOfWeek] = useState('5')
+  const [paydayDaysAfterPeriodEnd, setPaydayDaysAfterPeriodEnd] = useState('5')
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
 
@@ -35,6 +44,11 @@ export function More() {
     setOvertimeMultiplier(caregiver.overtime_multiplier.toString())
     setGuaranteedEnabled(caregiver.guaranteed_hours_enabled)
     setGuaranteedHours(caregiver.fixed_weekly_guaranteed_hours?.toString() ?? '')
+    setPayFrequency(caregiver.pay_frequency)
+    setPayPeriodStartDay(caregiver.pay_period_start_day.toString())
+    setPaydayRule(caregiver.payday_rule)
+    setPaydayDayOfWeek(caregiver.payday_day_of_week?.toString() ?? '5')
+    setPaydayDaysAfterPeriodEnd(caregiver.payday_days_after_period_end?.toString() ?? '5')
   }, [caregiver])
 
   async function handleSave(e: FormEvent) {
@@ -49,6 +63,12 @@ export function More() {
         guaranteed_hours_enabled: guaranteedEnabled,
         guaranteed_hours_basis: guaranteedEnabled ? 'fixed_weekly' : 'linked_to_schedule',
         fixed_weekly_guaranteed_hours: guaranteedEnabled && guaranteedHours ? Number(guaranteedHours) : null,
+        pay_frequency: payFrequency,
+        pay_period_start_day: Number(payPeriodStartDay) || 0,
+        payday_rule: paydayRule,
+        payday_day_of_week: paydayRule === 'same_day_each_week' ? Number(paydayDayOfWeek) || 0 : null,
+        payday_days_after_period_end:
+          paydayRule === 'days_after_period_end' ? Number(paydayDaysAfterPeriodEnd) || 0 : null,
       }
       await supabase.from('caregiver_profiles').update(updates).eq('id', caregiver.id)
       await logAuditEvent({
@@ -130,6 +150,61 @@ export function More() {
                   className={inputClass}
                   value={guaranteedHours}
                   onChange={(e) => setGuaranteedHours(e.target.value)}
+                />
+              </Field>
+            )}
+            <div className="flex gap-3">
+              <Field label="Pay frequency">
+                <select
+                  className={inputClass}
+                  value={payFrequency}
+                  onChange={(e) => setPayFrequency(e.target.value as PayFrequency)}
+                >
+                  {PAY_FREQUENCIES.map((f) => (
+                    <option key={f} value={f}>
+                      {f.replace(/_/g, ' ')}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Pay period starts">
+                <select className={inputClass} value={payPeriodStartDay} onChange={(e) => setPayPeriodStartDay(e.target.value)}>
+                  {DAYS.map((d, i) => (
+                    <option key={d} value={i}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            <Field label="Payday rule">
+              <select className={inputClass} value={paydayRule} onChange={(e) => setPaydayRule(e.target.value as PaydayRule)}>
+                {PAYDAY_RULES.map((r) => (
+                  <option key={r} value={r}>
+                    {r.replace(/_/g, ' ')}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {paydayRule === 'same_day_each_week' && (
+              <Field label="Payday">
+                <select className={inputClass} value={paydayDayOfWeek} onChange={(e) => setPaydayDayOfWeek(e.target.value)}>
+                  {DAYS.map((d, i) => (
+                    <option key={d} value={i}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+            {paydayRule === 'days_after_period_end' && (
+              <Field label="Days after period end">
+                <input
+                  type="number"
+                  min="0"
+                  className={inputClass}
+                  value={paydayDaysAfterPeriodEnd}
+                  onChange={(e) => setPaydayDaysAfterPeriodEnd(e.target.value)}
                 />
               </Field>
             )}
