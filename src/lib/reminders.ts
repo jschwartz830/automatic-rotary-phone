@@ -23,14 +23,23 @@ export function computeReminders(input: {
   const { today, timeEntries, timesheets, leaveRequests, paymentRecords } = input
   const cards: ReminderCard[] = []
 
+  // Per spec 21, this should fire "after scheduled shift end plus grace
+  // period," but reminders are computed without schedule context here. As a
+  // stand-in, treat 12 hours since clock-in as the grace period -- long
+  // enough that someone still mid-shift isn't flagged, short enough to catch
+  // a forgotten clock-out same day or the day after.
+  const MISSING_CLOCK_OUT_GRACE_HOURS = 12
   for (const entry of timeEntries) {
     if (entry.clock_in_at && !entry.clock_out_at) {
-      cards.push({
-        id: `missing-clock-out-${entry.id}`,
-        type: 'missing_clock_out',
-        severity: 'warning',
-        message: `Clock-out missing for ${entry.date}.`,
-      })
+      const hoursSinceClockIn = (today.getTime() - new Date(entry.clock_in_at).getTime()) / 3_600_000
+      if (hoursSinceClockIn >= MISSING_CLOCK_OUT_GRACE_HOURS) {
+        cards.push({
+          id: `missing-clock-out-${entry.id}`,
+          type: 'missing_clock_out',
+          severity: 'warning',
+          message: `Clock-out missing for ${entry.date}.`,
+        })
+      }
     }
   }
 

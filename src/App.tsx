@@ -11,6 +11,7 @@ import { Time } from './routes/Time'
 import { Pay } from './routes/Pay'
 import { Pto } from './routes/Pto'
 import { More } from './routes/More'
+import { AuditLog } from './routes/AuditLog'
 import { SetupRequired } from './routes/SetupRequired'
 
 function Loading() {
@@ -64,6 +65,7 @@ function AppRoutes() {
         <Route path="pay" element={<Pay />} />
         <Route path="pto" element={<Pto />} />
         <Route path="more" element={<More />} />
+        <Route path="audit-log" element={<AuditLog />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
