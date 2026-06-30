@@ -1,5 +1,7 @@
 import { differenceInCalendarDays, parseISO } from 'date-fns'
-import type { LeaveRequest, PaymentRecord, TimeEntry, Timesheet } from './types'
+import type { CaregiverProfile, LeaveRequest, PaymentRecord, TimeEntry, Timesheet } from './types'
+
+const DEFAULT_PAYMENT_REMINDER_DAYS_BEFORE = [0, 1]
 
 export interface ReminderCard {
   id: string
@@ -19,9 +21,16 @@ export function computeReminders(input: {
   timesheets: Timesheet[]
   leaveRequests: LeaveRequest[]
   paymentRecords: PaymentRecord[]
+  caregivers?: CaregiverProfile[]
 }): ReminderCard[] {
-  const { today, timeEntries, timesheets, leaveRequests, paymentRecords } = input
+  const { today, timeEntries, timesheets, leaveRequests, paymentRecords, caregivers } = input
   const cards: ReminderCard[] = []
+  const reminderDaysByCaregiver = new Map(
+    (caregivers ?? []).map((c) => [
+      c.id,
+      c.payment_reminder_days_before?.length ? c.payment_reminder_days_before : DEFAULT_PAYMENT_REMINDER_DAYS_BEFORE,
+    ])
+  )
 
   // Per spec 21, this should fire "after scheduled shift end plus grace
   // period," but reminders are computed without schedule context here. As a
@@ -91,7 +100,11 @@ export function computeReminders(input: {
         severity: 'urgent',
         message: `Payment for ${pr.period_start} – ${pr.period_end} is overdue.`,
       })
-    } else if (daysUntilDue === 0) {
+      continue
+    }
+    const leadDays = reminderDaysByCaregiver.get(pr.caregiver_id) ?? DEFAULT_PAYMENT_REMINDER_DAYS_BEFORE
+    if (!leadDays.includes(daysUntilDue)) continue
+    if (daysUntilDue === 0) {
       cards.push({
         id: `payment-due-today-${pr.id}`,
         type: 'payment_due',
@@ -104,6 +117,13 @@ export function computeReminders(input: {
         type: 'payment_due',
         severity: 'info',
         message: `Payment for ${pr.period_start} – ${pr.period_end} is due tomorrow.`,
+      })
+    } else {
+      cards.push({
+        id: `payment-due-soon-${pr.id}-${daysUntilDue}`,
+        type: 'payment_due',
+        severity: 'info',
+        message: `Payment for ${pr.period_start} – ${pr.period_end} is due in ${daysUntilDue} days.`,
       })
     }
   }

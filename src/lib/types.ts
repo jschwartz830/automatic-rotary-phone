@@ -44,6 +44,7 @@ export type GuaranteedHoursBasis =
 
 export type PayFrequency = 'weekly' | 'biweekly' | 'semi_monthly' | 'monthly'
 export type PaydayRule = 'same_day_each_week' | 'days_after_period_end' | 'manual'
+export type PayPeriodAnchor = 'start_day' | 'end_day'
 export type PaymentMethodLabel =
   | 'zelle'
   | 'venmo'
@@ -81,9 +82,12 @@ export interface CaregiverProfile {
   holiday_counts_toward_guarantee: boolean
   pay_frequency: PayFrequency
   pay_period_start_day: number
+  pay_period_anchor: PayPeriodAnchor
+  pay_period_end_day: number | null
   payday_rule: PaydayRule
   payday_day_of_week: number | null
   payday_days_after_period_end: number | null
+  payment_reminder_days_before: number[]
   created_at: string
   updated_at: string
 }

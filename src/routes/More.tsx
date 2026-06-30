@@ -7,11 +7,17 @@ import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
-import type { CaregiverProfile, PayFrequency, PaydayRule } from '../lib/types'
+import type { CaregiverProfile, PayFrequency, PaydayRule, PayPeriodAnchor } from '../lib/types'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const PAY_FREQUENCIES: PayFrequency[] = ['weekly', 'biweekly', 'semi_monthly', 'monthly']
 const PAYDAY_RULES: PaydayRule[] = ['same_day_each_week', 'days_after_period_end', 'manual']
+const REMINDER_OPTIONS = [
+  { value: 0, label: 'Same day' },
+  { value: 1, label: '1 day before' },
+  { value: 2, label: '2 days before' },
+  { value: 3, label: '3 days before' },
+]
 
 export function More() {
   const { user, signOut } = useAuth()
@@ -24,10 +30,13 @@ export function More() {
   const [guaranteedEnabled, setGuaranteedEnabled] = useState(false)
   const [guaranteedHours, setGuaranteedHours] = useState('')
   const [payFrequency, setPayFrequency] = useState<PayFrequency>('weekly')
+  const [payPeriodAnchor, setPayPeriodAnchor] = useState<PayPeriodAnchor>('start_day')
   const [payPeriodStartDay, setPayPeriodStartDay] = useState('1')
+  const [payPeriodEndDay, setPayPeriodEndDay] = useState('4')
   const [paydayRule, setPaydayRule] = useState<PaydayRule>('days_after_period_end')
   const [paydayDayOfWeek, setPaydayDayOfWeek] = useState('5')
   const [paydayDaysAfterPeriodEnd, setPaydayDaysAfterPeriodEnd] = useState('5')
+  const [reminderDays, setReminderDays] = useState<number[]>([0, 1])
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
 
@@ -45,10 +54,13 @@ export function More() {
     setGuaranteedEnabled(caregiver.guaranteed_hours_enabled)
     setGuaranteedHours(caregiver.fixed_weekly_guaranteed_hours?.toString() ?? '')
     setPayFrequency(caregiver.pay_frequency)
+    setPayPeriodAnchor(caregiver.pay_period_anchor)
     setPayPeriodStartDay(caregiver.pay_period_start_day.toString())
+    setPayPeriodEndDay(caregiver.pay_period_end_day?.toString() ?? '4')
     setPaydayRule(caregiver.payday_rule)
     setPaydayDayOfWeek(caregiver.payday_day_of_week?.toString() ?? '5')
     setPaydayDaysAfterPeriodEnd(caregiver.payday_days_after_period_end?.toString() ?? '5')
+    setReminderDays(caregiver.payment_reminder_days_before?.length ? caregiver.payment_reminder_days_before : [0, 1])
   }, [caregiver])
 
   async function handleSave(e: FormEvent) {
@@ -64,11 +76,14 @@ export function More() {
         guaranteed_hours_basis: guaranteedEnabled ? 'fixed_weekly' : 'linked_to_schedule',
         fixed_weekly_guaranteed_hours: guaranteedEnabled && guaranteedHours ? Number(guaranteedHours) : null,
         pay_frequency: payFrequency,
+        pay_period_anchor: payPeriodAnchor,
         pay_period_start_day: Number(payPeriodStartDay) || 0,
+        pay_period_end_day: payPeriodAnchor === 'end_day' ? Number(payPeriodEndDay) || 0 : null,
         payday_rule: paydayRule,
         payday_day_of_week: paydayRule === 'same_day_each_week' ? Number(paydayDayOfWeek) || 0 : null,
         payday_days_after_period_end:
           paydayRule === 'days_after_period_end' ? Number(paydayDaysAfterPeriodEnd) || 0 : null,
+        payment_reminder_days_before: reminderDays.length ? reminderDays : [0],
       }
       await supabase.from('caregiver_profiles').update(updates).eq('id', caregiver.id)
       await logAuditEvent({
@@ -172,6 +187,18 @@ export function More() {
                   ))}
                 </select>
               </Field>
+              <Field label="Pay period anchored by">
+                <select
+                  className={inputClass}
+                  value={payPeriodAnchor}
+                  onChange={(e) => setPayPeriodAnchor(e.target.value as PayPeriodAnchor)}
+                >
+                  <option value="start_day">Start day</option>
+                  <option value="end_day">End day / payday</option>
+                </select>
+              </Field>
+            </div>
+            {payPeriodAnchor === 'start_day' ? (
               <Field label="Pay period starts">
                 <select className={inputClass} value={payPeriodStartDay} onChange={(e) => setPayPeriodStartDay(e.target.value)}>
                   {DAYS.map((d, i) => (
@@ -181,7 +208,21 @@ export function More() {
                   ))}
                 </select>
               </Field>
-            </div>
+            ) : (
+              <Field label="Pay period ends">
+                <select className={inputClass} value={payPeriodEndDay} onChange={(e) => setPayPeriodEndDay(e.target.value)}>
+                  {DAYS.map((d, i) => (
+                    <option key={d} value={i}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+            <p className="text-xs text-gray-500">
+              For example, a nanny who works Monday–Thursday and is paid at the end of her last shift would be
+              anchored to &ldquo;End day&rdquo; = Thursday.
+            </p>
             <Field label="Payday rule">
               <select className={inputClass} value={paydayRule} onChange={(e) => setPaydayRule(e.target.value as PaydayRule)}>
                 {PAYDAY_RULES.map((r) => (
@@ -213,6 +254,26 @@ export function More() {
                 />
               </Field>
             )}
+            <Field label="Remind me about payday">
+              <div className="flex flex-wrap gap-3">
+                {REMINDER_OPTIONS.map((opt) => (
+                  <label key={opt.value} className="flex items-center gap-1.5 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={reminderDays.includes(opt.value)}
+                      onChange={(e) =>
+                        setReminderDays((prev) =>
+                          e.target.checked
+                            ? [...prev, opt.value].sort((a, b) => a - b)
+                            : prev.filter((d) => d !== opt.value)
+                        )
+                      }
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+            </Field>
             <Button type="submit" className="w-full" disabled={saving}>
               {saving ? 'Saving…' : 'Save settings'}
             </Button>

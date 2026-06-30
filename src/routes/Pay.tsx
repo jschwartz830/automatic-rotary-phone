@@ -38,6 +38,7 @@ export function Pay() {
   const [periodEnd, setPeriodEnd] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showArchive, setShowArchive] = useState(false)
 
   const activeCaregiver = isNanny ? caregiverProfile : caregivers.find((c) => c.id === caregiverId) ?? null
   const activeTimesheets = timesheets.filter((t) => !t.deleted_at)
@@ -218,10 +219,10 @@ export function Pay() {
     if (caregiverId) await loadData(caregiverId)
   }
 
-  async function deleteTimesheet(timesheet: Timesheet) {
+  async function archiveTimesheet(timesheet: Timesheet) {
     if (
       !window.confirm(
-        `Move the timesheet for ${timesheet.period_start} – ${timesheet.period_end} to trash? Its payment record moves with it. You can restore it later from the Trash.`
+        `Archive the timesheet for ${timesheet.period_start} – ${timesheet.period_end}? Its payment record moves with it. You can restore it later from Archived.`
       )
     ) {
       return
@@ -247,13 +248,13 @@ export function Pay() {
           actorUserId: user?.id ?? '',
           entityType: 'timesheet',
           entityId: timesheet.id,
-          action: 'delete',
+          action: 'archive',
         })
       }
 
       if (caregiverId) await loadData(caregiverId)
     } catch (err) {
-      setError(errorMessage(err, 'Could not delete timesheet.'))
+      setError(errorMessage(err, 'Could not archive timesheet.'))
     }
   }
 
@@ -416,8 +417,8 @@ export function Pay() {
                 <div className="flex items-center gap-2">
                   <StatusChip status={t.status} />
                   {isParentOrCoAdmin && t.status !== 'paid' && t.status !== 'locked' && (
-                    <button className="text-xs text-red-600 underline" onClick={() => deleteTimesheet(t)}>
-                      Delete
+                    <button className="text-xs text-red-600 underline" onClick={() => archiveTimesheet(t)}>
+                      Archive
                     </button>
                   )}
                 </div>
@@ -428,24 +429,34 @@ export function Pay() {
       </Card>
 
       {isParentOrCoAdmin && trashedTimesheets.length > 0 && (
-        <Card title="Trash">
-          <div className="space-y-2">
-            {trashedTimesheets.map((t) => (
-              <div key={t.id} className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">
-                    {t.period_start} – {t.period_end}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {t.actual_worked_hours.toFixed(2)} hrs worked · ${t.gross_pay_due.toFixed(2)}
-                  </p>
+        <Card>
+          <button
+            type="button"
+            className="flex w-full items-center justify-between text-sm font-medium text-gray-700"
+            onClick={() => setShowArchive((s) => !s)}
+          >
+            <span>Archived ({trashedTimesheets.length})</span>
+            <span className="text-gray-400">{showArchive ? '▲' : '▼'}</span>
+          </button>
+          {showArchive && (
+            <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+              {trashedTimesheets.map((t) => (
+                <div key={t.id} className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {t.period_start} – {t.period_end}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {t.actual_worked_hours.toFixed(2)} hrs worked · ${t.gross_pay_due.toFixed(2)}
+                    </p>
+                  </div>
+                  <button className="text-xs text-blue-600 underline" onClick={() => restoreTimesheet(t)}>
+                    Restore
+                  </button>
                 </div>
-                <button className="text-xs text-blue-600 underline" onClick={() => restoreTimesheet(t)}>
-                  Restore
-                </button>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </Card>
       )}
     </div>

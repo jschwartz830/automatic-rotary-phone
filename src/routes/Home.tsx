@@ -132,6 +132,7 @@ export function Home() {
         timesheets: activeTimesheets,
         leaveRequests: allLeaveRequests,
         paymentRecords: activePayments,
+        caregivers,
       })
       cards.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
       setReminders(cards)
