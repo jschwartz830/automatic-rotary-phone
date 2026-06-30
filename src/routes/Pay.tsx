@@ -6,6 +6,7 @@ import { useCaregivers } from '../lib/useCaregivers'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
+import { isValidCalendarDate } from '../lib/dates'
 import { calculateTimesheet } from '../lib/calc'
 import { downloadCsv } from '../lib/csv'
 import { Card, Button, Field, inputClass } from '../components/Card'
@@ -60,6 +61,10 @@ export function Pay() {
   async function handleGenerateTimesheet(e: FormEvent) {
     e.preventDefault()
     if (!caregiverId || !household || !activeCaregiver) return
+    if (!isValidCalendarDate(periodStart) || !isValidCalendarDate(periodEnd)) {
+      setError('That date does not exist. Please pick a valid date.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
