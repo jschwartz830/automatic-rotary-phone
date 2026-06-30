@@ -4,6 +4,7 @@ import { useHousehold } from '../context/HouseholdContext'
 import { useCaregivers } from '../lib/useCaregivers'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
+import { errorMessage } from '../lib/errors'
 import { shiftHours } from '../lib/schedule'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
@@ -111,7 +112,7 @@ export function Schedule() {
       setShowForm(false)
       await loadSchedule(caregiverId)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not add shift.')
+      setError(errorMessage(err, 'Could not add shift.'))
     } finally {
       setSubmitting(false)
     }

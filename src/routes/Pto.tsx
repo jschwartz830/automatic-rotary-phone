@@ -4,6 +4,7 @@ import { useHousehold } from '../context/HouseholdContext'
 import { useCaregivers } from '../lib/useCaregivers'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
+import { errorMessage } from '../lib/errors'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
@@ -82,7 +83,7 @@ export function Pto() {
       setHours('')
       await loadRequests(caregiverId)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not submit request.')
+      setError(errorMessage(err, 'Could not submit request.'))
     } finally {
       setSubmitting(false)
     }

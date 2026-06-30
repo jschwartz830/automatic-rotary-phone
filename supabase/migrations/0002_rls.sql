@@ -170,9 +170,14 @@ create policy users_update_self on public.users
 -- ---------------------------------------------------------------------------
 -- households
 -- ---------------------------------------------------------------------------
+-- A household has no members until the creator's own household_users row is
+-- inserted (the very next statement after creating the household), so the
+-- creator must also be able to select their own not-yet-joined household --
+-- otherwise INSERT ... SELECT (used by supabase-js's .select().single())
+-- returns zero rows and the whole onboarding flow fails.
 create policy households_select_member on public.households
   for select
-  using (public.is_household_member(id));
+  using (public.is_household_member(id) or created_by = auth.uid());
 
 create policy households_insert_creator on public.households
   for insert
