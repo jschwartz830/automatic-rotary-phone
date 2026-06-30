@@ -206,6 +206,38 @@ export function Pay() {
     if (caregiverId) await loadData(caregiverId)
   }
 
+  async function deleteTimesheet(timesheet: Timesheet) {
+    if (
+      !window.confirm(
+        `Delete the timesheet for ${timesheet.period_start} – ${timesheet.period_end}? This will also remove its payment record. This cannot be undone.`
+      )
+    ) {
+      return
+    }
+    setError(null)
+    try {
+      const { error: payDeleteError } = await supabase.from('payment_records').delete().eq('timesheet_id', timesheet.id)
+      if (payDeleteError) throw payDeleteError
+
+      const { error: tsDeleteError } = await supabase.from('timesheets').delete().eq('id', timesheet.id)
+      if (tsDeleteError) throw tsDeleteError
+
+      if (household) {
+        await logAuditEvent({
+          householdId: household.id,
+          actorUserId: user?.id ?? '',
+          entityType: 'timesheet',
+          entityId: timesheet.id,
+          action: 'delete',
+        })
+      }
+
+      if (caregiverId) await loadData(caregiverId)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not delete timesheet.'))
+    }
+  }
+
   function exportTimesheets() {
     downloadCsv(
       'timesheets.csv',
@@ -247,6 +279,8 @@ export function Pay() {
       </div>
 
       {isParentOrCoAdmin && <CaregiverSelect caregivers={caregivers} value={caregiverId} onChange={setCaregiverId} />}
+
+      {error && !showForm && <p className="text-sm text-red-600">{error}</p>}
 
       {showForm && (
         <Card title="Generate timesheet from time entries">
@@ -329,7 +363,14 @@ export function Pay() {
                     {t.actual_worked_hours.toFixed(2)} hrs worked · ${t.gross_pay_due.toFixed(2)}
                   </p>
                 </div>
-                <StatusChip status={t.status} />
+                <div className="flex items-center gap-2">
+                  <StatusChip status={t.status} />
+                  {isParentOrCoAdmin && t.status !== 'paid' && t.status !== 'locked' && (
+                    <button className="text-xs text-red-600 underline" onClick={() => deleteTimesheet(t)}>
+                      Delete
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
