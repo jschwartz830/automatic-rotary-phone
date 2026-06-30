@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useHousehold } from '../context/HouseholdContext'
 import { useCaregivers } from '../lib/useCaregivers'
 import { supabase } from '../lib/supabase'
@@ -12,11 +13,24 @@ const SEVERITY_STYLES: Record<ReminderCard['severity'], string> = {
   info: 'border-blue-200 bg-blue-50 text-blue-800',
 }
 
+const SEVERITY_ORDER: Record<ReminderCard['severity'], number> = { urgent: 0, warning: 1, info: 2 }
+
+const REMINDER_ROUTES: Record<string, string> = {
+  missing_clock_out: '/time',
+  unsubmitted_timesheet: '/pay',
+  pending_timesheet_approval: '/pay',
+  pending_pto_request: '/pto',
+  upcoming_pto: '/pto',
+  payment_overdue: '/pay',
+  payment_due: '/pay',
+}
+
 export function Home() {
   const { household, isNanny, caregiverProfile } = useHousehold()
   const { caregivers } = useCaregivers(household?.id)
   const [reminders, setReminders] = useState<ReminderCard[]>([])
   const [loading, setLoading] = useState(true)
+  const navigate = useNavigate()
 
   useEffect(() => {
     const caregiverIds = isNanny
@@ -48,6 +62,7 @@ export function Home() {
         leaveRequests: (leaveRequests.data ?? []) as LeaveRequest[],
         paymentRecords: (paymentRecords.data ?? []) as PaymentRecord[],
       })
+      cards.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
       setReminders(cards)
       setLoading(false)
     }
@@ -72,11 +87,20 @@ export function Home() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {reminders.map((r) => (
-            <div key={r.id} className={`rounded-xl border p-3 text-sm ${SEVERITY_STYLES[r.severity]}`}>
-              {r.message}
-            </div>
-          ))}
+          {reminders.map((r) => {
+            const route = REMINDER_ROUTES[r.type]
+            return (
+              <div
+                key={r.id}
+                role={route ? 'button' : undefined}
+                tabIndex={route ? 0 : undefined}
+                onClick={route ? () => navigate(route) : undefined}
+                className={`rounded-xl border p-3 text-sm ${SEVERITY_STYLES[r.severity]} ${route ? 'cursor-pointer' : ''}`}
+              >
+                {r.message}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

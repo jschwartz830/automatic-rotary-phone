@@ -5,12 +5,16 @@ import { useCaregivers } from '../lib/useCaregivers'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
+import { isValidCalendarDate } from '../lib/dates'
+import { useLeavePolicies } from '../lib/useLeavePolicies'
+import { computeLeaveBalance, type LeaveBalancePolicy } from '../lib/leave'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
 import type { LeaveRequest, LeaveType } from '../lib/types'
 
 const LEAVE_TYPES: LeaveType[] = ['pto', 'sick', 'unpaid', 'holiday', 'other_paid']
+const BALANCE_TYPES: LeaveType[] = ['pto', 'sick']
 
 export function Pto() {
   const { user } = useAuth()
@@ -25,6 +29,9 @@ export function Pto() {
   const [hours, setHours] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { policies, refresh: refreshPolicies } = useLeavePolicies(caregiverId)
+  const [allowanceDrafts, setAllowanceDrafts] = useState<Record<string, string>>({})
+  const [savingPolicy, setSavingPolicy] = useState<LeaveType | null>(null)
 
   useEffect(() => {
     if (isNanny && caregiverProfile) {
@@ -33,6 +40,15 @@ export function Pto() {
       setCaregiverId(caregivers[0].id)
     }
   }, [caregivers, isNanny, caregiverProfile, caregiverId])
+
+  useEffect(() => {
+    const drafts: Record<string, string> = {}
+    for (const type of BALANCE_TYPES) {
+      const policy = policies.find((p) => p.leave_type === type)
+      drafts[type] = policy?.annual_allowance_hours?.toString() ?? ''
+    }
+    setAllowanceDrafts(drafts)
+  }, [policies])
 
   async function loadRequests(forCaregiverId: string) {
     const { data } = await supabase
@@ -50,6 +66,10 @@ export function Pto() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (!caregiverId || !household) return
+    if (!isValidCalendarDate(startDate) || (endDate && !isValidCalendarDate(endDate))) {
+      setError('That date does not exist. Please pick a valid date.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
@@ -89,6 +109,39 @@ export function Pto() {
     }
   }
 
+  async function saveAllowance(type: LeaveType) {
+    if (!caregiverId || !household) return
+    setSavingPolicy(type)
+    try {
+      const draft = allowanceDrafts[type] ?? ''
+      const { error: upsertError } = await supabase.from('leave_policies').upsert(
+        {
+          caregiver_id: caregiverId,
+          leave_type: type,
+          accrual_method: 'front_loaded_annual',
+          annual_allowance_hours: draft ? Number(draft) : null,
+        },
+        { onConflict: 'caregiver_id,leave_type' }
+      )
+      if (upsertError) throw upsertError
+
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'leave_policy',
+        entityId: caregiverId,
+        action: 'update',
+        after: { leaveType: type, annualAllowanceHours: draft },
+      })
+
+      await refreshPolicies()
+    } catch (err) {
+      setError(errorMessage(err, 'Could not save allowance.'))
+    } finally {
+      setSavingPolicy(null)
+    }
+  }
+
   async function reviewRequest(request: LeaveRequest, status: 'approved' | 'rejected') {
     await supabase
       .from('leave_requests')
@@ -107,6 +160,65 @@ export function Pto() {
       </div>
 
       {isParentOrCoAdmin && <CaregiverSelect caregivers={caregivers} value={caregiverId} onChange={setCaregiverId} />}
+
+      {caregiverId && (
+        <Card title="Balances">
+          <div className="space-y-3">
+            {BALANCE_TYPES.map((type) => {
+              const policy: LeaveBalancePolicy = policies.find((p) => p.leave_type === type) ?? {
+                leave_type: type,
+                reset_month: null,
+                reset_day: null,
+                annual_allowance_hours: null,
+              }
+              const balance = computeLeaveBalance(policy, requests)
+              return (
+                <div key={type}>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium capitalize text-gray-900">{type}</p>
+                    <p className="text-xs text-gray-500">
+                      {balance.allowanceHours != null
+                        ? `${balance.usedHours.toFixed(2)} / ${balance.allowanceHours.toFixed(2)} hrs used`
+                        : `${balance.usedHours.toFixed(2)} hrs used this year`}
+                    </p>
+                  </div>
+                  {balance.allowanceHours != null && (
+                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+                      <div
+                        className="h-full rounded-full bg-gray-900"
+                        style={{
+                          width: `${Math.min((balance.usedHours / balance.allowanceHours) * 100, 100)}%`,
+                        }}
+                      />
+                    </div>
+                  )}
+                  {isParentOrCoAdmin && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        className={`${inputClass} flex-1`}
+                        placeholder="Annual hours allowed"
+                        value={allowanceDrafts[type] ?? ''}
+                        onChange={(e) => setAllowanceDrafts((d) => ({ ...d, [type]: e.target.value }))}
+                      />
+                      <button
+                        type="button"
+                        className="text-xs text-blue-600 underline disabled:opacity-50"
+                        disabled={savingPolicy === type}
+                        onClick={() => saveAllowance(type)}
+                      >
+                        {savingPolicy === type ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      )}
 
       {showForm && (
         <Card title={isParentOrCoAdmin ? 'Record leave' : 'Request leave'}>

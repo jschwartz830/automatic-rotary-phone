@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
 import { hoursBetween } from '../lib/calc'
+import { isValidCalendarDate } from '../lib/dates'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
@@ -51,6 +52,10 @@ export function Time() {
   async function handleAddEntry(e: FormEvent) {
     e.preventDefault()
     if (!caregiverId || !household) return
+    if (!isValidCalendarDate(date)) {
+      setError('That date does not exist. Please pick a valid date.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
