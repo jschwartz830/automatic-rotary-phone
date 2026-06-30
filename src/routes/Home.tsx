@@ -44,7 +44,12 @@ function buildDashboardCards(input: {
   const today = new Date()
 
   const weekHours = timeEntries
-    .filter((e) => differenceInCalendarDays(today, parseISO(e.date)) >= 0 && differenceInCalendarDays(today, parseISO(e.date)) < 7)
+    .filter((e) =>
+      !e.deleted_at &&
+      e.status === 'approved' &&
+      differenceInCalendarDays(today, parseISO(e.date)) >= 0 &&
+      differenceInCalendarDays(today, parseISO(e.date)) < 7
+    )
     .reduce((sum, e) => sum + (e.paid_hours ?? 0), 0)
 
   const pendingLeaveCount = leaveRequests.filter((l) => l.status === 'requested').length

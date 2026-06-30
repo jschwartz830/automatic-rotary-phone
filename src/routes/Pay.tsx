@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { addDays, format } from 'date-fns'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { useCaregivers } from '../lib/useCaregivers'
@@ -27,6 +28,7 @@ function computeDueDate(periodEnd: string, caregiver: CaregiverProfile): string 
 }
 
 export function Pay() {
+  const navigate = useNavigate()
   const { user } = useAuth()
   const { household, isNanny, isParentOrCoAdmin, caregiverProfile } = useHousehold()
   const { caregivers } = useCaregivers(household?.id)
@@ -39,6 +41,7 @@ export function Pay() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showArchive, setShowArchive] = useState(false)
+  const [pendingUnapproved, setPendingUnapproved] = useState<TimeEntry[]>([])
 
   const activeCaregiver = isNanny ? caregiverProfile : caregivers.find((c) => c.id === caregiverId) ?? null
   const activeTimesheets = timesheets.filter((t) => !t.deleted_at)
@@ -74,6 +77,110 @@ export function Pay() {
     if (caregiverId) loadData(caregiverId)
   }, [caregiverId])
 
+  async function doGenerate(timeEntries: TimeEntry[]) {
+    if (!caregiverId || !household || !activeCaregiver) return
+    const actualWorkedHours = timeEntries
+      .filter((t) => t.status === 'approved')
+      .reduce((sum, t) => sum + (t.paid_hours ?? 0), 0)
+
+    const { data: leaveRows } = await supabase
+      .from('leave_requests')
+      .select('*')
+      .eq('caregiver_id', caregiverId)
+      .eq('status', 'approved')
+      .gte('start_date', periodStart)
+      .lte('end_date', periodEnd)
+    const leaveRequests = (leaveRows ?? []) as LeaveRequest[]
+    const sumLeave = (type: LeaveRequest['leave_type']) =>
+      leaveRequests.filter((l) => l.leave_type === type).reduce((sum, l) => sum + (l.hours_requested ?? 0), 0)
+
+    const guaranteedHoursBase = activeCaregiver.guaranteed_hours_enabled
+      ? activeCaregiver.fixed_weekly_guaranteed_hours ?? activeCaregiver.fixed_pay_period_guaranteed_hours ?? 0
+      : 0
+
+    const result = calculateTimesheet({
+      actualWorkedHours,
+      paidPtoHours: sumLeave('pto'),
+      paidSickHours: sumLeave('sick'),
+      paidHolidayHours: sumLeave('holiday'),
+      familyCancellationHours: 0,
+      unpaidTimeOffHours: sumLeave('unpaid'),
+      guaranteedHoursBase,
+      unpaidTimeOffReducesGuarantee: activeCaregiver.unpaid_time_off_reduces_guarantee,
+      overtimeThresholdHours: activeCaregiver.overtime_threshold_hours,
+      overtimeMultiplier: activeCaregiver.overtime_multiplier,
+      hourlyRate: activeCaregiver.default_hourly_rate ?? 0,
+      reimbursements: 0,
+      manualAdjustments: 0,
+    })
+
+    const { data: timesheet, error: tsError } = await supabase
+      .from('timesheets')
+      .insert({
+        caregiver_id: caregiverId,
+        period_start: periodStart,
+        period_end: periodEnd,
+        status: 'approved',
+        approved_at: new Date().toISOString(),
+        approved_by: user?.id ?? null,
+        guaranteed_hours: result.guaranteedHours,
+        actual_worked_hours: actualWorkedHours,
+        regular_worked_hours: result.regularWorkedHours,
+        overtime_worked_hours: result.overtimeWorkedHours,
+        paid_pto_hours: sumLeave('pto'),
+        paid_sick_hours: sumLeave('sick'),
+        paid_holiday_hours: sumLeave('holiday'),
+        unpaid_time_off_hours: sumLeave('unpaid'),
+        guarantee_adjustment_hours: result.guaranteeAdjustmentHours,
+        payable_regular_hours: result.payableRegularHours,
+        payable_overtime_hours: result.payableOvertimeHours,
+        hourly_rate: activeCaregiver.default_hourly_rate,
+        overtime_rate: result.overtimeRate,
+        gross_pay_due: result.grossPayDue,
+      })
+      .select()
+      .single()
+    if (tsError) throw tsError
+
+    await logAuditEvent({
+      householdId: household.id,
+      actorUserId: user?.id ?? '',
+      entityType: 'timesheet',
+      entityId: timesheet.id,
+      action: 'create',
+      after: { periodStart, periodEnd, grossPayDue: result.grossPayDue },
+    })
+
+    const dueDate = computeDueDate(periodEnd, activeCaregiver)
+
+    const { error: payError } = await supabase.from('payment_records').insert({
+      caregiver_id: caregiverId,
+      timesheet_id: timesheet.id,
+      period_start: periodStart,
+      period_end: periodEnd,
+      due_date: dueDate,
+      status: 'due',
+      actual_worked_hours: actualWorkedHours,
+      regular_worked_hours: result.regularWorkedHours,
+      overtime_worked_hours: result.overtimeWorkedHours,
+      guaranteed_hours: result.guaranteedHours,
+      guarantee_adjustment_hours: result.guaranteeAdjustmentHours,
+      payable_regular_hours: result.payableRegularHours,
+      payable_overtime_hours: result.payableOvertimeHours,
+      paid_pto_hours: sumLeave('pto'),
+      paid_sick_hours: sumLeave('sick'),
+      paid_holiday_hours: sumLeave('holiday'),
+      hourly_rate: activeCaregiver.default_hourly_rate,
+      overtime_rate: result.overtimeRate,
+      gross_pay_due: result.grossPayDue,
+    })
+    if (payError) throw payError
+
+    setShowForm(false)
+    setPendingUnapproved([])
+    await loadData(caregiverId)
+  }
+
   async function handleGenerateTimesheet(e: FormEvent) {
     e.preventDefault()
     if (!caregiverId || !household || !activeCaregiver) return
@@ -88,108 +195,36 @@ export function Pay() {
         .from('time_entries')
         .select('*')
         .eq('caregiver_id', caregiverId)
+        .is('deleted_at', null)
         .gte('date', periodStart)
         .lte('date', periodEnd)
       const timeEntries = (entries ?? []) as TimeEntry[]
-      const actualWorkedHours = timeEntries
-        .filter((t) => t.status === 'approved' || t.status === 'submitted')
-        .reduce((sum, t) => sum + (t.paid_hours ?? 0), 0)
+      const unapproved = timeEntries.filter((t) => t.status !== 'approved')
+      if (unapproved.length > 0) {
+        setPendingUnapproved(unapproved)
+        return
+      }
+      await doGenerate(timeEntries)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not generate timesheet.'))
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
-      const { data: leaveRows } = await supabase
-        .from('leave_requests')
+  async function handleGenerateAnyway() {
+    if (!caregiverId || !household || !activeCaregiver) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      const { data: entries } = await supabase
+        .from('time_entries')
         .select('*')
         .eq('caregiver_id', caregiverId)
-        .eq('status', 'approved')
-        .gte('start_date', periodStart)
-        .lte('end_date', periodEnd)
-      const leaveRequests = (leaveRows ?? []) as LeaveRequest[]
-      const sumLeave = (type: LeaveRequest['leave_type']) =>
-        leaveRequests.filter((l) => l.leave_type === type).reduce((sum, l) => sum + (l.hours_requested ?? 0), 0)
-
-      const guaranteedHoursBase = activeCaregiver.guaranteed_hours_enabled
-        ? activeCaregiver.fixed_weekly_guaranteed_hours ?? activeCaregiver.fixed_pay_period_guaranteed_hours ?? 0
-        : 0
-
-      const result = calculateTimesheet({
-        actualWorkedHours,
-        paidPtoHours: sumLeave('pto'),
-        paidSickHours: sumLeave('sick'),
-        paidHolidayHours: sumLeave('holiday'),
-        familyCancellationHours: 0,
-        unpaidTimeOffHours: sumLeave('unpaid'),
-        guaranteedHoursBase,
-        unpaidTimeOffReducesGuarantee: activeCaregiver.unpaid_time_off_reduces_guarantee,
-        overtimeThresholdHours: activeCaregiver.overtime_threshold_hours,
-        overtimeMultiplier: activeCaregiver.overtime_multiplier,
-        hourlyRate: activeCaregiver.default_hourly_rate ?? 0,
-        reimbursements: 0,
-        manualAdjustments: 0,
-      })
-
-      const { data: timesheet, error: tsError } = await supabase
-        .from('timesheets')
-        .insert({
-          caregiver_id: caregiverId,
-          period_start: periodStart,
-          period_end: periodEnd,
-          status: 'approved',
-          approved_at: new Date().toISOString(),
-          approved_by: user?.id ?? null,
-          guaranteed_hours: result.guaranteedHours,
-          actual_worked_hours: actualWorkedHours,
-          regular_worked_hours: result.regularWorkedHours,
-          overtime_worked_hours: result.overtimeWorkedHours,
-          paid_pto_hours: sumLeave('pto'),
-          paid_sick_hours: sumLeave('sick'),
-          paid_holiday_hours: sumLeave('holiday'),
-          unpaid_time_off_hours: sumLeave('unpaid'),
-          guarantee_adjustment_hours: result.guaranteeAdjustmentHours,
-          payable_regular_hours: result.payableRegularHours,
-          payable_overtime_hours: result.payableOvertimeHours,
-          hourly_rate: activeCaregiver.default_hourly_rate,
-          overtime_rate: result.overtimeRate,
-          gross_pay_due: result.grossPayDue,
-        })
-        .select()
-        .single()
-      if (tsError) throw tsError
-
-      await logAuditEvent({
-        householdId: household.id,
-        actorUserId: user?.id ?? '',
-        entityType: 'timesheet',
-        entityId: timesheet.id,
-        action: 'create',
-        after: { periodStart, periodEnd, grossPayDue: result.grossPayDue },
-      })
-
-      const dueDate = computeDueDate(periodEnd, activeCaregiver)
-
-      const { error: payError } = await supabase.from('payment_records').insert({
-        caregiver_id: caregiverId,
-        timesheet_id: timesheet.id,
-        period_start: periodStart,
-        period_end: periodEnd,
-        due_date: dueDate,
-        status: 'due',
-        actual_worked_hours: actualWorkedHours,
-        regular_worked_hours: result.regularWorkedHours,
-        overtime_worked_hours: result.overtimeWorkedHours,
-        guaranteed_hours: result.guaranteedHours,
-        guarantee_adjustment_hours: result.guaranteeAdjustmentHours,
-        payable_regular_hours: result.payableRegularHours,
-        payable_overtime_hours: result.payableOvertimeHours,
-        paid_pto_hours: sumLeave('pto'),
-        paid_sick_hours: sumLeave('sick'),
-        paid_holiday_hours: sumLeave('holiday'),
-        hourly_rate: activeCaregiver.default_hourly_rate,
-        overtime_rate: result.overtimeRate,
-        gross_pay_due: result.grossPayDue,
-      })
-      if (payError) throw payError
-
-      setShowForm(false)
-      await loadData(caregiverId)
+        .is('deleted_at', null)
+        .gte('date', periodStart)
+        .lte('date', periodEnd)
+      await doGenerate((entries ?? []) as TimeEntry[])
     } catch (err) {
       setError(errorMessage(err, 'Could not generate timesheet.'))
     } finally {
@@ -356,6 +391,29 @@ export function Pay() {
                 />
               </Field>
             </div>
+            {pendingUnapproved.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
+                <p className="text-sm font-medium text-amber-800">
+                  {pendingUnapproved.length} unapproved {pendingUnapproved.length === 1 ? 'entry' : 'entries'} in this period
+                </p>
+                <ul className="space-y-0.5">
+                  {pendingUnapproved.map((e) => (
+                    <li key={e.id} className="text-xs text-amber-700">
+                      {e.date} · {e.paid_hours?.toFixed(2) ?? '0.00'} hrs · {e.status}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-amber-700">These won't be included in the pay calculation.</p>
+                <div className="flex gap-2 pt-1">
+                  <Button type="button" variant="secondary" className="flex-1" onClick={() => navigate('/time')}>
+                    Review entries
+                  </Button>
+                  <Button type="button" className="flex-1" onClick={handleGenerateAnyway} disabled={submitting}>
+                    {submitting ? 'Generating…' : 'Generate anyway'}
+                  </Button>
+                </div>
+              </div>
+            )}
             {error && <p className="text-sm text-red-600">{error}</p>}
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? 'Calculating…' : 'Generate & approve'}
