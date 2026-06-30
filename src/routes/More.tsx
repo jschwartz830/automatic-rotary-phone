@@ -98,6 +98,11 @@ export function More() {
           <Link to="/pto" className="rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-900">
             PTO
           </Link>
+          {isParentOrCoAdmin && (
+            <Link to="/audit-log" className="rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-900">
+              Audit Log
+            </Link>
+          )}
         </div>
       </Card>
 
