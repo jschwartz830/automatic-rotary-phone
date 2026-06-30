@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { supabase } from '../lib/supabase'
+import { errorMessage } from '../lib/errors'
 import { Button, Field, inputClass } from '../components/Card'
 
 export function Onboarding() {
@@ -46,7 +47,7 @@ export function Onboarding() {
 
       await refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.')
+      setError(errorMessage(err, 'Something went wrong.'))
     } finally {
       setSubmitting(false)
     }

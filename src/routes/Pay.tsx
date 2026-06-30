@@ -5,6 +5,7 @@ import { useHousehold } from '../context/HouseholdContext'
 import { useCaregivers } from '../lib/useCaregivers'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
+import { errorMessage } from '../lib/errors'
 import { calculateTimesheet } from '../lib/calc'
 import { downloadCsv } from '../lib/csv'
 import { Card, Button, Field, inputClass } from '../components/Card'
@@ -172,7 +173,7 @@ export function Pay() {
       setShowForm(false)
       await loadData(caregiverId)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not generate timesheet.')
+      setError(errorMessage(err, 'Could not generate timesheet.'))
     } finally {
       setSubmitting(false)
     }
