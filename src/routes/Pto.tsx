@@ -7,11 +7,11 @@ import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
 import { isValidCalendarDate } from '../lib/dates'
 import { useLeavePolicies } from '../lib/useLeavePolicies'
-import { computeLeaveBalance, type LeaveBalancePolicy } from '../lib/leave'
+import { computeLeaveBalance, computeLeaveBalanceFromLedger, type LeaveBalancePolicy } from '../lib/leave'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
-import type { LeaveRequest, LeaveType } from '../lib/types'
+import type { LeaveLedgerEntry, LeaveRequest, LeaveType } from '../lib/types'
 
 const LEAVE_TYPES: LeaveType[] = ['pto', 'sick', 'unpaid', 'holiday', 'other_paid']
 const BALANCE_TYPES: LeaveType[] = ['pto', 'sick']
@@ -22,6 +22,7 @@ export function Pto() {
   const { caregivers } = useCaregivers(household?.id)
   const [caregiverId, setCaregiverId] = useState<string | null>(null)
   const [requests, setRequests] = useState<LeaveRequest[]>([])
+  const [ledgerEntries, setLedgerEntries] = useState<LeaveLedgerEntry[]>([])
   const [showForm, setShowForm] = useState(false)
   const [leaveType, setLeaveType] = useState<LeaveType>('pto')
   const [startDate, setStartDate] = useState('')
@@ -51,12 +52,20 @@ export function Pto() {
   }, [policies])
 
   async function loadRequests(forCaregiverId: string) {
-    const { data } = await supabase
-      .from('leave_requests')
-      .select('*')
-      .eq('caregiver_id', forCaregiverId)
-      .order('start_date', { ascending: false })
-    setRequests((data ?? []) as LeaveRequest[])
+    const [requestsRes, ledgerRes] = await Promise.all([
+      supabase
+        .from('leave_requests')
+        .select('*')
+        .eq('caregiver_id', forCaregiverId)
+        .order('start_date', { ascending: false }),
+      supabase
+        .from('leave_ledger')
+        .select('*')
+        .eq('caregiver_id', forCaregiverId)
+        .order('event_date', { ascending: true }),
+    ])
+    setRequests((requestsRes.data ?? []) as LeaveRequest[])
+    setLedgerEntries((ledgerRes.data ?? []) as LeaveLedgerEntry[])
   }
 
   useEffect(() => {
@@ -229,7 +238,10 @@ export function Pto() {
                 reset_day: null,
                 annual_allowance_hours: null,
               }
-              const balance = computeLeaveBalance(policy, requests)
+              const policyLedger = ledgerEntries.filter((e) => e.leave_policy_id === (policies.find((p) => p.leave_type === type)?.id))
+              const balance = policyLedger.length > 0
+                ? computeLeaveBalanceFromLedger(policy, policyLedger)
+                : computeLeaveBalance(policy, requests)
               return (
                 <div key={type}>
                   <div className="flex items-center justify-between">

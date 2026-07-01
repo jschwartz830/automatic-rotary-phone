@@ -42,12 +42,38 @@ export function More() {
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [joinCode, setJoinCode] = useState<string | null>(null)
+  const [joinCodeLoading, setJoinCodeLoading] = useState(false)
 
   const caregiver = caregivers.find((c) => c.id === caregiverId) ?? null
 
   useEffect(() => {
     if (!caregiverId && caregivers.length > 0) setCaregiverId(caregivers[0].id)
   }, [caregivers, caregiverId])
+
+  useEffect(() => {
+    if (!household || !isParentOrCoAdmin) return
+    supabase.from('households').select('join_code').eq('id', household.id).single().then(({ data }) => {
+      setJoinCode((data as { join_code: string | null } | null)?.join_code ?? null)
+    })
+  }, [household, isParentOrCoAdmin])
+
+  async function generateJoinCode() {
+    if (!household) return
+    setJoinCodeLoading(true)
+    const code = Math.random().toString(36).slice(2, 8).toUpperCase()
+    const { error } = await supabase.from('households').update({ join_code: code }).eq('id', household.id)
+    if (!error) setJoinCode(code)
+    setJoinCodeLoading(false)
+  }
+
+  async function revokeJoinCode() {
+    if (!household) return
+    setJoinCodeLoading(true)
+    const { error } = await supabase.from('households').update({ join_code: null }).eq('id', household.id)
+    if (!error) setJoinCode(null)
+    setJoinCodeLoading(false)
+  }
 
   useEffect(() => {
     if (!caregiver) return
@@ -135,6 +161,41 @@ export function More() {
           )}
         </div>
       </Card>
+
+      {isParentOrCoAdmin && (
+        <Card title="Nanny access">
+          <p className="mb-3 text-sm text-gray-500">
+            Share this code with your nanny so they can sign up and join your household.
+          </p>
+          {joinCode ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 rounded-xl bg-gray-50 px-4 py-3">
+                <span className="flex-1 font-mono text-2xl font-bold tracking-widest text-gray-900">
+                  {joinCode}
+                </span>
+                <button
+                  className="text-xs text-blue-600 underline disabled:opacity-50"
+                  disabled={joinCodeLoading}
+                  onClick={generateJoinCode}
+                >
+                  Regenerate
+                </button>
+              </div>
+              <button
+                className="text-xs text-red-500 underline disabled:opacity-50"
+                disabled={joinCodeLoading}
+                onClick={revokeJoinCode}
+              >
+                Revoke code
+              </button>
+            </div>
+          ) : (
+            <Button variant="secondary" onClick={generateJoinCode} disabled={joinCodeLoading}>
+              {joinCodeLoading ? 'Generating…' : 'Generate join code'}
+            </Button>
+          )}
+        </Card>
+      )}
 
       {isParentOrCoAdmin && caregivers.length > 0 && (
         <Card title="Caregiver pay settings">

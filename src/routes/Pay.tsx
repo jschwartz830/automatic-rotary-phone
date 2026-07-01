@@ -48,6 +48,11 @@ export function Pay() {
   const [correctionAmount, setCorrectionAmount] = useState('')
   const [correctionNote, setCorrectionNote] = useState('')
   const [correctionSubmitting, setCorrectionSubmitting] = useState(false)
+  // Nanny timesheet submission state
+  const [showNannyForm, setShowNannyForm] = useState(false)
+  const [nannyPeriodStart, setNannyPeriodStart] = useState('')
+  const [nannyPeriodEnd, setNannyPeriodEnd] = useState('')
+  const [nannySubmitting, setNannySubmitting] = useState(false)
 
   const activeCaregiver = isNanny ? caregiverProfile : caregivers.find((c) => c.id === caregiverId) ?? null
   const activeTimesheets = timesheets.filter((t) => !t.deleted_at)
@@ -420,6 +425,75 @@ export function Pay() {
     }
   }
 
+  async function handleSubmitTimesheet(e: FormEvent) {
+    e.preventDefault()
+    if (!caregiverId || !household) return
+    if (!isValidCalendarDate(nannyPeriodStart) || !isValidCalendarDate(nannyPeriodEnd)) {
+      setError('Please enter valid dates.')
+      return
+    }
+    setNannySubmitting(true)
+    setError(null)
+    try {
+      const { data: entries } = await supabase
+        .from('time_entries')
+        .select('*')
+        .eq('caregiver_id', caregiverId)
+        .is('deleted_at', null)
+        .gte('date', nannyPeriodStart)
+        .lte('date', nannyPeriodEnd)
+        .eq('status', 'approved')
+      const timeEntries = (entries ?? []) as TimeEntry[]
+      const actualWorkedHours = timeEntries.reduce((sum, t) => sum + (t.paid_hours ?? 0), 0)
+
+      const { data: timesheet, error: tsError } = await supabase
+        .from('timesheets')
+        .insert({
+          caregiver_id: caregiverId,
+          period_start: nannyPeriodStart,
+          period_end: nannyPeriodEnd,
+          status: 'submitted',
+          submitted_at: new Date().toISOString(),
+          submitted_by: user?.id ?? null,
+          actual_worked_hours: actualWorkedHours,
+          scheduled_hours: 0,
+          guaranteed_hours: 0,
+          regular_worked_hours: actualWorkedHours,
+          overtime_worked_hours: 0,
+          paid_pto_hours: 0,
+          paid_sick_hours: 0,
+          paid_holiday_hours: 0,
+          family_cancellation_hours: 0,
+          unpaid_time_off_hours: 0,
+          guarantee_adjustment_hours: 0,
+          payable_regular_hours: actualWorkedHours,
+          payable_overtime_hours: 0,
+          gross_pay_due: 0,
+        })
+        .select()
+        .single()
+      if (tsError) throw tsError
+
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'timesheet',
+        entityId: timesheet.id,
+        action: 'submit',
+        after: { periodStart: nannyPeriodStart, periodEnd: nannyPeriodEnd, actualWorkedHours },
+      })
+
+      setShowNannyForm(false)
+      setNannyPeriodStart('')
+      setNannyPeriodEnd('')
+      await loadData(caregiverId)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not submit timesheet.'))
+    } finally {
+      setNannySubmitting(false)
+    }
+  }
+
   function exportTimesheets() {
     downloadCsv(
       'timesheets.csv',
@@ -456,6 +530,11 @@ export function Pay() {
         {isParentOrCoAdmin && (
           <Button variant="secondary" onClick={() => setShowForm((s) => !s)}>
             {showForm ? 'Cancel' : '+ Generate timesheet'}
+          </Button>
+        )}
+        {isNanny && (
+          <Button variant="secondary" onClick={() => setShowNannyForm((s) => !s)}>
+            {showNannyForm ? 'Cancel' : 'Submit timesheet'}
           </Button>
         )}
       </div>
@@ -513,6 +592,40 @@ export function Pay() {
             {error && <p className="text-sm text-red-600">{error}</p>}
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? 'Calculating…' : 'Generate & approve'}
+            </Button>
+          </form>
+        </Card>
+      )}
+
+      {isNanny && showNannyForm && (
+        <Card title="Submit timesheet for review">
+          <form onSubmit={handleSubmitTimesheet} className="space-y-3">
+            <p className="text-xs text-gray-500">
+              Submit your approved time entries for this period so your employer can review and calculate pay.
+            </p>
+            <div className="flex gap-3">
+              <Field label="Period start">
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={nannyPeriodStart}
+                  onChange={(e) => setNannyPeriodStart(e.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Period end">
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={nannyPeriodEnd}
+                  onChange={(e) => setNannyPeriodEnd(e.target.value)}
+                  required
+                />
+              </Field>
+            </div>
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <Button type="submit" className="w-full" disabled={nannySubmitting}>
+              {nannySubmitting ? 'Submitting…' : 'Submit for review'}
             </Button>
           </form>
         </Card>

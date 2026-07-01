@@ -8,6 +8,47 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-01 (batch 2) — Weekly calendar grid, nanny join flow, nanny timesheet submission, PTO ledger reads
+
+**Weekly calendar grid replaces flat shift list (spec Phase 2, Q&A item 2).**
+`Schedule.tsx` now shows a Mon–Sun week grid with previous/next week navigation
+instead of the prior flat recurring-shift list. Each day row shows scheduled shift
+times and hours, leave request pills, and a total hours count. Tapping a day
+expands an inline detail panel showing shift breakdown and, for parents, a
+per-shift "Remove" button. Leave (approved or requested) pulled from
+`leave_requests` for the visible week range is displayed per day as colored pills
+with the leave type. The existing recurring-schedule management section (add/remove
+shifts) is retained below the grid. Uses `generateShiftsForRange` to materialize
+template occurrences for the week.
+
+**Household join code flow (spec Phase 1 nanny invite, Q&A item 1).**
+`More.tsx` now has a "Nanny access" card (parent/co-admin only). Parents can
+generate a random 6-character alphanumeric code, which is stored in
+`households.join_code`. The code displays in a large mono font with Regenerate
+and Revoke buttons. The `Onboarding.tsx` flow now has a three-mode structure:
+choose → create / join. The "join" path calls the `join_household_by_code` SQL
+function (migration 0011) which handles RLS via SECURITY DEFINER, inserts the
+user as `'nanny'`, and redirects on success. No backend Edge Function required.
+
+**PTO ledger balance reads switched to event-sourced (spec 13.7, Q&A item 1 — complete).**
+`Pto.tsx` now reads balance from `leave_ledger` when rows exist for a policy
+(`computeLeaveBalanceFromLedger`), falling back to `computeLeaveBalance` from
+`leave_requests` when not. The ledger-based function tracks `currentBalance` as
+`sum(hours_delta)` and `usedInPeriod` as the sum of negative deltas in the
+current policy year. Migration 0010 backfills existing approved requests into
+the ledger. New approvals and allowance changes write ledger events immediately,
+so the balance reads are always fresh.
+
+**Nanny timesheet submission (spec 13.5, Q&A item 3).**
+`Pay.tsx` now shows a "Submit timesheet" button for nanny users. The form asks
+for period start/end, then creates a `timesheets` row with `status: 'submitted'`,
+`submitted_at`, and actual worked hours summed from approved time entries in the
+period. The timesheet then appears in the parent's view so they can generate the
+official pay calculation. Gross pay is set to 0 at submission time; the parent
+flow calculates the real amounts when they generate and approve.
+
+---
+
 ## 2026-07-01 — Phase: guaranteed-hours wiring, schedule-aware reminders, payment corrections, PTO ledger
 
 **`linked_to_schedule` guaranteed hours fully wired (spec 13.6, 16.3, Q&A item 2).**
