@@ -388,23 +388,27 @@ export function More() {
               />
             </Field>
             <div className="flex gap-2">
-              <Field label="OT after (hrs/wk)">
-                <input
-                  type="number"
-                  className={inputClass}
-                  value={overtimeThreshold}
-                  onChange={(e) => setOvertimeThreshold(e.target.value)}
-                />
-              </Field>
-              <Field label="OT multiplier">
-                <input
-                  type="number"
-                  step="0.1"
-                  className={inputClass}
-                  value={overtimeMultiplier}
-                  onChange={(e) => setOvertimeMultiplier(e.target.value)}
-                />
-              </Field>
+              <div className="min-w-0 flex-1">
+                <Field label="OT after (hrs/wk)">
+                  <input
+                    type="number"
+                    className={inputClass}
+                    value={overtimeThreshold}
+                    onChange={(e) => setOvertimeThreshold(e.target.value)}
+                  />
+                </Field>
+              </div>
+              <div className="min-w-0 flex-1">
+                <Field label="OT multiplier">
+                  <input
+                    type="number"
+                    step="0.1"
+                    className={inputClass}
+                    value={overtimeMultiplier}
+                    onChange={(e) => setOvertimeMultiplier(e.target.value)}
+                  />
+                </Field>
+              </div>
             </div>
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input
@@ -446,29 +450,33 @@ export function More() {
               </>
             )}
             <div className="flex gap-3">
-              <Field label="Pay frequency">
-                <select
-                  className={inputClass}
-                  value={payFrequency}
-                  onChange={(e) => setPayFrequency(e.target.value as PayFrequency)}
-                >
-                  {PAY_FREQUENCIES.map((f) => (
-                    <option key={f} value={f}>
-                      {f.replace(/_/g, ' ')}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Pay period anchored by">
-                <select
-                  className={inputClass}
-                  value={payPeriodAnchor}
-                  onChange={(e) => setPayPeriodAnchor(e.target.value as PayPeriodAnchor)}
-                >
-                  <option value="start_day">Start day</option>
-                  <option value="end_day">End day / payday</option>
-                </select>
-              </Field>
+              <div className="min-w-0 flex-1">
+                <Field label="Pay frequency">
+                  <select
+                    className={inputClass}
+                    value={payFrequency}
+                    onChange={(e) => setPayFrequency(e.target.value as PayFrequency)}
+                  >
+                    {PAY_FREQUENCIES.map((f) => (
+                      <option key={f} value={f}>
+                        {f.replace(/_/g, ' ')}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+              <div className="min-w-0 flex-1">
+                <Field label="Pay period anchored by">
+                  <select
+                    className={inputClass}
+                    value={payPeriodAnchor}
+                    onChange={(e) => setPayPeriodAnchor(e.target.value as PayPeriodAnchor)}
+                  >
+                    <option value="start_day">Start day</option>
+                    <option value="end_day">End day / payday</option>
+                  </select>
+                </Field>
+              </div>
             </div>
             {payPeriodAnchor === 'start_day' ? (
               <Field label="Pay period starts">

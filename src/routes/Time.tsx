@@ -415,12 +415,12 @@ export function Time() {
               <input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} required />
             </Field>
             <div className="flex gap-3">
-              <div className="flex-1">
+              <div className="min-w-0 flex-1">
                 <Field label="Start">
                   <input type="time" className={inputClass} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
                 </Field>
               </div>
-              <div className="flex-1">
+              <div className="min-w-0 flex-1">
                 <Field label="End">
                   <input type="time" className={inputClass} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
                 </Field>
@@ -498,7 +498,7 @@ export function Time() {
                       />
                     </Field>
                     <div className="flex gap-3">
-                      <div className="flex-1">
+                      <div className="min-w-0 flex-1">
                         <Field label="Start">
                           <input
                             type="time"
@@ -508,7 +508,7 @@ export function Time() {
                           />
                         </Field>
                       </div>
-                      <div className="flex-1">
+                      <div className="min-w-0 flex-1">
                         <Field label="End">
                           <input
                             type="time"

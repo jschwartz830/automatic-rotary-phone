@@ -26,23 +26,35 @@ export function Layout() {
         <Outlet />
       </main>
       <nav
-        className="z-10 shrink-0 border-t border-gray-200 bg-white"
+        className="z-10 shrink-0 border-t border-gray-200 bg-white/95 backdrop-blur"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
-        <div className="flex">
+        {/* Fixed row height keeps the bar identically sized on every tab,
+            regardless of how each icon glyph happens to measure itself. */}
+        <div className="flex h-12">
           {tabs.map((tab) => (
             <NavLink
               key={tab.to}
               to={tab.to}
               end={tab.to === '/'}
               className={({ isActive }) =>
-                `flex flex-1 flex-col items-center gap-0 py-1.5 text-[11px] font-medium leading-tight ${
+                `flex h-full flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium ${
                   isActive ? 'text-gray-900' : 'text-gray-400'
                 }`
               }
             >
-              <span className="text-base leading-none">{tab.icon}</span>
-              {tab.label}
+              {({ isActive }) => (
+                <>
+                  <span
+                    className={`flex h-6 w-8 items-center justify-center rounded-full text-base leading-none ${
+                      isActive ? 'bg-gray-100' : ''
+                    }`}
+                  >
+                    {tab.icon}
+                  </span>
+                  <span className="leading-none">{tab.label}</span>
+                </>
+              )}
             </NavLink>
           ))}
         </div>

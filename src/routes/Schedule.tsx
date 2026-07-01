@@ -323,12 +323,16 @@ export function Schedule() {
               </select>
             </Field>
             <div className="flex gap-3">
-              <Field label="Start time">
-                <input type="time" className={inputClass} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
-              </Field>
-              <Field label="End time">
-                <input type="time" className={inputClass} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
-              </Field>
+              <div className="min-w-0 flex-1">
+                <Field label="Start time">
+                  <input type="time" className={inputClass} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+                </Field>
+              </div>
+              <div className="min-w-0 flex-1">
+                <Field label="End time">
+                  <input type="time" className={inputClass} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+                </Field>
+              </div>
             </div>
             <Field label="Unpaid break (minutes)">
               <input

@@ -220,7 +220,7 @@ export function Home() {
             <button
               key={c.id}
               onClick={() => navigate(c.route)}
-              className="rounded-2xl border border-gray-200 bg-white p-4 text-left shadow-sm active:bg-gray-50"
+              className="rounded-2xl border border-gray-100 bg-white p-4 text-left shadow-sm shadow-gray-900/5 transition active:scale-[0.98] active:bg-gray-50"
             >
               <p className="text-xs font-medium text-gray-500">{c.title}</p>
               <p className="mt-1 text-lg font-bold text-gray-900">{c.stat}</p>

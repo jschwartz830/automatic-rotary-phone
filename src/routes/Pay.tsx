@@ -617,24 +617,28 @@ export function Pay() {
         <Card title="Generate timesheet from time entries">
           <form onSubmit={handleGenerateTimesheet} className="space-y-3">
             <div className="flex gap-3">
-              <Field label="Period start">
-                <input
-                  type="date"
-                  className={inputClass}
-                  value={periodStart}
-                  onChange={(e) => setPeriodStart(e.target.value)}
-                  required
-                />
-              </Field>
-              <Field label="Period end">
-                <input
-                  type="date"
-                  className={inputClass}
-                  value={periodEnd}
-                  onChange={(e) => setPeriodEnd(e.target.value)}
-                  required
-                />
-              </Field>
+              <div className="min-w-0 flex-1">
+                <Field label="Period start">
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={periodStart}
+                    onChange={(e) => setPeriodStart(e.target.value)}
+                    required
+                  />
+                </Field>
+              </div>
+              <div className="min-w-0 flex-1">
+                <Field label="Period end">
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={periodEnd}
+                    onChange={(e) => setPeriodEnd(e.target.value)}
+                    required
+                  />
+                </Field>
+              </div>
             </div>
             {activeCaregiver?.family_cancellation_counts_toward_guarantee && (
               <Field label="Family cancellation hours this period">
@@ -687,24 +691,28 @@ export function Pay() {
               Submit your approved time entries for this period so your employer can review and calculate pay.
             </p>
             <div className="flex gap-3">
-              <Field label="Period start">
-                <input
-                  type="date"
-                  className={inputClass}
-                  value={nannyPeriodStart}
-                  onChange={(e) => setNannyPeriodStart(e.target.value)}
-                  required
-                />
-              </Field>
-              <Field label="Period end">
-                <input
-                  type="date"
-                  className={inputClass}
-                  value={nannyPeriodEnd}
-                  onChange={(e) => setNannyPeriodEnd(e.target.value)}
-                  required
-                />
-              </Field>
+              <div className="min-w-0 flex-1">
+                <Field label="Period start">
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={nannyPeriodStart}
+                    onChange={(e) => setNannyPeriodStart(e.target.value)}
+                    required
+                  />
+                </Field>
+              </div>
+              <div className="min-w-0 flex-1">
+                <Field label="Period end">
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={nannyPeriodEnd}
+                    onChange={(e) => setNannyPeriodEnd(e.target.value)}
+                    required
+                  />
+                </Field>
+              </div>
             </div>
             {error && <p className="text-sm text-red-600">{error}</p>}
             <Button type="submit" className="w-full" disabled={nannySubmitting}>
