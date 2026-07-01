@@ -8,6 +8,95 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-01 (batch 3) — Mobile PWA fit, multi-caregiver, payment lifecycle, leave enforcement, household settings
+
+**Mobile home-screen fit fixed.** The bottom tab bar (`Layout.tsx`) didn't
+account for `env(safe-area-inset-bottom)` when installed as an iOS home-screen
+app, and its padding was oversized (py-2.5, text-lg icons). It now reserves
+just the safe-area inset plus a tightened layout (py-1.5, smaller icons/text),
+and the scrollable content area's bottom padding matches. Every full-screen
+view (`Layout`, `App`'s loading screen, `Login`, `SetupRequired`,
+`Onboarding`'s three modes) now also pads for `env(safe-area-inset-top)` so
+content isn't drawn under the iPhone status bar / Dynamic Island. In
+`More.tsx`, the "Overtime threshold (hrs/wk)" field label was wrapping to two
+lines next to its neighbor; shortened to "OT after (hrs/wk)" / "OT
+multiplier" and tightened the row gap.
+
+**Multi-caregiver UI (Q&A item 10).** `More.tsx` has a new "Caregivers" card
+with an "+ Add caregiver" form (name + optional hourly rate) so a household
+isn't limited to the single profile created during onboarding.
+
+**Family cancellation hours wired into guaranteed-hours calc (Q&A item 12).**
+`family_cancellation_hours` was hardcoded to `0` in both timesheet-generation
+paths in `Pay.tsx`, so the "family cancellations count toward guarantee"
+setting could never actually apply. The parent's generate-timesheet form now
+shows a "Family cancellation hours this period" input (only when that
+caregiver setting is on), which flows into `calculateTimesheet` and both the
+`timesheets` and `payment_records` inserts.
+
+**`manual_by_pay_period` guaranteed-hours basis removed (Q&A item 13).** It
+was never buildable as specified (no per-period override field existed) and
+had zero UI. Removed from `GuaranteedHoursBasis`, the spec text (13.6, 16.3,
+15.4), and the DB check constraint (migration 0012, which also backfills any
+existing rows to `fixed_pay_period`).
+
+**Schedule shift deletions now audit-logged (Q&A item 14).** Additions
+already wrote to `audit_events`; deletions in `Schedule.tsx` didn't. Kept the
+existing simple add/remove model (no effective-dated template versioning)
+but closed this gap.
+
+**Partial payments and voided payments (spec 13.8).** `payment_records` had
+`partially_paid` and `voided` statuses in the type/spec with no UI path to
+reach them. `Pay.tsx`'s "Mark paid" now opens a form for the amount actually
+paid — entering less than `gross_pay_due` sets status to `partially_paid`
+(and pre-fills the remaining balance next time); entering the full amount
+sets `paid`. A new "Void" action requires a note and sets status to `voided`
+without deleting the record, mirroring the existing correction workflow.
+
+**Leave policy enforcement: waiting period and negative balance (spec 13.7).**
+`negative_balance_allowed` and `waiting_period_days` were typed columns that
+were never read. `Pto.tsx`'s request form now blocks submission (with an
+explanatory message) if the leave start date falls inside the caregiver's
+waiting period, or if the requested hours would take a `negative_balance_allowed
+= false` policy negative.
+
+**Household timezone / week-start-day settings (spec 15.2).** Both were
+real columns with no Settings UI to change them from their defaults.
+`More.tsx` has a new "Household settings" card (name, timezone from a list of
+US zones, week start day) gated to parent/co-admin.
+
+**`pto_balance_low` reminder (spec 15.14).** `computeReminders` now accepts
+an optional `leaveBalances` summary and emits a card when a PTO/sick balance
+with an annual allowance drops to 8 hours or less (one workday — the spec
+names the reminder type but doesn't define "low"; documented here as the
+chosen threshold). `Home.tsx` fetches `leave_policies` + `leave_ledger` for
+the household's caregivers and computes balances the same way `Pto.tsx` does.
+
+### Known gaps for next phase (not ambiguous, just not built yet)
+
+- **Schedule Exceptions UI (13.3)** — no screen exists to record family
+  cancellations/holidays/added-removed-shortened-extended shifts as their own
+  records; the family-cancellation quick-entry above is a stopgap, not a
+  replacement.
+- **Recurring schedule types beyond `weekly`** (13.2) — `biweekly`,
+  `monthly_by_date`, `monthly_by_weekday`, `custom` have DB support but no
+  form UI.
+- **Co-admin permission management UI** (10/11) — RLS already enforces
+  restricted permissions server-side; there's no screen to view household
+  members or toggle a co-admin's restrictions.
+- **Reminder settings** (13.9) — only payment lead-time is configurable;
+  no per-type enable/disable, recipients, or quiet hours.
+- **`schedule_change` reminder** (15.14) — blocked on Schedule Exceptions
+  existing as a source of "what changed."
+- **`weekly_summary` reminder / digest** (15.14) — needs its own design
+  (what it summarizes, cadence) before it's buildable.
+- **Additional exports** (13.11) — only timesheets and payments CSV export
+  exist; PTO ledger and annual-summary exports don't.
+- **Time entry validation** (13.4) — no warnings for overlapping entries,
+  break-longer-than-shift, or actual-vs-scheduled variance.
+
+---
+
 ## 2026-07-01 (batch 2) — Weekly calendar grid, nanny join flow, nanny timesheet submission, PTO ledger reads
 
 **Weekly calendar grid replaces flat shift list (spec Phase 2, Q&A item 2).**

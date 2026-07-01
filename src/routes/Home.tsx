@@ -4,10 +4,22 @@ import { differenceInCalendarDays, parseISO, subDays } from 'date-fns'
 import { useHousehold } from '../context/HouseholdContext'
 import { useCaregivers } from '../lib/useCaregivers'
 import { supabase } from '../lib/supabase'
-import { computeReminders, type ReminderCard } from '../lib/reminders'
+import { computeReminders, type LeaveBalanceSummary, type ReminderCard } from '../lib/reminders'
+import { computeLeaveBalance, computeLeaveBalanceFromLedger } from '../lib/leave'
 import { generateShiftsForRange } from '../lib/schedule'
 import { Card } from '../components/Card'
-import type { LeaveRequest, PaymentRecord, ScheduleShift, ScheduleTemplate, TimeEntry, Timesheet } from '../lib/types'
+import type {
+  LeaveLedgerEntry,
+  LeavePolicy,
+  LeaveRequest,
+  PaymentRecord,
+  ScheduleShift,
+  ScheduleTemplate,
+  TimeEntry,
+  Timesheet,
+} from '../lib/types'
+
+const BALANCE_LEAVE_TYPES = ['pto', 'sick']
 
 interface DashboardCard {
   id: string
@@ -33,6 +45,7 @@ const REMINDER_ROUTES: Record<string, string> = {
   upcoming_pto: '/pto',
   payment_overdue: '/pay',
   payment_due: '/pay',
+  pto_balance_low: '/pto',
 }
 
 function buildDashboardCards(input: {
@@ -123,13 +136,16 @@ export function Home() {
       const rangeStart = subDays(today, 2).toISOString().slice(0, 10)
       const rangeEnd = today.toISOString().slice(0, 10)
 
-      const [timeEntries, timesheets, leaveRequests, paymentRecords, templateRows] = await Promise.all([
-        supabase.from('time_entries').select('*').in('caregiver_id', caregiverIds),
-        supabase.from('timesheets').select('*').in('caregiver_id', caregiverIds),
-        supabase.from('leave_requests').select('*').in('caregiver_id', caregiverIds),
-        supabase.from('payment_records').select('*').in('caregiver_id', caregiverIds),
-        supabase.from('schedule_templates').select('*').in('caregiver_id', caregiverIds).eq('active', true),
-      ])
+      const [timeEntries, timesheets, leaveRequests, paymentRecords, templateRows, leavePolicyRows, leaveLedgerRows] =
+        await Promise.all([
+          supabase.from('time_entries').select('*').in('caregiver_id', caregiverIds),
+          supabase.from('timesheets').select('*').in('caregiver_id', caregiverIds),
+          supabase.from('leave_requests').select('*').in('caregiver_id', caregiverIds),
+          supabase.from('payment_records').select('*').in('caregiver_id', caregiverIds),
+          supabase.from('schedule_templates').select('*').in('caregiver_id', caregiverIds).eq('active', true),
+          supabase.from('leave_policies').select('*').in('caregiver_id', caregiverIds).in('leave_type', BALANCE_LEAVE_TYPES),
+          supabase.from('leave_ledger').select('*').in('caregiver_id', caregiverIds),
+        ])
       if (cancelled) return
       const allTimesheets = (timesheets.data ?? []) as Timesheet[]
       const allPayments = (paymentRecords.data ?? []) as PaymentRecord[]
@@ -138,6 +154,22 @@ export function Home() {
       const allTimeEntries = (timeEntries.data ?? []) as TimeEntry[]
       const allLeaveRequests = (leaveRequests.data ?? []) as LeaveRequest[]
       const templates = (templateRows.data ?? []) as ScheduleTemplate[]
+      const leavePolicies = (leavePolicyRows.data ?? []) as LeavePolicy[]
+      const leaveLedger = (leaveLedgerRows.data ?? []) as LeaveLedgerEntry[]
+
+      const leaveBalances: LeaveBalanceSummary[] = leavePolicies
+        .filter((p) => p.annual_allowance_hours != null)
+        .map((policy) => {
+          const policyLedger = leaveLedger.filter((e) => e.leave_policy_id === policy.id)
+          const balance =
+            policyLedger.length > 0
+              ? computeLeaveBalanceFromLedger(policy, policyLedger)
+              : computeLeaveBalance(
+                  policy,
+                  allLeaveRequests.filter((r) => r.caregiver_id === policy.caregiver_id)
+                )
+          return { caregiverId: policy.caregiver_id, leaveType: policy.leave_type, remainingHours: balance.remainingHours }
+        })
 
       // Load shifts for those templates to build schedule occurrences
       let scheduleOccurrences: ReturnType<typeof generateShiftsForRange> = []
@@ -162,6 +194,7 @@ export function Home() {
         paymentRecords: activePayments,
         caregivers,
         scheduleOccurrences,
+        leaveBalances,
       })
       cards.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
       setReminders(cards)

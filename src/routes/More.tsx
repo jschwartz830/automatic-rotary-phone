@@ -11,6 +11,14 @@ import { CaregiverSelect } from '../components/CaregiverSelect'
 import type { CaregiverProfile, GuaranteedHoursBasis, PayFrequency, PaydayRule, PayPeriodAnchor } from '../lib/types'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const COMMON_TIMEZONES = [
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Anchorage',
+  'Pacific/Honolulu',
+]
 const PAY_FREQUENCIES: PayFrequency[] = ['weekly', 'biweekly', 'semi_monthly', 'monthly']
 const PAYDAY_RULES: PaydayRule[] = ['same_day_each_week', 'days_after_period_end', 'manual']
 const REMINDER_OPTIONS = [
@@ -22,7 +30,7 @@ const REMINDER_OPTIONS = [
 
 export function More() {
   const { user, signOut } = useAuth()
-  const { household, isParentAdmin, isParentOrCoAdmin } = useHousehold()
+  const { household, isParentAdmin, isParentOrCoAdmin, refresh: refreshHousehold } = useHousehold()
   const { caregivers, refresh } = useCaregivers(household?.id)
   const [caregiverId, setCaregiverId] = useState<string | null>(null)
   const [rate, setRate] = useState('')
@@ -44,6 +52,17 @@ export function More() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [joinCode, setJoinCode] = useState<string | null>(null)
   const [joinCodeLoading, setJoinCodeLoading] = useState(false)
+  const [showAddCaregiver, setShowAddCaregiver] = useState(false)
+  const [newCaregiverName, setNewCaregiverName] = useState('')
+  const [newCaregiverRate, setNewCaregiverRate] = useState('')
+  const [addCaregiverSubmitting, setAddCaregiverSubmitting] = useState(false)
+  const [addCaregiverError, setAddCaregiverError] = useState<string | null>(null)
+  const [householdName, setHouseholdName] = useState('')
+  const [timezone, setTimezone] = useState('America/New_York')
+  const [weekStartDay, setWeekStartDay] = useState<'sunday' | 'monday'>('monday')
+  const [householdSaving, setHouseholdSaving] = useState(false)
+  const [householdSavedAt, setHouseholdSavedAt] = useState<number | null>(null)
+  const [householdSaveError, setHouseholdSaveError] = useState<string | null>(null)
 
   const caregiver = caregivers.find((c) => c.id === caregiverId) ?? null
 
@@ -57,6 +76,39 @@ export function More() {
       setJoinCode((data as { join_code: string | null } | null)?.join_code ?? null)
     })
   }, [household, isParentOrCoAdmin])
+
+  useEffect(() => {
+    if (!household) return
+    setHouseholdName(household.name)
+    setTimezone(household.timezone)
+    setWeekStartDay(household.week_start_day)
+  }, [household])
+
+  async function handleSaveHousehold(e: FormEvent) {
+    e.preventDefault()
+    if (!household) return
+    setHouseholdSaving(true)
+    setHouseholdSaveError(null)
+    try {
+      const updates = { name: householdName.trim(), timezone, week_start_day: weekStartDay }
+      const { error } = await supabase.from('households').update(updates).eq('id', household.id)
+      if (error) throw error
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'household',
+        entityId: household.id,
+        action: 'update',
+        after: updates,
+      })
+      await refreshHousehold()
+      setHouseholdSavedAt(Date.now())
+    } catch (err) {
+      setHouseholdSaveError(errorMessage(err, 'Could not save household settings.'))
+    } finally {
+      setHouseholdSaving(false)
+    }
+  }
 
   async function generateJoinCode() {
     if (!household) return
@@ -92,6 +144,42 @@ export function More() {
     setPaydayDaysAfterPeriodEnd(caregiver.payday_days_after_period_end?.toString() ?? '5')
     setReminderDays(caregiver.payment_reminder_days_before?.length ? caregiver.payment_reminder_days_before : [0, 1])
   }, [caregiver])
+
+  async function handleAddCaregiver(e: FormEvent) {
+    e.preventDefault()
+    if (!household || !newCaregiverName.trim()) return
+    setAddCaregiverSubmitting(true)
+    setAddCaregiverError(null)
+    try {
+      const { data: newCaregiver, error } = await supabase
+        .from('caregiver_profiles')
+        .insert({
+          household_id: household.id,
+          name: newCaregiverName.trim(),
+          default_hourly_rate: newCaregiverRate ? Number(newCaregiverRate) : null,
+        })
+        .select()
+        .single()
+      if (error) throw error
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'caregiver_profile',
+        entityId: newCaregiver.id,
+        action: 'create',
+        after: { name: newCaregiverName.trim() },
+      })
+      await refresh()
+      setCaregiverId(newCaregiver.id)
+      setNewCaregiverName('')
+      setNewCaregiverRate('')
+      setShowAddCaregiver(false)
+    } catch (err) {
+      setAddCaregiverError(errorMessage(err, 'Could not add caregiver.'))
+    } finally {
+      setAddCaregiverSubmitting(false)
+    }
+  }
 
   async function handleSave(e: FormEvent) {
     e.preventDefault()
@@ -163,6 +251,45 @@ export function More() {
       </Card>
 
       {isParentOrCoAdmin && (
+        <Card title="Household settings">
+          <form onSubmit={handleSaveHousehold} className="space-y-3">
+            <Field label="Household name">
+              <input
+                className={inputClass}
+                value={householdName}
+                onChange={(e) => setHouseholdName(e.target.value)}
+                required
+              />
+            </Field>
+            <Field label="Timezone">
+              <select className={inputClass} value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+                {COMMON_TIMEZONES.map((tz) => (
+                  <option key={tz} value={tz}>
+                    {tz.replace(/_/g, ' ')}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Week starts on">
+              <select
+                className={inputClass}
+                value={weekStartDay}
+                onChange={(e) => setWeekStartDay(e.target.value as 'sunday' | 'monday')}
+              >
+                <option value="monday">Monday</option>
+                <option value="sunday">Sunday</option>
+              </select>
+            </Field>
+            <Button type="submit" className="w-full" disabled={householdSaving}>
+              {householdSaving ? 'Saving…' : 'Save household settings'}
+            </Button>
+            {householdSaveError && <p className="text-xs text-red-600">{householdSaveError}</p>}
+            {householdSavedAt && !householdSaveError && <p className="text-xs text-green-600">Saved.</p>}
+          </form>
+        </Card>
+      )}
+
+      {isParentOrCoAdmin && (
         <Card title="Nanny access">
           <p className="mb-3 text-sm text-gray-500">
             Share this code with your nanny so they can sign up and join your household.
@@ -197,6 +324,55 @@ export function More() {
         </Card>
       )}
 
+      {isParentOrCoAdmin && (
+        <Card
+          title="Caregivers"
+          action={
+            <button
+              className="text-xs text-blue-600 underline"
+              onClick={() => setShowAddCaregiver((s) => !s)}
+            >
+              {showAddCaregiver ? 'Cancel' : '+ Add caregiver'}
+            </button>
+          }
+        >
+          {showAddCaregiver && (
+            <form onSubmit={handleAddCaregiver} className="mb-3 space-y-3 border-b border-gray-100 pb-3">
+              <Field label="Caregiver name">
+                <input
+                  className={inputClass}
+                  value={newCaregiverName}
+                  onChange={(e) => setNewCaregiverName(e.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Hourly rate (optional)">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className={inputClass}
+                  value={newCaregiverRate}
+                  onChange={(e) => setNewCaregiverRate(e.target.value)}
+                />
+              </Field>
+              {addCaregiverError && <p className="text-xs text-red-600">{addCaregiverError}</p>}
+              <Button type="submit" className="w-full" disabled={addCaregiverSubmitting}>
+                {addCaregiverSubmitting ? 'Adding…' : 'Add caregiver'}
+              </Button>
+            </form>
+          )}
+          {caregivers.length === 0 ? (
+            <p className="text-sm text-gray-500">No caregivers yet.</p>
+          ) : (
+            <p className="text-xs text-gray-500">
+              {caregivers.length} {caregivers.length === 1 ? 'caregiver' : 'caregivers'} on this household. Pick one
+              below to edit pay settings.
+            </p>
+          )}
+        </Card>
+      )}
+
       {isParentOrCoAdmin && caregivers.length > 0 && (
         <Card title="Caregiver pay settings">
           <CaregiverSelect caregivers={caregivers} value={caregiverId} onChange={setCaregiverId} />
@@ -211,8 +387,8 @@ export function More() {
                 onChange={(e) => setRate(e.target.value)}
               />
             </Field>
-            <div className="flex gap-3">
-              <Field label="Overtime threshold (hrs/wk)">
+            <div className="flex gap-2">
+              <Field label="OT after (hrs/wk)">
                 <input
                   type="number"
                   className={inputClass}
@@ -220,7 +396,7 @@ export function More() {
                   onChange={(e) => setOvertimeThreshold(e.target.value)}
                 />
               </Field>
-              <Field label="Overtime multiplier">
+              <Field label="OT multiplier">
                 <input
                   type="number"
                   step="0.1"

@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { addDays, format } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { useCaregivers } from '../lib/useCaregivers'
@@ -33,6 +34,8 @@ export function Pto() {
   const { policies, refresh: refreshPolicies } = useLeavePolicies(caregiverId)
   const [allowanceDrafts, setAllowanceDrafts] = useState<Record<string, string>>({})
   const [savingPolicy, setSavingPolicy] = useState<LeaveType | null>(null)
+
+  const activeCaregiver = isNanny ? caregiverProfile : caregivers.find((c) => c.id === caregiverId) ?? null
 
   useEffect(() => {
     if (isNanny && caregiverProfile) {
@@ -79,6 +82,36 @@ export function Pto() {
       setError('That date does not exist. Please pick a valid date.')
       return
     }
+
+    const policy = policies.find((p) => p.leave_type === leaveType)
+    if (policy?.waiting_period_days && activeCaregiver?.start_date) {
+      const eligibleFrom = addDays(new Date(activeCaregiver.start_date), policy.waiting_period_days)
+      if (new Date(startDate) < eligibleFrom) {
+        setError(`Not eligible for ${leaveType.replace(/_/g, ' ')} until ${format(eligibleFrom, 'yyyy-MM-dd')} (waiting period).`)
+        return
+      }
+    }
+    if (policy && !policy.negative_balance_allowed && hours) {
+      const policyLedger = ledgerEntries.filter((e) => e.leave_policy_id === policy.id)
+      const balancePolicy: LeaveBalancePolicy = {
+        leave_type: leaveType,
+        reset_month: policy.reset_month,
+        reset_day: policy.reset_day,
+        annual_allowance_hours: policy.annual_allowance_hours,
+      }
+      const balance =
+        policyLedger.length > 0
+          ? computeLeaveBalanceFromLedger(balancePolicy, policyLedger)
+          : computeLeaveBalance(balancePolicy, requests)
+      const available = balance.allowanceHours != null ? balance.allowanceHours - balance.usedHours : Infinity
+      if (Number(hours) > available) {
+        setError(
+          `Only ${Math.max(available, 0).toFixed(2)} hrs of ${leaveType.replace(/_/g, ' ')} available; negative balances aren't allowed for this leave type.`
+        )
+        return
+      }
+    }
+
     setSubmitting(true)
     setError(null)
     try {

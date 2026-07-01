@@ -39,6 +39,7 @@ export function Pay() {
   const [showForm, setShowForm] = useState(false)
   const [periodStart, setPeriodStart] = useState('')
   const [periodEnd, setPeriodEnd] = useState('')
+  const [familyCancellationHours, setFamilyCancellationHours] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showArchive, setShowArchive] = useState(false)
@@ -48,6 +49,14 @@ export function Pay() {
   const [correctionAmount, setCorrectionAmount] = useState('')
   const [correctionNote, setCorrectionNote] = useState('')
   const [correctionSubmitting, setCorrectionSubmitting] = useState(false)
+  // Mark paid (full or partial) state
+  const [markingPaidPayment, setMarkingPaidPayment] = useState<PaymentRecord | null>(null)
+  const [markPaidAmount, setMarkPaidAmount] = useState('')
+  const [markPaidSubmitting, setMarkPaidSubmitting] = useState(false)
+  // Void payment state
+  const [voidingPayment, setVoidingPayment] = useState<PaymentRecord | null>(null)
+  const [voidNote, setVoidNote] = useState('')
+  const [voidSubmitting, setVoidSubmitting] = useState(false)
   // Nanny timesheet submission state
   const [showNannyForm, setShowNannyForm] = useState(false)
   const [nannyPeriodStart, setNannyPeriodStart] = useState('')
@@ -134,13 +143,16 @@ export function Pay() {
       leaveRequests.filter((l) => l.leave_type === type).reduce((sum, l) => sum + (l.hours_requested ?? 0), 0)
 
     const guaranteedHoursBase = await computeGuaranteedHoursBase(activeCaregiver, periodStart, periodEnd)
+    const cancellationHours = activeCaregiver.family_cancellation_counts_toward_guarantee
+      ? Number(familyCancellationHours) || 0
+      : 0
 
     const result = calculateTimesheet({
       actualWorkedHours,
       paidPtoHours: sumLeave('pto'),
       paidSickHours: sumLeave('sick'),
       paidHolidayHours: sumLeave('holiday'),
-      familyCancellationHours: 0,
+      familyCancellationHours: cancellationHours,
       unpaidTimeOffHours: sumLeave('unpaid'),
       guaranteedHoursBase,
       unpaidTimeOffReducesGuarantee: activeCaregiver.unpaid_time_off_reduces_guarantee,
@@ -167,6 +179,7 @@ export function Pay() {
         paid_pto_hours: sumLeave('pto'),
         paid_sick_hours: sumLeave('sick'),
         paid_holiday_hours: sumLeave('holiday'),
+        family_cancellation_hours: cancellationHours,
         unpaid_time_off_hours: sumLeave('unpaid'),
         guarantee_adjustment_hours: result.guaranteeAdjustmentHours,
         payable_regular_hours: result.payableRegularHours,
@@ -207,6 +220,7 @@ export function Pay() {
       paid_pto_hours: sumLeave('pto'),
       paid_sick_hours: sumLeave('sick'),
       paid_holiday_hours: sumLeave('holiday'),
+      family_cancellation_hours: cancellationHours,
       hourly_rate: activeCaregiver.default_hourly_rate,
       overtime_rate: result.overtimeRate,
       gross_pay_due: result.grossPayDue,
@@ -215,6 +229,7 @@ export function Pay() {
 
     setShowForm(false)
     setPendingUnapproved([])
+    setFamilyCancellationHours('')
     await loadData(caregiverId)
   }
 
@@ -269,26 +284,81 @@ export function Pay() {
     }
   }
 
-  async function markPaid(payment: PaymentRecord) {
-    await supabase
-      .from('payment_records')
-      .update({
-        status: 'paid',
-        amount_paid: payment.gross_pay_due,
-        paid_at: new Date().toISOString(),
-        marked_paid_by: user?.id ?? null,
-      })
-      .eq('id', payment.id)
-    if (household) {
+  async function handleMarkPaid(e: FormEvent) {
+    e.preventDefault()
+    if (!markingPaidPayment || !household) return
+    const amount = Number(markPaidAmount)
+    if (!(amount > 0)) {
+      setError('Enter an amount paid greater than 0.')
+      return
+    }
+    setMarkPaidSubmitting(true)
+    setError(null)
+    try {
+      const status = amount < markingPaidPayment.gross_pay_due ? 'partially_paid' : 'paid'
+      const { error: updateError } = await supabase
+        .from('payment_records')
+        .update({
+          status,
+          amount_paid: amount,
+          paid_at: new Date().toISOString(),
+          marked_paid_by: user?.id ?? null,
+        })
+        .eq('id', markingPaidPayment.id)
+      if (updateError) throw updateError
       await logAuditEvent({
         householdId: household.id,
         actorUserId: user?.id ?? '',
         entityType: 'payment_record',
-        entityId: payment.id,
-        action: 'mark_paid',
+        entityId: markingPaidPayment.id,
+        action: status === 'partially_paid' ? 'mark_partially_paid' : 'mark_paid',
+        after: { amount_paid: amount, gross_pay_due: markingPaidPayment.gross_pay_due },
       })
+      setMarkingPaidPayment(null)
+      setMarkPaidAmount('')
+      if (caregiverId) await loadData(caregiverId)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not mark payment paid.'))
+    } finally {
+      setMarkPaidSubmitting(false)
     }
-    if (caregiverId) await loadData(caregiverId)
+  }
+
+  async function handleVoidPayment(e: FormEvent) {
+    e.preventDefault()
+    if (!voidingPayment || !household) return
+    if (!voidNote.trim()) {
+      setError('A note is required to void a payment.')
+      return
+    }
+    setVoidSubmitting(true)
+    setError(null)
+    try {
+      const { error: voidError } = await supabase
+        .from('payment_records')
+        .update({
+          status: 'voided',
+          parent_note: voidNote,
+        })
+        .eq('id', voidingPayment.id)
+      if (voidError) throw voidError
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'payment_record',
+        entityId: voidingPayment.id,
+        action: 'void',
+        before: { status: voidingPayment.status },
+        after: { status: 'voided', note: voidNote },
+      })
+      setVoidingPayment(null)
+      setVoidNote('')
+      if (caregiverId) await loadData(caregiverId)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not void payment.'))
+    } finally {
+      setVoidSubmitting(false)
+    }
   }
 
   async function archiveTimesheet(timesheet: Timesheet) {
@@ -566,6 +636,19 @@ export function Pay() {
                 />
               </Field>
             </div>
+            {activeCaregiver?.family_cancellation_counts_toward_guarantee && (
+              <Field label="Family cancellation hours this period">
+                <input
+                  type="number"
+                  step="0.25"
+                  min="0"
+                  className={inputClass}
+                  value={familyCancellationHours}
+                  onChange={(e) => setFamilyCancellationHours(e.target.value)}
+                  placeholder="0"
+                />
+              </Field>
+            )}
             {pendingUnapproved.length > 0 && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
                 <p className="text-sm font-medium text-amber-800">
@@ -631,6 +714,68 @@ export function Pay() {
         </Card>
       )}
 
+      {markingPaidPayment && (
+        <Card title="Mark payment paid">
+          <form onSubmit={handleMarkPaid} className="space-y-3">
+            <p className="text-xs text-gray-500">
+              Due ${markingPaidPayment.gross_pay_due.toFixed(2)} for {markingPaidPayment.period_start} –{' '}
+              {markingPaidPayment.period_end}. Enter less than the full amount to record a partial payment.
+            </p>
+            <Field label="Amount paid ($)">
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                className={inputClass}
+                value={markPaidAmount}
+                onChange={(e) => setMarkPaidAmount(e.target.value)}
+                required
+              />
+            </Field>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                className="flex-1"
+                onClick={() => setMarkingPaidPayment(null)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" className="flex-1" disabled={markPaidSubmitting}>
+                {markPaidSubmitting ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </form>
+        </Card>
+      )}
+
+      {voidingPayment && (
+        <Card title="Void payment">
+          <form onSubmit={handleVoidPayment} className="space-y-3">
+            <p className="text-xs text-gray-500">
+              ${voidingPayment.gross_pay_due.toFixed(2)} for {voidingPayment.period_start} – {voidingPayment.period_end}{' '}
+              will be marked voided. It is kept for the record, not deleted.
+            </p>
+            <Field label="Reason for voiding (required)">
+              <input
+                className={inputClass}
+                value={voidNote}
+                onChange={(e) => setVoidNote(e.target.value)}
+                required
+              />
+            </Field>
+            <div className="flex gap-2">
+              <Button type="button" variant="secondary" className="flex-1" onClick={() => setVoidingPayment(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="danger" className="flex-1" disabled={voidSubmitting}>
+                {voidSubmitting ? 'Saving…' : 'Void payment'}
+              </Button>
+            </div>
+          </form>
+        </Card>
+      )}
+
       {correctingPayment && (
         <Card title="Correct payment">
           <form onSubmit={handleCorrectPayment} className="space-y-3">
@@ -692,12 +837,19 @@ export function Pay() {
                 <div className="flex flex-col items-end gap-1 shrink-0">
                   <StatusChip status={p.status} />
                   <div className="flex items-center gap-2">
-                    {isParentOrCoAdmin && p.status !== 'paid' && p.status !== 'voided' && p.status !== 'corrected' && (
-                      <button className="text-xs text-blue-600 underline" onClick={() => markPaid(p)}>
-                        Mark paid
-                      </button>
-                    )}
-                    {isParentOrCoAdmin && p.status === 'paid' && !correctingPayment && (
+                    {isParentOrCoAdmin &&
+                      (p.status === 'due' || p.status === 'overdue' || p.status === 'upcoming' || p.status === 'partially_paid') && (
+                        <button
+                          className="text-xs text-blue-600 underline"
+                          onClick={() => {
+                            setMarkingPaidPayment(p)
+                            setMarkPaidAmount((p.gross_pay_due - (p.amount_paid ?? 0)).toFixed(2))
+                          }}
+                        >
+                          Mark paid
+                        </button>
+                      )}
+                    {isParentOrCoAdmin && p.status === 'paid' && (
                       <button
                         className="text-xs text-amber-600 underline"
                         onClick={() => {
@@ -709,6 +861,18 @@ export function Pay() {
                         Correct
                       </button>
                     )}
+                    {isParentOrCoAdmin &&
+                      (p.status === 'due' || p.status === 'overdue' || p.status === 'upcoming' || p.status === 'partially_paid') && (
+                        <button
+                          className="text-xs text-red-500 underline"
+                          onClick={() => {
+                            setVoidingPayment(p)
+                            setVoidNote('')
+                          }}
+                        >
+                          Void
+                        </button>
+                      )}
                   </div>
                 </div>
               </div>

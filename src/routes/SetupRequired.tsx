@@ -1,6 +1,6 @@
 export function SetupRequired() {
   return (
-    <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6">
+    <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 pt-[env(safe-area-inset-top)]">
       <div className="w-full max-w-md space-y-4">
         <h1 className="text-2xl font-bold text-gray-900">Connect Supabase to finish setup</h1>
         <p className="text-sm text-gray-600">

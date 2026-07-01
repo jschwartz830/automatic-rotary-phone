@@ -86,7 +86,7 @@ export function Onboarding() {
 
   if (mode === 'choose') {
     return (
-      <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6">
+      <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 pt-[env(safe-area-inset-top)]">
         <div className="w-full max-w-sm space-y-4">
           <div>
             <h1 className="mb-1 text-2xl font-bold text-gray-900">Welcome</h1>
@@ -113,7 +113,7 @@ export function Onboarding() {
 
   if (mode === 'join') {
     return (
-      <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6">
+      <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 pt-[env(safe-area-inset-top)]">
         <div className="w-full max-w-sm">
           <button onClick={() => setMode('choose')} className="mb-4 text-sm text-blue-600 underline">
             ← Back

@@ -15,7 +15,11 @@ import { AuditLog } from './routes/AuditLog'
 import { SetupRequired } from './routes/SetupRequired'
 
 function Loading() {
-  return <div className="flex min-h-svh items-center justify-center text-sm text-gray-400">Loading…</div>
+  return (
+    <div className="flex min-h-svh items-center justify-center pt-[env(safe-area-inset-top)] text-sm text-gray-400">
+      Loading…
+    </div>
+  )
 }
 
 function Gate({ children }: { children: React.ReactNode }) {
