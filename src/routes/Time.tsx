@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
+import { usePreferences } from '../context/PreferencesContext'
 import { useCaregivers } from '../lib/useCaregivers'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
@@ -8,6 +9,7 @@ import { errorMessage } from '../lib/errors'
 import { hoursBetween, round2 } from '../lib/calc'
 import { isValidCalendarDate } from '../lib/dates'
 import { generateShiftsForRange } from '../lib/schedule'
+import { formatDateTime, formatEntryTimeRange } from '../lib/time'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
@@ -18,6 +20,7 @@ const DEFAULT_END_TIME = '17:00'
 
 export function Time() {
   const { user } = useAuth()
+  const { timeFormat } = usePreferences()
   const { household, isNanny, isParentOrCoAdmin, caregiverProfile } = useHousehold()
   const { caregivers } = useCaregivers(household?.id)
   const [caregiverId, setCaregiverId] = useState<string | null>(null)
@@ -377,7 +380,7 @@ export function Time() {
   return (
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">Time</h1>
+        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">Time</h1>
         <Button variant="secondary" onClick={() => setShowForm((s) => !s)}>
           {showForm ? 'Cancel' : '+ Add time'}
         </Button>
@@ -387,9 +390,9 @@ export function Time() {
         <Card title="Clock in / clock out">
           {activeClockEntry ? (
             <div className="space-y-3">
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
                 Clocked in since{' '}
-                {new Date(activeClockEntry.clock_in_at!).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                {formatDateTime(activeClockEntry.clock_in_at!, timeFormat)}
               </p>
               <Field label="Note (optional)">
                 <input className={inputClass} value={clockNote} onChange={(e) => setClockNote(e.target.value)} />
@@ -438,10 +441,10 @@ export function Time() {
             <Field label="Note (optional)">
               <input className={inputClass} value={note} onChange={(e) => setNote(e.target.value)} />
             </Field>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               {hoursBetween(startTime, endTime, Number(breakMinutes) || 0).toFixed(2)} paid hours
             </p>
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? 'Saving…' : 'Save entry'}
             </Button>
@@ -451,19 +454,14 @@ export function Time() {
 
       {activeEntries.length === 0 ? (
         <Card>
-          <p className="text-sm text-gray-500">No time entries yet.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">No time entries yet.</p>
         </Card>
       ) : (
         <div className="space-y-2">
           {activeEntries.map((entry) => {
             const isActiveClock = entry.id === activeClockEntry?.id
             const isEditing = entry.id === editingEntryId
-            const displayStart =
-              entry.manual_start_time ??
-              (entry.clock_in_at ? new Date(entry.clock_in_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—')
-            const displayEnd =
-              entry.manual_end_time ??
-              (entry.clock_out_at ? new Date(entry.clock_out_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—')
+            const { start: displayStart, end: displayEnd } = formatEntryTimeRange(entry, timeFormat)
             const canEdit =
               !isActiveClock &&
               entry.status !== 'locked' &&
@@ -478,15 +476,15 @@ export function Time() {
                 {isEditing ? (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-gray-900">Edit entry</p>
-                      <button className="text-xs text-gray-500 underline" onClick={cancelEdit}>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Edit entry</p>
+                      <button className="text-xs text-gray-500 underline dark:text-gray-400" onClick={cancelEdit}>
                         Cancel
                       </button>
                     </div>
                     {entry.clock_in_at && (
-                      <p className="text-xs text-gray-400">
-                        Original clock: {new Date(entry.clock_in_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                        {entry.clock_out_at && ` – ${new Date(entry.clock_out_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}
+                      <p className="text-xs text-gray-400 dark:text-gray-500">
+                        Original clock: {formatDateTime(entry.clock_in_at, timeFormat)}
+                        {entry.clock_out_at && ` – ${formatDateTime(entry.clock_out_at, timeFormat)}`}
                       </p>
                     )}
                     <Field label="Date">
@@ -535,10 +533,10 @@ export function Time() {
                         onChange={(e) => setEditNote(e.target.value)}
                       />
                     </Field>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       {hoursBetween(editStart, editEnd, Number(editBreak) || 0).toFixed(2)} paid hours
                     </p>
-                    {editError && <p className="text-sm text-red-600">{editError}</p>}
+                    {editError && <p className="text-sm text-red-600 dark:text-red-400">{editError}</p>}
                     <Button className="w-full" onClick={() => handleSaveEdit(entry)} disabled={editSaving}>
                       {editSaving ? 'Saving…' : 'Save changes'}
                     </Button>
@@ -546,12 +544,12 @@ export function Time() {
                 ) : (
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="text-sm font-semibold text-gray-900">{entry.date}</p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{entry.date}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
                         {displayStart}–{displayEnd} · {entry.paid_hours?.toFixed(2) ?? '0.00'} hrs
                       </p>
                       {(isNanny ? entry.nanny_note : entry.parent_note) && (
-                        <p className="text-xs text-gray-400 mt-0.5">
+                        <p className="text-xs text-gray-400 mt-0.5 dark:text-gray-500">
                           {isNanny ? entry.nanny_note : entry.parent_note}
                         </p>
                       )}
@@ -560,17 +558,17 @@ export function Time() {
                       <StatusChip status={isActiveClock ? 'clocked_in' : entry.status} />
                       <div className="flex items-center gap-2">
                         {isParentOrCoAdmin && entry.status === 'submitted' && (
-                          <button className="text-xs text-blue-600 underline" onClick={() => approveEntry(entry.id)}>
+                          <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={() => approveEntry(entry.id)}>
                             Approve
                           </button>
                         )}
                         {canEdit && (
-                          <button className="text-xs text-gray-600 underline" onClick={() => startEdit(entry)}>
+                          <button className="text-xs text-gray-600 underline dark:text-gray-400" onClick={() => startEdit(entry)}>
                             Edit
                           </button>
                         )}
                         {canArchive && (
-                          <button className="text-xs text-red-500 underline" onClick={() => handleArchive(entry)}>
+                          <button className="text-xs text-red-500 underline dark:text-red-400" onClick={() => handleArchive(entry)}>
                             Archive
                           </button>
                         )}
@@ -583,12 +581,12 @@ export function Time() {
           })}
         </div>
       )}
-      {error && !showForm && <p className="text-sm text-red-600 px-1">{error}</p>}
+      {error && !showForm && <p className="text-sm text-red-600 px-1 dark:text-red-400">{error}</p>}
 
       {isParentOrCoAdmin && archivedEntries.length > 0 && (
         <div>
           <button
-            className="flex w-full items-center justify-between px-1 py-2 text-sm font-medium text-gray-500"
+            className="flex w-full items-center justify-between px-1 py-2 text-sm font-medium text-gray-500 dark:text-gray-400"
             onClick={() => setShowArchive((s) => !s)}
           >
             <span>Archived ({archivedEntries.length})</span>
@@ -597,23 +595,18 @@ export function Time() {
           {showArchive && (
             <div className="space-y-2">
               {archivedEntries.map((entry) => {
-                const displayStart =
-                  entry.manual_start_time ??
-                  (entry.clock_in_at ? new Date(entry.clock_in_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—')
-                const displayEnd =
-                  entry.manual_end_time ??
-                  (entry.clock_out_at ? new Date(entry.clock_out_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—')
+                const { start: displayStart, end: displayEnd } = formatEntryTimeRange(entry, timeFormat)
                 return (
                   <Card key={entry.id}>
                     <div className="flex items-start justify-between gap-2 opacity-60">
                       <div>
-                        <p className="text-sm font-semibold text-gray-900">{entry.date}</p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{entry.date}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
                           {displayStart}–{displayEnd} · {entry.paid_hours?.toFixed(2) ?? '0.00'} hrs
                         </p>
                       </div>
                       <button
-                        className="shrink-0 text-xs text-blue-600 underline"
+                        className="shrink-0 text-xs text-blue-600 underline dark:text-blue-400"
                         onClick={() => handleRestore(entry)}
                       >
                         Restore

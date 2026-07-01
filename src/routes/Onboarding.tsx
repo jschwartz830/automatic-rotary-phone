@@ -86,25 +86,25 @@ export function Onboarding() {
 
   if (mode === 'choose') {
     return (
-      <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 pt-[env(safe-area-inset-top)]">
+      <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 pt-[env(safe-area-inset-top)] dark:bg-gray-900">
         <div className="w-full max-w-sm space-y-4">
           <div>
-            <h1 className="mb-1 text-2xl font-bold text-gray-900">Welcome</h1>
-            <p className="text-sm text-gray-500">Are you setting up a new household or joining one?</p>
+            <h1 className="mb-1 text-2xl font-bold text-gray-900 dark:text-gray-50">Welcome</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Are you setting up a new household or joining one?</p>
           </div>
           <button
             onClick={() => setMode('create')}
-            className="w-full rounded-2xl border border-gray-100 bg-white p-4 text-left shadow-sm shadow-gray-900/5 transition active:scale-[0.98] active:bg-gray-50"
+            className="w-full rounded-2xl border border-gray-100 bg-white p-4 text-left shadow-sm shadow-gray-900/5 transition active:scale-[0.98] active:bg-gray-50 dark:border-gray-800 dark:bg-gray-800 dark:shadow-none dark:active:bg-gray-700"
           >
-            <p className="font-semibold text-gray-900">Set up my household</p>
-            <p className="text-sm text-gray-500">I'm a parent / employer creating a new account.</p>
+            <p className="font-semibold text-gray-900 dark:text-gray-100">Set up my household</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">I'm a parent / employer creating a new account.</p>
           </button>
           <button
             onClick={() => setMode('join')}
-            className="w-full rounded-2xl border border-gray-100 bg-white p-4 text-left shadow-sm shadow-gray-900/5 transition active:scale-[0.98] active:bg-gray-50"
+            className="w-full rounded-2xl border border-gray-100 bg-white p-4 text-left shadow-sm shadow-gray-900/5 transition active:scale-[0.98] active:bg-gray-50 dark:border-gray-800 dark:bg-gray-800 dark:shadow-none dark:active:bg-gray-700"
           >
-            <p className="font-semibold text-gray-900">Join a household</p>
-            <p className="text-sm text-gray-500">I'm a nanny / caregiver with a join code from my employer.</p>
+            <p className="font-semibold text-gray-900 dark:text-gray-100">Join a household</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">I'm a nanny / caregiver with a join code from my employer.</p>
           </button>
         </div>
       </div>
@@ -113,13 +113,13 @@ export function Onboarding() {
 
   if (mode === 'join') {
     return (
-      <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 pt-[env(safe-area-inset-top)]">
+      <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 pt-[env(safe-area-inset-top)] dark:bg-gray-900">
         <div className="w-full max-w-sm">
-          <button onClick={() => setMode('choose')} className="mb-4 text-sm text-blue-600 underline">
+          <button onClick={() => setMode('choose')} className="mb-4 text-sm text-blue-600 underline dark:text-blue-400">
             ← Back
           </button>
-          <h1 className="mb-1 text-2xl font-bold text-gray-900">Join a household</h1>
-          <p className="mb-6 text-sm text-gray-500">
+          <h1 className="mb-1 text-2xl font-bold text-gray-900 dark:text-gray-50">Join a household</h1>
+          <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">
             Enter the join code your employer shared with you.
           </p>
           <form onSubmit={handleJoin} className="space-y-4">
@@ -133,7 +133,7 @@ export function Onboarding() {
                 required
               />
             </Field>
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? 'Joining…' : 'Join household'}
             </Button>
@@ -144,13 +144,13 @@ export function Onboarding() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6">
+    <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 dark:bg-gray-900">
       <div className="w-full max-w-sm">
-        <button onClick={() => setMode('choose')} className="mb-4 text-sm text-blue-600 underline">
+        <button onClick={() => setMode('choose')} className="mb-4 text-sm text-blue-600 underline dark:text-blue-400">
           ← Back
         </button>
-        <h1 className="mb-1 text-2xl font-bold text-gray-900">Set up your household</h1>
-        <p className="mb-6 text-sm text-gray-500">
+        <h1 className="mb-1 text-2xl font-bold text-gray-900 dark:text-gray-50">Set up your household</h1>
+        <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">
           You can add more caregivers and adjust settings later.
         </p>
         <form onSubmit={handleCreate} className="space-y-4">
@@ -184,7 +184,7 @@ export function Onboarding() {
               />
             </Field>
           )}
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
           <Button type="submit" className="w-full" disabled={submitting}>
             {submitting ? 'Creating…' : 'Create household'}
           </Button>

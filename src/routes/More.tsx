@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
+import { usePreferences } from '../context/PreferencesContext'
 import { useCaregivers } from '../lib/useCaregivers'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
@@ -31,6 +32,7 @@ const REMINDER_OPTIONS = [
 export function More() {
   const { user, signOut } = useAuth()
   const { household, isParentAdmin, isParentOrCoAdmin, refresh: refreshHousehold } = useHousehold()
+  const { theme, setTheme, timeFormat, setTimeFormat } = usePreferences()
   const { caregivers, refresh } = useCaregivers(household?.id)
   const [caregiverId, setCaregiverId] = useState<string | null>(null)
   const [rate, setRate] = useState('')
@@ -232,18 +234,18 @@ export function More() {
 
   return (
     <div className="space-y-4 p-4">
-      <h1 className="text-xl font-bold text-gray-900">More</h1>
+      <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">More</h1>
 
       <Card title="Navigate">
         <div className="flex flex-wrap gap-2">
-          <Link to="/calendar" className="rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-900">
+          <Link to="/calendar" className="rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-900 dark:bg-gray-700 dark:text-gray-100">
             Schedule
           </Link>
-          <Link to="/pto" className="rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-900">
+          <Link to="/pto" className="rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-900 dark:bg-gray-700 dark:text-gray-100">
             PTO
           </Link>
           {isParentOrCoAdmin && (
-            <Link to="/audit-log" className="rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-900">
+            <Link to="/audit-log" className="rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-900 dark:bg-gray-700 dark:text-gray-100">
               Audit Log
             </Link>
           )}
@@ -283,25 +285,25 @@ export function More() {
             <Button type="submit" className="w-full" disabled={householdSaving}>
               {householdSaving ? 'Saving…' : 'Save household settings'}
             </Button>
-            {householdSaveError && <p className="text-xs text-red-600">{householdSaveError}</p>}
-            {householdSavedAt && !householdSaveError && <p className="text-xs text-green-600">Saved.</p>}
+            {householdSaveError && <p className="text-xs text-red-600 dark:text-red-400">{householdSaveError}</p>}
+            {householdSavedAt && !householdSaveError && <p className="text-xs text-green-600 dark:text-green-400">Saved.</p>}
           </form>
         </Card>
       )}
 
       {isParentOrCoAdmin && (
         <Card title="Nanny access">
-          <p className="mb-3 text-sm text-gray-500">
+          <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
             Share this code with your nanny so they can sign up and join your household.
           </p>
           {joinCode ? (
             <div className="space-y-3">
-              <div className="flex items-center gap-3 rounded-xl bg-gray-50 px-4 py-3">
-                <span className="flex-1 font-mono text-2xl font-bold tracking-widest text-gray-900">
+              <div className="flex items-center gap-3 rounded-xl bg-gray-50 px-4 py-3 dark:bg-gray-900">
+                <span className="flex-1 font-mono text-2xl font-bold tracking-widest text-gray-900 dark:text-gray-50">
                   {joinCode}
                 </span>
                 <button
-                  className="text-xs text-blue-600 underline disabled:opacity-50"
+                  className="text-xs text-blue-600 underline disabled:opacity-50 dark:text-blue-400"
                   disabled={joinCodeLoading}
                   onClick={generateJoinCode}
                 >
@@ -309,7 +311,7 @@ export function More() {
                 </button>
               </div>
               <button
-                className="text-xs text-red-500 underline disabled:opacity-50"
+                className="text-xs text-red-500 underline disabled:opacity-50 dark:text-red-400"
                 disabled={joinCodeLoading}
                 onClick={revokeJoinCode}
               >
@@ -329,7 +331,7 @@ export function More() {
           title="Caregivers"
           action={
             <button
-              className="text-xs text-blue-600 underline"
+              className="text-xs text-blue-600 underline dark:text-blue-400"
               onClick={() => setShowAddCaregiver((s) => !s)}
             >
               {showAddCaregiver ? 'Cancel' : '+ Add caregiver'}
@@ -337,7 +339,7 @@ export function More() {
           }
         >
           {showAddCaregiver && (
-            <form onSubmit={handleAddCaregiver} className="mb-3 space-y-3 border-b border-gray-100 pb-3">
+            <form onSubmit={handleAddCaregiver} className="mb-3 space-y-3 border-b border-gray-100 pb-3 dark:border-gray-700">
               <Field label="Caregiver name">
                 <input
                   className={inputClass}
@@ -356,16 +358,16 @@ export function More() {
                   onChange={(e) => setNewCaregiverRate(e.target.value)}
                 />
               </Field>
-              {addCaregiverError && <p className="text-xs text-red-600">{addCaregiverError}</p>}
+              {addCaregiverError && <p className="text-xs text-red-600 dark:text-red-400">{addCaregiverError}</p>}
               <Button type="submit" className="w-full" disabled={addCaregiverSubmitting}>
                 {addCaregiverSubmitting ? 'Adding…' : 'Add caregiver'}
               </Button>
             </form>
           )}
           {caregivers.length === 0 ? (
-            <p className="text-sm text-gray-500">No caregivers yet.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">No caregivers yet.</p>
           ) : (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               {caregivers.length} {caregivers.length === 1 ? 'caregiver' : 'caregivers'} on this household. Pick one
               below to edit pay settings.
             </p>
@@ -410,7 +412,7 @@ export function More() {
                 </Field>
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm text-gray-700">
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               <input
                 type="checkbox"
                 checked={guaranteedEnabled}
@@ -443,7 +445,7 @@ export function More() {
                   </Field>
                 )}
                 {guaranteedBasis === 'linked_to_schedule' && (
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     Guaranteed hours will be calculated from the nanny's active recurring schedule — the sum of shift hours where "counts toward guaranteed hours" is enabled.
                   </p>
                 )}
@@ -499,7 +501,7 @@ export function More() {
                 </select>
               </Field>
             )}
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               For example, a nanny who works Monday–Thursday and is paid at the end of her last shift would be
               anchored to &ldquo;End day&rdquo; = Thursday.
             </p>
@@ -537,7 +539,7 @@ export function More() {
             <Field label="Remind me about payday">
               <div className="flex flex-wrap gap-3">
                 {REMINDER_OPTIONS.map((opt) => (
-                  <label key={opt.value} className="flex items-center gap-1.5 text-sm text-gray-700">
+                  <label key={opt.value} className="flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300">
                     <input
                       type="checkbox"
                       checked={reminderDays.includes(opt.value)}
@@ -557,15 +559,68 @@ export function More() {
             <Button type="submit" className="w-full" disabled={saving}>
               {saving ? 'Saving…' : 'Save settings'}
             </Button>
-            {saveError && <p className="text-xs text-red-600">{saveError}</p>}
-            {savedAt && !saveError && <p className="text-xs text-green-600">Saved.</p>}
+            {saveError && <p className="text-xs text-red-600 dark:text-red-400">{saveError}</p>}
+            {savedAt && !saveError && <p className="text-xs text-green-600 dark:text-green-400">Saved.</p>}
           </form>
         </Card>
       )}
 
+      <Card title="Appearance">
+        <div className="space-y-4">
+          <div>
+            <p className="mb-2 text-xs font-medium text-gray-500 dark:text-gray-400">Theme</p>
+            <div className="flex gap-1 rounded-xl bg-gray-100 p-1 dark:bg-gray-900">
+              {(
+                [
+                  ['light', 'Light'],
+                  ['dark', 'Dark'],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setTheme(value)}
+                  className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                    theme === value
+                      ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100'
+                      : 'text-gray-500 dark:text-gray-400'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-xs font-medium text-gray-500 dark:text-gray-400">Clock format</p>
+            <div className="flex gap-1 rounded-xl bg-gray-100 p-1 dark:bg-gray-900">
+              {(
+                [
+                  ['12h', '12-hour'],
+                  ['24h', '24-hour'],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setTimeFormat(value)}
+                  className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                    timeFormat === value
+                      ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100'
+                      : 'text-gray-500 dark:text-gray-400'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Card>
+
       <Card title="Account">
-        <p className="mb-3 text-sm text-gray-600">{user?.email}</p>
-        <p className="mb-3 text-xs text-gray-400">
+        <p className="mb-3 text-sm text-gray-600 dark:text-gray-400">{user?.email}</p>
+        <p className="mb-3 text-xs text-gray-400 dark:text-gray-500">
           {isParentAdmin ? 'Parent admin' : isParentOrCoAdmin ? 'Parent co-admin' : 'Nanny'}
         </p>
         <Button variant="secondary" onClick={() => signOut()}>

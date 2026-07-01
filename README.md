@@ -1,4 +1,4 @@
-# Nanny Ledger
+# Nannager
 
 A mobile-first PWA for tracking a household nanny's schedule, time, PTO, guaranteed hours, and payment records. It is **not** a payroll processor — it never moves money, withholds taxes, or files paperwork. It's a recordkeeping tool.
 

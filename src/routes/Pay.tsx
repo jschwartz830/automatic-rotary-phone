@@ -596,7 +596,7 @@ export function Pay() {
   return (
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">Pay</h1>
+        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">Pay</h1>
         {isParentOrCoAdmin && (
           <Button variant="secondary" onClick={() => setShowForm((s) => !s)}>
             {showForm ? 'Cancel' : '+ Generate timesheet'}
@@ -611,7 +611,7 @@ export function Pay() {
 
       {isParentOrCoAdmin && <CaregiverSelect caregivers={caregivers} value={caregiverId} onChange={setCaregiverId} />}
 
-      {error && !showForm && <p className="text-sm text-red-600">{error}</p>}
+      {error && !showForm && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
       {showForm && (
         <Card title="Generate timesheet from time entries">
@@ -654,18 +654,18 @@ export function Pay() {
               </Field>
             )}
             {pendingUnapproved.length > 0 && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
-                <p className="text-sm font-medium text-amber-800">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2 dark:border-amber-500/30 dark:bg-amber-500/10">
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
                   {pendingUnapproved.length} unapproved {pendingUnapproved.length === 1 ? 'entry' : 'entries'} in this period
                 </p>
                 <ul className="space-y-0.5">
                   {pendingUnapproved.map((e) => (
-                    <li key={e.id} className="text-xs text-amber-700">
+                    <li key={e.id} className="text-xs text-amber-700 dark:text-amber-400">
                       {e.date} · {e.paid_hours?.toFixed(2) ?? '0.00'} hrs · {e.status}
                     </li>
                   ))}
                 </ul>
-                <p className="text-xs text-amber-700">These won't be included in the pay calculation.</p>
+                <p className="text-xs text-amber-700 dark:text-amber-400">These won't be included in the pay calculation.</p>
                 <div className="flex gap-2 pt-1">
                   <Button type="button" variant="secondary" className="flex-1" onClick={() => navigate('/time')}>
                     Review entries
@@ -676,7 +676,7 @@ export function Pay() {
                 </div>
               </div>
             )}
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? 'Calculating…' : 'Generate & approve'}
             </Button>
@@ -687,7 +687,7 @@ export function Pay() {
       {isNanny && showNannyForm && (
         <Card title="Submit timesheet for review">
           <form onSubmit={handleSubmitTimesheet} className="space-y-3">
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               Submit your approved time entries for this period so your employer can review and calculate pay.
             </p>
             <div className="flex gap-3">
@@ -714,7 +714,7 @@ export function Pay() {
                 </Field>
               </div>
             </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
             <Button type="submit" className="w-full" disabled={nannySubmitting}>
               {nannySubmitting ? 'Submitting…' : 'Submit for review'}
             </Button>
@@ -725,7 +725,7 @@ export function Pay() {
       {markingPaidPayment && (
         <Card title="Mark payment paid">
           <form onSubmit={handleMarkPaid} className="space-y-3">
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               Due ${markingPaidPayment.gross_pay_due.toFixed(2)} for {markingPaidPayment.period_start} –{' '}
               {markingPaidPayment.period_end}. Enter less than the full amount to record a partial payment.
             </p>
@@ -760,7 +760,7 @@ export function Pay() {
       {voidingPayment && (
         <Card title="Void payment">
           <form onSubmit={handleVoidPayment} className="space-y-3">
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               ${voidingPayment.gross_pay_due.toFixed(2)} for {voidingPayment.period_start} – {voidingPayment.period_end}{' '}
               will be marked voided. It is kept for the record, not deleted.
             </p>
@@ -787,7 +787,7 @@ export function Pay() {
       {correctingPayment && (
         <Card title="Correct payment">
           <form onSubmit={handleCorrectPayment} className="space-y-3">
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               Original: ${correctingPayment.gross_pay_due.toFixed(2)} for {correctingPayment.period_start} – {correctingPayment.period_end}.
               The original record will be marked corrected and a new payment record will be created.
             </p>
@@ -823,23 +823,23 @@ export function Pay() {
       )}
 
       <Card title="Payments" action={isParentOrCoAdmin && activePayments.length > 0 && (
-        <button className="text-xs text-blue-600 underline" onClick={exportPayments}>
+        <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={exportPayments}>
           Export CSV
         </button>
       )}>
         {activePayments.length === 0 ? (
-          <p className="text-sm text-gray-500">No payment records yet.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">No payment records yet.</p>
         ) : (
           <div className="space-y-2">
             {activePayments.map((p) => (
-              <div key={p.id} className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0">
+              <div key={p.id} className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0 dark:border-gray-700">
                 <div>
-                  <p className="text-sm font-medium text-gray-900">
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                     {p.period_start} – {p.period_end}
                   </p>
-                  <p className="text-xs text-gray-500">Due {p.due_date} · ${p.gross_pay_due.toFixed(2)}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Due {p.due_date} · ${p.gross_pay_due.toFixed(2)}</p>
                   {p.parent_note && (
-                    <p className="mt-0.5 text-xs text-gray-400">{p.parent_note}</p>
+                    <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">{p.parent_note}</p>
                   )}
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0">
@@ -848,7 +848,7 @@ export function Pay() {
                     {isParentOrCoAdmin &&
                       (p.status === 'due' || p.status === 'overdue' || p.status === 'upcoming' || p.status === 'partially_paid') && (
                         <button
-                          className="text-xs text-blue-600 underline"
+                          className="text-xs text-blue-600 underline dark:text-blue-400"
                           onClick={() => {
                             setMarkingPaidPayment(p)
                             setMarkPaidAmount((p.gross_pay_due - (p.amount_paid ?? 0)).toFixed(2))
@@ -859,7 +859,7 @@ export function Pay() {
                       )}
                     {isParentOrCoAdmin && p.status === 'paid' && (
                       <button
-                        className="text-xs text-amber-600 underline"
+                        className="text-xs text-amber-600 underline dark:text-amber-400"
                         onClick={() => {
                           setCorrectingPayment(p)
                           setCorrectionAmount(p.gross_pay_due.toFixed(2))
@@ -872,7 +872,7 @@ export function Pay() {
                     {isParentOrCoAdmin &&
                       (p.status === 'due' || p.status === 'overdue' || p.status === 'upcoming' || p.status === 'partially_paid') && (
                         <button
-                          className="text-xs text-red-500 underline"
+                          className="text-xs text-red-500 underline dark:text-red-400"
                           onClick={() => {
                             setVoidingPayment(p)
                             setVoidNote('')
@@ -890,28 +890,28 @@ export function Pay() {
       </Card>
 
       <Card title="Timesheets" action={isParentOrCoAdmin && activeTimesheets.length > 0 && (
-        <button className="text-xs text-blue-600 underline" onClick={exportTimesheets}>
+        <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={exportTimesheets}>
           Export CSV
         </button>
       )}>
         {activeTimesheets.length === 0 ? (
-          <p className="text-sm text-gray-500">No timesheets yet.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">No timesheets yet.</p>
         ) : (
           <div className="space-y-2">
             {activeTimesheets.map((t) => (
-              <div key={t.id} className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0">
+              <div key={t.id} className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0 dark:border-gray-700">
                 <div>
-                  <p className="text-sm font-medium text-gray-900">
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                     {t.period_start} – {t.period_end}
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     {t.actual_worked_hours.toFixed(2)} hrs worked · ${t.gross_pay_due.toFixed(2)}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <StatusChip status={t.status} />
                   {isParentOrCoAdmin && t.status !== 'paid' && t.status !== 'locked' && (
-                    <button className="text-xs text-red-600 underline" onClick={() => archiveTimesheet(t)}>
+                    <button className="text-xs text-red-600 underline dark:text-red-400" onClick={() => archiveTimesheet(t)}>
                       Archive
                     </button>
                   )}
@@ -926,25 +926,25 @@ export function Pay() {
         <Card>
           <button
             type="button"
-            className="flex w-full items-center justify-between text-sm font-medium text-gray-700"
+            className="flex w-full items-center justify-between text-sm font-medium text-gray-700 dark:text-gray-300"
             onClick={() => setShowArchive((s) => !s)}
           >
             <span>Archived ({trashedTimesheets.length})</span>
-            <span className="text-gray-400">{showArchive ? '▲' : '▼'}</span>
+            <span className="text-gray-400 dark:text-gray-500">{showArchive ? '▲' : '▼'}</span>
           </button>
           {showArchive && (
-            <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+            <div className="mt-3 space-y-2 border-t border-gray-100 pt-3 dark:border-gray-700">
               {trashedTimesheets.map((t) => (
-                <div key={t.id} className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0">
+                <div key={t.id} className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0 dark:border-gray-700">
                   <div>
-                    <p className="text-sm font-medium text-gray-900">
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                       {t.period_start} – {t.period_end}
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       {t.actual_worked_hours.toFixed(2)} hrs worked · ${t.gross_pay_due.toFixed(2)}
                     </p>
                   </div>
-                  <button className="text-xs text-blue-600 underline" onClick={() => restoreTimesheet(t)}>
+                  <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={() => restoreTimesheet(t)}>
                     Restore
                   </button>
                 </div>

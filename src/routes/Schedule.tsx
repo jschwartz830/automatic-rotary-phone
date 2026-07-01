@@ -2,15 +2,17 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { addDays, format, startOfWeek } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
+import { usePreferences } from '../context/PreferencesContext'
 import { useCaregivers } from '../lib/useCaregivers'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
 import { generateShiftsForRange, shiftHours } from '../lib/schedule'
+import { formatEntryTimeRange, formatTimeOfDay } from '../lib/time'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
-import type { LeaveRequest, ScheduleShift, ScheduleTemplate } from '../lib/types'
+import type { LeaveRequest, ScheduleShift, ScheduleTemplate, TimeEntry } from '../lib/types'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -22,10 +24,12 @@ export function Schedule() {
   const { user } = useAuth()
   const { household, isParentOrCoAdmin, isNanny, caregiverProfile } = useHousehold()
   const { caregivers } = useCaregivers(household?.id)
+  const { timeFormat } = usePreferences()
   const [caregiverId, setCaregiverId] = useState<string | null>(null)
   const [templates, setTemplates] = useState<ScheduleTemplate[]>([])
   const [shifts, setShifts] = useState<Record<string, ScheduleShift[]>>({})
   const [leaveForWeek, setLeaveForWeek] = useState<LeaveRequest[]>([])
+  const [actualEntriesForWeek, setActualEntriesForWeek] = useState<TimeEntry[]>([])
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -83,15 +87,32 @@ export function Schedule() {
     setLeaveForWeek((data ?? []) as LeaveRequest[])
   }
 
+  async function loadActual(forCaregiverId: string, ws: Date) {
+    const start = toIsoDate(ws)
+    const end = toIsoDate(addDays(ws, 6))
+    const { data } = await supabase
+      .from('time_entries')
+      .select('*')
+      .eq('caregiver_id', forCaregiverId)
+      .is('deleted_at', null)
+      .gte('date', start)
+      .lte('date', end)
+    setActualEntriesForWeek((data ?? []) as TimeEntry[])
+  }
+
   useEffect(() => {
     if (caregiverId) {
       loadSchedule(caregiverId)
       loadLeave(caregiverId, weekStart)
+      loadActual(caregiverId, weekStart)
     }
   }, [caregiverId])
 
   useEffect(() => {
-    if (caregiverId) loadLeave(caregiverId, weekStart)
+    if (caregiverId) {
+      loadLeave(caregiverId, weekStart)
+      loadActual(caregiverId, weekStart)
+    }
   }, [weekStart, caregiverId])
 
   async function handleAddShift(e: FormEvent) {
@@ -179,7 +200,7 @@ export function Schedule() {
   return (
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">Schedule</h1>
+        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">Schedule</h1>
         {isParentOrCoAdmin && (
           <Button variant="secondary" onClick={() => setShowForm((s) => !s)}>
             {showForm ? 'Cancel' : '+ Add shift'}
@@ -192,16 +213,16 @@ export function Schedule() {
       {/* Week navigation */}
       <div className="flex items-center justify-between">
         <button
-          className="rounded-lg px-3 py-2 text-gray-500 active:bg-gray-100"
+          className="rounded-lg px-3 py-2 text-gray-500 active:bg-gray-100 dark:text-gray-400 dark:active:bg-gray-800"
           onClick={() => { setWeekStart((w) => addDays(w, -7)); setSelectedDay(null) }}
         >
           ←
         </button>
-        <p className="text-sm font-medium text-gray-700">
+        <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
           {format(weekStart, 'MMM d')} – {format(weekEnd, 'MMM d, yyyy')}
         </p>
         <button
-          className="rounded-lg px-3 py-2 text-gray-500 active:bg-gray-100"
+          className="rounded-lg px-3 py-2 text-gray-500 active:bg-gray-100 dark:text-gray-400 dark:active:bg-gray-800"
           onClick={() => { setWeekStart((w) => addDays(w, 7)); setSelectedDay(null) }}
         >
           →
@@ -210,13 +231,15 @@ export function Schedule() {
 
       {/* Weekly grid */}
       <Card>
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-gray-100 dark:divide-gray-700">
           {weekDays.map((day) => {
             const dayStr = toIsoDate(day)
             const dayOccs = weekOccurrences.filter((o) => o.date === dayStr)
             const dayLeave = leaveForWeek.filter(
               (l) => l.start_date <= dayStr && (l.end_date ?? l.start_date) >= dayStr
             )
+            const dayActualEntries = actualEntriesForWeek.filter((e) => e.date === dayStr)
+            const actualHours = dayActualEntries.reduce((sum, e) => sum + (e.paid_hours ?? 0), 0)
             const totalHours = dayOccs.reduce((sum, o) => sum + shiftHours(o.shift), 0)
             const isSelected = selectedDay === dayStr
             const isToday = dayStr === todayStr
@@ -227,23 +250,27 @@ export function Schedule() {
                   className="flex w-full items-start gap-3 py-3 text-left"
                   onClick={() => setSelectedDay(isSelected ? null : dayStr)}
                 >
-                  <div className={`flex w-10 shrink-0 flex-col items-center rounded-lg py-0.5 ${isToday ? 'bg-gray-900' : ''}`}>
-                    <span className={`text-xs font-medium ${isToday ? 'text-gray-300' : 'text-gray-500'}`}>
+                  <div
+                    className={`flex w-10 shrink-0 flex-col items-center rounded-lg py-0.5 ${isToday ? 'bg-gray-900 dark:bg-gray-100' : ''}`}
+                  >
+                    <span className={`text-xs font-medium ${isToday ? 'text-gray-300 dark:text-gray-600' : 'text-gray-500 dark:text-gray-400'}`}>
                       {format(day, 'EEE')}
                     </span>
-                    <span className={`text-base font-bold leading-tight ${isToday ? 'text-white' : 'text-gray-900'}`}>
+                    <span
+                      className={`text-base font-bold leading-tight ${isToday ? 'text-white dark:text-gray-900' : 'text-gray-900 dark:text-gray-100'}`}
+                    >
                       {format(day, 'd')}
                     </span>
                   </div>
                   <div className="min-w-0 flex-1">
                     {dayOccs.length === 0 && dayLeave.length === 0 ? (
-                      <p className="text-sm text-gray-400">Off</p>
+                      <p className="text-sm text-gray-400 dark:text-gray-500">Off</p>
                     ) : (
                       <>
                         {dayOccs.map((occ) => (
-                          <p key={occ.shift.id} className="text-sm text-gray-900">
-                            {occ.shift.start_time}–{occ.shift.end_time}
-                            <span className="ml-1 text-xs text-gray-500">· {shiftHours(occ.shift).toFixed(1)}h</span>
+                          <p key={occ.shift.id} className="text-sm text-gray-900 dark:text-gray-100">
+                            {formatTimeOfDay(occ.shift.start_time, timeFormat)}–{formatTimeOfDay(occ.shift.end_time, timeFormat)}
+                            <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">· {shiftHours(occ.shift).toFixed(1)}h</span>
                           </p>
                         ))}
                         {dayLeave.length > 0 && (
@@ -251,7 +278,7 @@ export function Schedule() {
                             {dayLeave.map((l) => (
                               <span
                                 key={l.id}
-                                className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium capitalize text-blue-700"
+                                className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium capitalize text-blue-700 dark:bg-blue-500/15 dark:text-blue-300"
                               >
                                 {l.leave_type.replace(/_/g, ' ')}
                               </span>
@@ -260,28 +287,42 @@ export function Schedule() {
                         )}
                       </>
                     )}
+                    {actualHours > 0 && (
+                      <p className="mt-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                        Worked {actualHours.toFixed(1)}h
+                        {dayActualEntries.length === 1 &&
+                          (() => {
+                            const { start, end } = formatEntryTimeRange(dayActualEntries[0], timeFormat)
+                            return (
+                              <span className="ml-1 font-normal text-emerald-600/80 dark:text-emerald-400/80">
+                                ({start}–{end})
+                              </span>
+                            )
+                          })()}
+                      </p>
+                    )}
                   </div>
                   {totalHours > 0 && (
-                    <span className="shrink-0 text-sm font-semibold text-gray-700">{totalHours.toFixed(1)}h</span>
+                    <span className="shrink-0 text-sm font-semibold text-gray-700 dark:text-gray-300">{totalHours.toFixed(1)}h</span>
                   )}
                 </button>
 
-                {isSelected && (dayOccs.length > 0 || dayLeave.length > 0) && (
-                  <div className="mb-3 ml-[52px] space-y-2 rounded-xl bg-gray-50 p-3">
+                {isSelected && (dayOccs.length > 0 || dayLeave.length > 0 || dayActualEntries.length > 0) && (
+                  <div className="mb-3 ml-[52px] space-y-2 rounded-xl bg-gray-50 p-3 dark:bg-gray-900">
                     {dayOccs.map((occ) => (
                       <div key={occ.shift.id} className="flex items-start justify-between gap-2">
                         <div>
-                          <p className="text-sm font-medium text-gray-900">
-                            {occ.shift.start_time} – {occ.shift.end_time}
+                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                            {formatTimeOfDay(occ.shift.start_time, timeFormat)} – {formatTimeOfDay(occ.shift.end_time, timeFormat)}
                           </p>
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
                             {shiftHours(occ.shift).toFixed(2)} hrs
                             {occ.shift.break_minutes > 0 ? ` · ${occ.shift.break_minutes}m break` : ''}
                           </p>
                         </div>
                         {isParentOrCoAdmin && (
                           <button
-                            className="shrink-0 text-xs text-red-600 underline"
+                            className="shrink-0 text-xs text-red-600 underline dark:text-red-400"
                             onClick={(e) => { e.stopPropagation(); handleDeleteShift(occ.shift) }}
                           >
                             Remove
@@ -292,16 +333,31 @@ export function Schedule() {
                     {dayLeave.map((l) => (
                       <div key={l.id} className="flex items-center justify-between gap-2">
                         <div>
-                          <p className="text-sm font-medium capitalize text-gray-900">
+                          <p className="text-sm font-medium capitalize text-gray-900 dark:text-gray-100">
                             {l.leave_type.replace(/_/g, ' ')}
                           </p>
                           {l.hours_requested != null && (
-                            <p className="text-xs text-gray-500">{l.hours_requested} hrs</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{l.hours_requested} hrs</p>
                           )}
                         </div>
                         <StatusChip status={l.status} />
                       </div>
                     ))}
+                    {dayActualEntries.map((entry) => {
+                      const { start, end } = formatEntryTimeRange(entry, timeFormat)
+                      return (
+                        <div key={entry.id} className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+                              Worked {start} – {end}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              {(entry.paid_hours ?? 0).toFixed(2)} hrs · {entry.status.replace(/_/g, ' ')}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -343,7 +399,7 @@ export function Schedule() {
                 onChange={(e) => setBreakMinutes(e.target.value)}
               />
             </Field>
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? 'Saving…' : 'Save shift'}
             </Button>
@@ -357,14 +413,14 @@ export function Schedule() {
             {sortedShifts.map((shift) => (
               <div key={shift.id} className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">
-                    {DAYS[shift.day_of_week ?? 0]} · {shift.start_time}–{shift.end_time}
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    {DAYS[shift.day_of_week ?? 0]} · {formatTimeOfDay(shift.start_time, timeFormat)}–{formatTimeOfDay(shift.end_time, timeFormat)}
                   </p>
-                  <p className="text-xs text-gray-500">{shiftHours(shift).toFixed(2)} hrs recurring</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{shiftHours(shift).toFixed(2)} hrs recurring</p>
                 </div>
                 {isParentOrCoAdmin && (
                   <button
-                    className="text-xs text-red-600 underline"
+                    className="text-xs text-red-600 underline dark:text-red-400"
                     onClick={() => handleDeleteShift(shift)}
                   >
                     Remove
