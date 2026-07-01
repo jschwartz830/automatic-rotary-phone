@@ -21,7 +21,7 @@ export function Layout() {
   const tabs = isNanny ? NANNY_TABS : PARENT_TABS
 
   return (
-    <div className="mx-auto flex h-dvh max-w-md flex-col bg-gray-50 pt-[env(safe-area-inset-top)]">
+    <div className="mx-auto flex h-svh max-w-md flex-col bg-gray-50 pt-[env(safe-area-inset-top)]">
       <main className="min-h-0 flex-1 overflow-y-auto">
         <Outlet />
       </main>
