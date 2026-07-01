@@ -832,7 +832,6 @@ Parent Admin can configure:
   * Linked to recurring schedule
   * Fixed weekly guarantee
   * Fixed pay-period guarantee
-  * Manual guarantee by pay period
 * Guaranteed hours amount
 * Whether PTO counts toward guaranteed hours
 * Whether sick time counts toward guaranteed hours
@@ -1638,7 +1637,6 @@ Valid guaranteed_hours_basis values:
 * linked_to_schedule
 * fixed_weekly
 * fixed_pay_period
-* manual_by_pay_period
 
 ---
 
@@ -2117,10 +2115,6 @@ If basis is fixed weekly:
 If basis is fixed pay period:
 
 `guaranteed_hours = fixed_pay_period_guaranteed_hours`
-
-If basis is manual:
-
-`guaranteed_hours = manually entered value for that pay period`
 
 ---
 

@@ -29,7 +29,7 @@ export function Login() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6">
+    <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 pt-[env(safe-area-inset-top)]">
       <div className="w-full max-w-sm">
         <h1 className="mb-1 text-2xl font-bold text-gray-900">Nanny Ledger</h1>
         <p className="mb-6 text-sm text-gray-500">

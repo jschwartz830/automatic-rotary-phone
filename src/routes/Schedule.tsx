@@ -146,9 +146,23 @@ export function Schedule() {
     }
   }
 
-  async function handleDeleteShift(shiftId: string) {
+  async function handleDeleteShift(shift: ScheduleShift) {
     if (!caregiverId) return
-    await supabase.from('schedule_shifts').delete().eq('id', shiftId)
+    await supabase.from('schedule_shifts').delete().eq('id', shift.id)
+    if (household) {
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'schedule_shift',
+        entityId: shift.id,
+        action: 'delete',
+        before: {
+          day_of_week: shift.day_of_week,
+          start_time: shift.start_time,
+          end_time: shift.end_time,
+        },
+      })
+    }
     await loadSchedule(caregiverId)
   }
 
@@ -268,7 +282,7 @@ export function Schedule() {
                         {isParentOrCoAdmin && (
                           <button
                             className="shrink-0 text-xs text-red-600 underline"
-                            onClick={(e) => { e.stopPropagation(); handleDeleteShift(occ.shift.id) }}
+                            onClick={(e) => { e.stopPropagation(); handleDeleteShift(occ.shift) }}
                           >
                             Remove
                           </button>
@@ -347,7 +361,7 @@ export function Schedule() {
                 {isParentOrCoAdmin && (
                   <button
                     className="text-xs text-red-600 underline"
-                    onClick={() => handleDeleteShift(shift.id)}
+                    onClick={() => handleDeleteShift(shift)}
                   >
                     Remove
                   </button>

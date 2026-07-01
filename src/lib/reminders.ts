@@ -4,11 +4,22 @@ import type { GeneratedShiftOccurrence } from './schedule'
 
 const DEFAULT_PAYMENT_REMINDER_DAYS_BEFORE = [0, 1]
 
+// Spec 15.14 lists "pto_balance_low" as a reminder type but doesn't define a
+// threshold. One workday's worth of hours remaining is a reasonable, simple
+// default -- see SPEC_CHANGE_LOG.md.
+const LOW_BALANCE_THRESHOLD_HOURS = 8
+
 export interface ReminderCard {
   id: string
   type: string
   severity: 'info' | 'warning' | 'urgent'
   message: string
+}
+
+export interface LeaveBalanceSummary {
+  caregiverId: string
+  leaveType: string
+  remainingHours: number | null
 }
 
 /**
@@ -24,8 +35,9 @@ export function computeReminders(input: {
   paymentRecords: PaymentRecord[]
   caregivers?: CaregiverProfile[]
   scheduleOccurrences?: GeneratedShiftOccurrence[]
+  leaveBalances?: LeaveBalanceSummary[]
 }): ReminderCard[] {
-  const { today, timeEntries, timesheets, leaveRequests, paymentRecords, caregivers, scheduleOccurrences } = input
+  const { today, timeEntries, timesheets, leaveRequests, paymentRecords, caregivers, scheduleOccurrences, leaveBalances } = input
   // Index schedule occurrences by date for O(1) lookup
   const occurrencesByDate = new Map<string, GeneratedShiftOccurrence[]>()
   for (const occ of scheduleOccurrences ?? []) {
@@ -148,6 +160,21 @@ export function computeReminders(input: {
         type: 'payment_due',
         severity: 'info',
         message: `Payment for ${pr.period_start} – ${pr.period_end} is due in ${daysUntilDue} days.`,
+      })
+    }
+  }
+
+  for (const balance of leaveBalances ?? []) {
+    if (balance.remainingHours == null) continue
+    if (balance.remainingHours <= LOW_BALANCE_THRESHOLD_HOURS) {
+      cards.push({
+        id: `pto-balance-low-${balance.caregiverId}-${balance.leaveType}`,
+        type: 'pto_balance_low',
+        severity: balance.remainingHours <= 0 ? 'warning' : 'info',
+        message:
+          balance.remainingHours <= 0
+            ? `${balance.leaveType.toUpperCase()} balance is used up.`
+            : `${balance.leaveType.toUpperCase()} balance is low: ${balance.remainingHours.toFixed(1)} hrs left.`,
       })
     }
   }

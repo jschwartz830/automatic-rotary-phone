@@ -36,11 +36,7 @@ export interface HouseholdUser {
   updated_at: string
 }
 
-export type GuaranteedHoursBasis =
-  | 'linked_to_schedule'
-  | 'fixed_weekly'
-  | 'fixed_pay_period'
-  | 'manual_by_pay_period'
+export type GuaranteedHoursBasis = 'linked_to_schedule' | 'fixed_weekly' | 'fixed_pay_period'
 
 export type PayFrequency = 'weekly' | 'biweekly' | 'semi_monthly' | 'monthly'
 export type PaydayRule = 'same_day_each_week' | 'days_after_period_end' | 'manual'
