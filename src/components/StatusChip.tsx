@@ -28,7 +28,7 @@ export function StatusChip({ status, label }: { status: string; label?: string }
   const classes = COLORS[status] ?? 'bg-gray-100 text-gray-700'
   const text = label ?? status.replace(/_/g, ' ')
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${classes}`}>
+    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${classes}`}>
       {text}
     </span>
   )

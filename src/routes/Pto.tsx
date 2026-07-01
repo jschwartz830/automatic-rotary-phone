@@ -336,18 +336,22 @@ export function Pto() {
               </select>
             </Field>
             <div className="flex gap-3">
-              <Field label="Start date">
-                <input
-                  type="date"
-                  className={inputClass}
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  required
-                />
-              </Field>
-              <Field label="End date">
-                <input type="date" className={inputClass} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-              </Field>
+              <div className="min-w-0 flex-1">
+                <Field label="Start date">
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    required
+                  />
+                </Field>
+              </div>
+              <div className="min-w-0 flex-1">
+                <Field label="End date">
+                  <input type="date" className={inputClass} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                </Field>
+              </div>
             </div>
             <Field label="Hours">
               <input
