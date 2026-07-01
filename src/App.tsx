@@ -1,6 +1,7 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { HouseholdProvider, useHousehold } from './context/HouseholdContext'
+import { PreferencesProvider } from './context/PreferencesContext'
 import { isSupabaseConfigured } from './lib/supabase'
 import { Layout } from './components/Layout'
 import { Login } from './routes/Login'
@@ -16,7 +17,7 @@ import { SetupRequired } from './routes/SetupRequired'
 
 function Loading() {
   return (
-    <div className="flex min-h-svh items-center justify-center pt-[env(safe-area-inset-top)] text-sm text-gray-400">
+    <div className="flex min-h-svh items-center justify-center bg-gray-50 pt-[env(safe-area-inset-top)] text-sm text-gray-400 dark:bg-gray-900">
       Loading…
     </div>
   )
@@ -78,15 +79,21 @@ function AppRoutes() {
 
 function App() {
   if (!isSupabaseConfigured) {
-    return <SetupRequired />
+    return (
+      <PreferencesProvider>
+        <SetupRequired />
+      </PreferencesProvider>
+    )
   }
 
   return (
-    <AuthProvider>
-      <HashRouter>
-        <AppRoutes />
-      </HashRouter>
-    </AuthProvider>
+    <PreferencesProvider>
+      <AuthProvider>
+        <HashRouter>
+          <AppRoutes />
+        </HashRouter>
+      </AuthProvider>
+    </PreferencesProvider>
   )
 }
 

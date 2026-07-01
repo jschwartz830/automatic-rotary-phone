@@ -1,16 +1,16 @@
 export function SetupRequired() {
   return (
-    <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 pt-[env(safe-area-inset-top)]">
+    <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 pt-[env(safe-area-inset-top)] dark:bg-gray-900">
       <div className="w-full max-w-md space-y-4">
-        <h1 className="text-2xl font-bold text-gray-900">Connect Supabase to finish setup</h1>
-        <p className="text-sm text-gray-600">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">Connect Supabase to finish setup</h1>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
           This app needs a Supabase project before it can run. <code>VITE_SUPABASE_URL</code> and{' '}
           <code>VITE_SUPABASE_ANON_KEY</code> weren't set when this build was created.
         </p>
-        <ol className="list-decimal space-y-2 pl-5 text-sm text-gray-700">
+        <ol className="list-decimal space-y-2 pl-5 text-sm text-gray-700 dark:text-gray-300">
           <li>
             Create a project at{' '}
-            <a className="text-blue-600 underline" href="https://supabase.com" target="_blank" rel="noreferrer">
+            <a className="text-blue-600 underline dark:text-blue-400" href="https://supabase.com" target="_blank" rel="noreferrer">
               supabase.com
             </a>{' '}
             and run the SQL files in <code>supabase/migrations/</code> (in order) in its SQL editor.

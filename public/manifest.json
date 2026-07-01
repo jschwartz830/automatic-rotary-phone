@@ -1,6 +1,6 @@
 {
-  "name": "Nanny Ledger",
-  "short_name": "Nanny",
+  "name": "Nannager",
+  "short_name": "Nannager",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",

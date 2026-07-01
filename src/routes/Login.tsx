@@ -29,15 +29,15 @@ export function Login() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 pt-[env(safe-area-inset-top)]">
+    <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 pt-[env(safe-area-inset-top)] dark:bg-gray-900">
       <div className="w-full max-w-sm">
-        <h1 className="mb-1 text-2xl font-bold text-gray-900">Nanny Ledger</h1>
-        <p className="mb-6 text-sm text-gray-500">
+        <h1 className="mb-1 text-2xl font-bold text-gray-900 dark:text-gray-50">Nannager</h1>
+        <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">
           Schedule, time, PTO, guaranteed hours, and payment records for your household.
         </p>
 
         {confirmSent ? (
-          <p className="rounded-xl bg-green-50 p-4 text-sm text-green-800">
+          <p className="rounded-xl bg-green-50 p-4 text-sm text-green-800 dark:bg-green-500/10 dark:text-green-300">
             Check your email to confirm your account, then sign in.
           </p>
         ) : (
@@ -71,7 +71,7 @@ export function Login() {
                 required
               />
             </Field>
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
             <Button type="submit" className="w-full" disabled={submitting}>
               {mode === 'sign_in' ? 'Sign in' : 'Create account'}
             </Button>
@@ -79,7 +79,7 @@ export function Login() {
         )}
 
         <button
-          className="mt-4 text-sm text-gray-500 underline"
+          className="mt-4 text-sm text-gray-500 underline dark:text-gray-400"
           onClick={() => {
             setMode(mode === 'sign_in' ? 'sign_up' : 'sign_in')
             setError(null)

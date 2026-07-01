@@ -253,7 +253,7 @@ export function Pto() {
   return (
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">PTO &amp; Leave</h1>
+        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">PTO &amp; Leave</h1>
         <Button variant="secondary" onClick={() => setShowForm((s) => !s)}>
           {showForm ? 'Cancel' : '+ Request'}
         </Button>
@@ -278,17 +278,17 @@ export function Pto() {
               return (
                 <div key={type}>
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium capitalize text-gray-900">{type}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-sm font-medium capitalize text-gray-900 dark:text-gray-100">{type}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       {balance.allowanceHours != null
                         ? `${balance.usedHours.toFixed(2)} / ${balance.allowanceHours.toFixed(2)} hrs used`
                         : `${balance.usedHours.toFixed(2)} hrs used this year`}
                     </p>
                   </div>
                   {balance.allowanceHours != null && (
-                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
                       <div
-                        className="h-full rounded-full bg-gray-900"
+                        className="h-full rounded-full bg-gray-900 dark:bg-gray-100"
                         style={{
                           width: `${Math.min((balance.usedHours / balance.allowanceHours) * 100, 100)}%`,
                         }}
@@ -308,7 +308,7 @@ export function Pto() {
                       />
                       <button
                         type="button"
-                        className="text-xs text-blue-600 underline disabled:opacity-50"
+                        className="text-xs text-blue-600 underline disabled:opacity-50 dark:text-blue-400"
                         disabled={savingPolicy === type}
                         onClick={() => saveAllowance(type)}
                       >
@@ -363,7 +363,7 @@ export function Pto() {
                 onChange={(e) => setHours(e.target.value)}
               />
             </Field>
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? 'Saving…' : 'Submit'}
             </Button>
@@ -373,7 +373,7 @@ export function Pto() {
 
       {requests.length === 0 ? (
         <Card>
-          <p className="text-sm text-gray-500">No leave requests yet.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">No leave requests yet.</p>
         </Card>
       ) : (
         <div className="space-y-2">
@@ -381,8 +381,8 @@ export function Pto() {
             <Card key={r.id}>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-semibold capitalize text-gray-900">{r.leave_type.replace(/_/g, ' ')}</p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-sm font-semibold capitalize text-gray-900 dark:text-gray-100">{r.leave_type.replace(/_/g, ' ')}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     {r.start_date}
                     {r.end_date !== r.start_date ? ` – ${r.end_date}` : ''} · {r.hours_requested ?? '—'} hrs
                   </p>
@@ -391,10 +391,10 @@ export function Pto() {
                   <StatusChip status={r.status} />
                   {isParentOrCoAdmin && r.status === 'requested' && (
                     <>
-                      <button className="text-xs text-green-600 underline" onClick={() => reviewRequest(r, 'approved')}>
+                      <button className="text-xs text-green-600 underline dark:text-green-400" onClick={() => reviewRequest(r, 'approved')}>
                         Approve
                       </button>
-                      <button className="text-xs text-red-600 underline" onClick={() => reviewRequest(r, 'rejected')}>
+                      <button className="text-xs text-red-600 underline dark:text-red-400" onClick={() => reviewRequest(r, 'rejected')}>
                         Reject
                       </button>
                     </>

@@ -30,9 +30,9 @@ interface DashboardCard {
 }
 
 const SEVERITY_STYLES: Record<ReminderCard['severity'], string> = {
-  urgent: 'border-red-200 bg-red-50 text-red-800',
-  warning: 'border-amber-200 bg-amber-50 text-amber-800',
-  info: 'border-blue-200 bg-blue-50 text-blue-800',
+  urgent: 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300',
+  warning: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300',
+  info: 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300',
 }
 
 const SEVERITY_ORDER: Record<ReminderCard['severity'], number> = { urgent: 0, warning: 1, info: 2 }
@@ -210,8 +210,8 @@ export function Home() {
   return (
     <div className="space-y-4 p-4">
       <div>
-        <h1 className="text-xl font-bold text-gray-900">{household?.name}</h1>
-        <p className="text-sm text-gray-500">Here's what needs your attention.</p>
+        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">{household?.name}</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Here's what needs your attention.</p>
       </div>
 
       {!loading && dashboardCards.length > 0 && (
@@ -220,21 +220,21 @@ export function Home() {
             <button
               key={c.id}
               onClick={() => navigate(c.route)}
-              className="rounded-2xl border border-gray-100 bg-white p-4 text-left shadow-sm shadow-gray-900/5 transition active:scale-[0.98] active:bg-gray-50"
+              className="rounded-2xl border border-gray-100 bg-white p-4 text-left shadow-sm shadow-gray-900/5 transition active:scale-[0.98] active:bg-gray-50 dark:border-gray-800 dark:bg-gray-800 dark:shadow-none dark:active:bg-gray-700"
             >
-              <p className="text-xs font-medium text-gray-500">{c.title}</p>
-              <p className="mt-1 text-lg font-bold text-gray-900">{c.stat}</p>
-              <p className="text-xs text-gray-400">{c.detail}</p>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{c.title}</p>
+              <p className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-50">{c.stat}</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">{c.detail}</p>
             </button>
           ))}
         </div>
       )}
 
       {loading ? (
-        <p className="text-sm text-gray-400">Loading…</p>
+        <p className="text-sm text-gray-400 dark:text-gray-500">Loading…</p>
       ) : reminders.length === 0 ? (
         <Card>
-          <p className="text-sm text-gray-500">You're all caught up. No reminders right now.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">You're all caught up. No reminders right now.</p>
         </Card>
       ) : (
         <div className="space-y-2">
