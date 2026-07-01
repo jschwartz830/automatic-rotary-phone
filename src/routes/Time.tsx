@@ -44,6 +44,7 @@ export function Time() {
   const [editNote, setEditNote] = useState('')
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
+  const [showArchive, setShowArchive] = useState(false)
 
   useEffect(() => {
     if (isNanny && caregiverProfile) {
@@ -107,9 +108,7 @@ export function Time() {
       .from('time_entries')
       .select('*')
       .eq('caregiver_id', forCaregiverId)
-      .is('deleted_at', null)
       .order('date', { ascending: false })
-      .limit(30)
     setEntries((data ?? []) as TimeEntry[])
   }
 
@@ -351,6 +350,30 @@ export function Time() {
     if (caregiverId) await loadEntries(caregiverId)
   }
 
+  async function handleRestore(entry: TimeEntry) {
+    if (!household) return
+    const { error: restoreError } = await supabase
+      .from('time_entries')
+      .update({ deleted_at: null, updated_by: user?.id ?? null })
+      .eq('id', entry.id)
+    if (restoreError) {
+      setError(errorMessage(restoreError, 'Could not restore entry.'))
+      return
+    }
+    await logAuditEvent({
+      householdId: household.id,
+      actorUserId: user?.id ?? '',
+      entityType: 'time_entry',
+      entityId: entry.id,
+      action: 'restore',
+      before: { date: entry.date, status: entry.status, paid_hours: entry.paid_hours },
+    })
+    if (caregiverId) await loadEntries(caregiverId)
+  }
+
+  const activeEntries = entries.filter((e) => !e.deleted_at)
+  const archivedEntries = entries.filter((e) => e.deleted_at)
+
   return (
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
@@ -392,12 +415,16 @@ export function Time() {
               <input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} required />
             </Field>
             <div className="flex gap-3">
-              <Field label="Start">
-                <input type="time" className={inputClass} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
-              </Field>
-              <Field label="End">
-                <input type="time" className={inputClass} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
-              </Field>
+              <div className="flex-1">
+                <Field label="Start">
+                  <input type="time" className={inputClass} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+                </Field>
+              </div>
+              <div className="flex-1">
+                <Field label="End">
+                  <input type="time" className={inputClass} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+                </Field>
+              </div>
             </div>
             <Field label="Unpaid break (minutes)">
               <input
@@ -422,13 +449,13 @@ export function Time() {
         </Card>
       )}
 
-      {entries.length === 0 ? (
+      {activeEntries.length === 0 ? (
         <Card>
           <p className="text-sm text-gray-500">No time entries yet.</p>
         </Card>
       ) : (
         <div className="space-y-2">
-          {entries.map((entry) => {
+          {activeEntries.map((entry) => {
             const isActiveClock = entry.id === activeClockEntry?.id
             const isEditing = entry.id === editingEntryId
             const displayStart =
@@ -471,22 +498,26 @@ export function Time() {
                       />
                     </Field>
                     <div className="flex gap-3">
-                      <Field label="Start">
-                        <input
-                          type="time"
-                          className={inputClass}
-                          value={editStart}
-                          onChange={(e) => setEditStart(e.target.value)}
-                        />
-                      </Field>
-                      <Field label="End">
-                        <input
-                          type="time"
-                          className={inputClass}
-                          value={editEnd}
-                          onChange={(e) => setEditEnd(e.target.value)}
-                        />
-                      </Field>
+                      <div className="flex-1">
+                        <Field label="Start">
+                          <input
+                            type="time"
+                            className={inputClass}
+                            value={editStart}
+                            onChange={(e) => setEditStart(e.target.value)}
+                          />
+                        </Field>
+                      </div>
+                      <div className="flex-1">
+                        <Field label="End">
+                          <input
+                            type="time"
+                            className={inputClass}
+                            value={editEnd}
+                            onChange={(e) => setEditEnd(e.target.value)}
+                          />
+                        </Field>
+                      </div>
                     </div>
                     <Field label="Unpaid break (minutes)">
                       <input
@@ -553,6 +584,48 @@ export function Time() {
         </div>
       )}
       {error && !showForm && <p className="text-sm text-red-600 px-1">{error}</p>}
+
+      {isParentOrCoAdmin && archivedEntries.length > 0 && (
+        <div>
+          <button
+            className="flex w-full items-center justify-between px-1 py-2 text-sm font-medium text-gray-500"
+            onClick={() => setShowArchive((s) => !s)}
+          >
+            <span>Archived ({archivedEntries.length})</span>
+            <span className="text-xs">{showArchive ? '▲' : '▼'}</span>
+          </button>
+          {showArchive && (
+            <div className="space-y-2">
+              {archivedEntries.map((entry) => {
+                const displayStart =
+                  entry.manual_start_time ??
+                  (entry.clock_in_at ? new Date(entry.clock_in_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—')
+                const displayEnd =
+                  entry.manual_end_time ??
+                  (entry.clock_out_at ? new Date(entry.clock_out_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—')
+                return (
+                  <Card key={entry.id}>
+                    <div className="flex items-start justify-between gap-2 opacity-60">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">{entry.date}</p>
+                        <p className="text-xs text-gray-500">
+                          {displayStart}–{displayEnd} · {entry.paid_hours?.toFixed(2) ?? '0.00'} hrs
+                        </p>
+                      </div>
+                      <button
+                        className="shrink-0 text-xs text-blue-600 underline"
+                        onClick={() => handleRestore(entry)}
+                      >
+                        Restore
+                      </button>
+                    </div>
+                  </Card>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
