@@ -8,7 +8,7 @@ import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
-import type { CaregiverProfile, PayFrequency, PaydayRule, PayPeriodAnchor } from '../lib/types'
+import type { CaregiverProfile, GuaranteedHoursBasis, PayFrequency, PaydayRule, PayPeriodAnchor } from '../lib/types'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const PAY_FREQUENCIES: PayFrequency[] = ['weekly', 'biweekly', 'semi_monthly', 'monthly']
@@ -29,6 +29,7 @@ export function More() {
   const [overtimeThreshold, setOvertimeThreshold] = useState('40')
   const [overtimeMultiplier, setOvertimeMultiplier] = useState('1.5')
   const [guaranteedEnabled, setGuaranteedEnabled] = useState(false)
+  const [guaranteedBasis, setGuaranteedBasis] = useState<GuaranteedHoursBasis>('linked_to_schedule')
   const [guaranteedHours, setGuaranteedHours] = useState('')
   const [payFrequency, setPayFrequency] = useState<PayFrequency>('weekly')
   const [payPeriodAnchor, setPayPeriodAnchor] = useState<PayPeriodAnchor>('start_day')
@@ -41,6 +42,8 @@ export function More() {
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [joinCode, setJoinCode] = useState<string | null>(null)
+  const [joinCodeLoading, setJoinCodeLoading] = useState(false)
 
   const caregiver = caregivers.find((c) => c.id === caregiverId) ?? null
 
@@ -49,11 +52,36 @@ export function More() {
   }, [caregivers, caregiverId])
 
   useEffect(() => {
+    if (!household || !isParentOrCoAdmin) return
+    supabase.from('households').select('join_code').eq('id', household.id).single().then(({ data }) => {
+      setJoinCode((data as { join_code: string | null } | null)?.join_code ?? null)
+    })
+  }, [household, isParentOrCoAdmin])
+
+  async function generateJoinCode() {
+    if (!household) return
+    setJoinCodeLoading(true)
+    const code = Math.random().toString(36).slice(2, 8).toUpperCase()
+    const { error } = await supabase.from('households').update({ join_code: code }).eq('id', household.id)
+    if (!error) setJoinCode(code)
+    setJoinCodeLoading(false)
+  }
+
+  async function revokeJoinCode() {
+    if (!household) return
+    setJoinCodeLoading(true)
+    const { error } = await supabase.from('households').update({ join_code: null }).eq('id', household.id)
+    if (!error) setJoinCode(null)
+    setJoinCodeLoading(false)
+  }
+
+  useEffect(() => {
     if (!caregiver) return
     setRate(caregiver.default_hourly_rate?.toString() ?? '')
     setOvertimeThreshold(caregiver.overtime_threshold_hours.toString())
     setOvertimeMultiplier(caregiver.overtime_multiplier.toString())
     setGuaranteedEnabled(caregiver.guaranteed_hours_enabled)
+    setGuaranteedBasis(caregiver.guaranteed_hours_basis ?? 'linked_to_schedule')
     setGuaranteedHours(caregiver.fixed_weekly_guaranteed_hours?.toString() ?? '')
     setPayFrequency(caregiver.pay_frequency)
     setPayPeriodAnchor(caregiver.pay_period_anchor)
@@ -76,8 +104,15 @@ export function More() {
         overtime_threshold_hours: Number(overtimeThreshold) || 40,
         overtime_multiplier: Number(overtimeMultiplier) || 1.5,
         guaranteed_hours_enabled: guaranteedEnabled,
-        guaranteed_hours_basis: guaranteedEnabled ? 'fixed_weekly' : 'linked_to_schedule',
-        fixed_weekly_guaranteed_hours: guaranteedEnabled && guaranteedHours ? Number(guaranteedHours) : null,
+        guaranteed_hours_basis: guaranteedEnabled ? guaranteedBasis : 'linked_to_schedule',
+        fixed_weekly_guaranteed_hours:
+          guaranteedEnabled && guaranteedBasis === 'fixed_weekly' && guaranteedHours
+            ? Number(guaranteedHours)
+            : null,
+        fixed_pay_period_guaranteed_hours:
+          guaranteedEnabled && guaranteedBasis === 'fixed_pay_period' && guaranteedHours
+            ? Number(guaranteedHours)
+            : null,
         pay_frequency: payFrequency,
         pay_period_anchor: payPeriodAnchor,
         pay_period_start_day: Number(payPeriodStartDay) || 0,
@@ -127,6 +162,41 @@ export function More() {
         </div>
       </Card>
 
+      {isParentOrCoAdmin && (
+        <Card title="Nanny access">
+          <p className="mb-3 text-sm text-gray-500">
+            Share this code with your nanny so they can sign up and join your household.
+          </p>
+          {joinCode ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 rounded-xl bg-gray-50 px-4 py-3">
+                <span className="flex-1 font-mono text-2xl font-bold tracking-widest text-gray-900">
+                  {joinCode}
+                </span>
+                <button
+                  className="text-xs text-blue-600 underline disabled:opacity-50"
+                  disabled={joinCodeLoading}
+                  onClick={generateJoinCode}
+                >
+                  Regenerate
+                </button>
+              </div>
+              <button
+                className="text-xs text-red-500 underline disabled:opacity-50"
+                disabled={joinCodeLoading}
+                onClick={revokeJoinCode}
+              >
+                Revoke code
+              </button>
+            </div>
+          ) : (
+            <Button variant="secondary" onClick={generateJoinCode} disabled={joinCodeLoading}>
+              {joinCodeLoading ? 'Generating…' : 'Generate join code'}
+            </Button>
+          )}
+        </Card>
+      )}
+
       {isParentOrCoAdmin && caregivers.length > 0 && (
         <Card title="Caregiver pay settings">
           <CaregiverSelect caregivers={caregivers} value={caregiverId} onChange={setCaregiverId} />
@@ -166,18 +236,38 @@ export function More() {
                 checked={guaranteedEnabled}
                 onChange={(e) => setGuaranteedEnabled(e.target.checked)}
               />
-              Guaranteed weekly hours
+              Guaranteed hours enabled
             </label>
             {guaranteedEnabled && (
-              <Field label="Guaranteed hours per week">
-                <input
-                  type="number"
-                  step="0.25"
-                  className={inputClass}
-                  value={guaranteedHours}
-                  onChange={(e) => setGuaranteedHours(e.target.value)}
-                />
-              </Field>
+              <>
+                <Field label="Guaranteed hours basis">
+                  <select
+                    className={inputClass}
+                    value={guaranteedBasis}
+                    onChange={(e) => setGuaranteedBasis(e.target.value as GuaranteedHoursBasis)}
+                  >
+                    <option value="linked_to_schedule">Linked to recurring schedule</option>
+                    <option value="fixed_weekly">Fixed weekly amount</option>
+                    <option value="fixed_pay_period">Fixed per pay period</option>
+                  </select>
+                </Field>
+                {(guaranteedBasis === 'fixed_weekly' || guaranteedBasis === 'fixed_pay_period') && (
+                  <Field label={guaranteedBasis === 'fixed_weekly' ? 'Guaranteed hours per week' : 'Guaranteed hours per pay period'}>
+                    <input
+                      type="number"
+                      step="0.25"
+                      className={inputClass}
+                      value={guaranteedHours}
+                      onChange={(e) => setGuaranteedHours(e.target.value)}
+                    />
+                  </Field>
+                )}
+                {guaranteedBasis === 'linked_to_schedule' && (
+                  <p className="text-xs text-gray-500">
+                    Guaranteed hours will be calculated from the nanny's active recurring schedule — the sum of shift hours where "counts toward guaranteed hours" is enabled.
+                  </p>
+                )}
+              </>
             )}
             <div className="flex gap-3">
               <Field label="Pay frequency">

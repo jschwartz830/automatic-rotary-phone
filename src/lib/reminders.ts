@@ -1,5 +1,6 @@
 import { differenceInCalendarDays, parseISO } from 'date-fns'
 import type { CaregiverProfile, LeaveRequest, PaymentRecord, TimeEntry, Timesheet } from './types'
+import type { GeneratedShiftOccurrence } from './schedule'
 
 const DEFAULT_PAYMENT_REMINDER_DAYS_BEFORE = [0, 1]
 
@@ -22,8 +23,16 @@ export function computeReminders(input: {
   leaveRequests: LeaveRequest[]
   paymentRecords: PaymentRecord[]
   caregivers?: CaregiverProfile[]
+  scheduleOccurrences?: GeneratedShiftOccurrence[]
 }): ReminderCard[] {
-  const { today, timeEntries, timesheets, leaveRequests, paymentRecords, caregivers } = input
+  const { today, timeEntries, timesheets, leaveRequests, paymentRecords, caregivers, scheduleOccurrences } = input
+  // Index schedule occurrences by date for O(1) lookup
+  const occurrencesByDate = new Map<string, GeneratedShiftOccurrence[]>()
+  for (const occ of scheduleOccurrences ?? []) {
+    const list = occurrencesByDate.get(occ.date) ?? []
+    list.push(occ)
+    occurrencesByDate.set(occ.date, list)
+  }
   const cards: ReminderCard[] = []
   const reminderDaysByCaregiver = new Map(
     (caregivers ?? []).map((c) => [
@@ -32,23 +41,38 @@ export function computeReminders(input: {
     ])
   )
 
-  // Per spec 21, this should fire "after scheduled shift end plus grace
-  // period," but reminders are computed without schedule context here. As a
-  // stand-in, treat 12 hours since clock-in as the grace period -- long
-  // enough that someone still mid-shift isn't flagged, short enough to catch
-  // a forgotten clock-out same day or the day after.
-  const MISSING_CLOCK_OUT_GRACE_HOURS = 12
+  // Per spec 21, fire after scheduled shift end + 30 min grace. When no
+  // schedule occurrence exists for that date, fall back to 12 h since clock-in.
+  const FALLBACK_GRACE_HOURS = 12
+  const SCHEDULE_GRACE_MINUTES = 30
   for (const entry of timeEntries) {
-    if (entry.clock_in_at && !entry.clock_out_at) {
-      const hoursSinceClockIn = (today.getTime() - new Date(entry.clock_in_at).getTime()) / 3_600_000
-      if (hoursSinceClockIn >= MISSING_CLOCK_OUT_GRACE_HOURS) {
-        cards.push({
-          id: `missing-clock-out-${entry.id}`,
-          type: 'missing_clock_out',
-          severity: 'warning',
-          message: `Clock-out missing for ${entry.date}.`,
+    if (!entry.clock_in_at || entry.clock_out_at) continue
+    const clockInTime = new Date(entry.clock_in_at)
+    const occs = occurrencesByDate.get(entry.date)
+    let thresholdMs: number
+    if (occs && occs.length > 0) {
+      // Use the latest shift end time on that day + grace
+      const latestEndMinutes = Math.max(
+        ...occs.map((o) => {
+          const [h, m] = o.shift.end_time.split(':').map(Number)
+          return h * 60 + m
         })
-      }
+      )
+      const entryDate = parseISO(entry.date)
+      const shiftEndMs =
+        new Date(entryDate.getFullYear(), entryDate.getMonth(), entryDate.getDate()).getTime() +
+        latestEndMinutes * 60_000
+      thresholdMs = shiftEndMs + SCHEDULE_GRACE_MINUTES * 60_000
+    } else {
+      thresholdMs = clockInTime.getTime() + FALLBACK_GRACE_HOURS * 3_600_000
+    }
+    if (today.getTime() >= thresholdMs) {
+      cards.push({
+        id: `missing-clock-out-${entry.id}`,
+        type: 'missing_clock_out',
+        severity: 'warning',
+        message: `Clock-out missing for ${entry.date}.`,
+      })
     }
   }
 

@@ -1,4 +1,4 @@
-import type { LeavePolicy, LeaveRequest } from './types'
+import type { LeaveLedgerEntry, LeavePolicy, LeaveRequest } from './types'
 
 export type LeaveBalancePolicy = Pick<LeavePolicy, 'leave_type' | 'reset_month' | 'reset_day' | 'annual_allowance_hours'>
 
@@ -24,10 +24,39 @@ function toIsoDate(d: Date): string {
 }
 
 /**
- * Balance for a front-loaded-annual leave policy: the full allowance is
- * available at the start of the policy year, drawn down by approved/used
- * requests that fall within it. Other accrual methods aren't modeled here
- * (no backend cron exists to run periodic accruals), so they show usage only.
+ * Balance computed from the leave_ledger event log (spec §13.7).
+ * `balance` = sum of all hours_delta rows for this policy.
+ * `usedHours` = sum of negative deltas (used events) in the current policy year.
+ */
+export function computeLeaveBalanceFromLedger(
+  policy: LeaveBalancePolicy,
+  ledgerEntries: LeaveLedgerEntry[],
+  today: Date = new Date()
+): LeaveBalance {
+  const start = policyYearStart(policy, today)
+  const end = new Date(start.getFullYear() + 1, start.getMonth(), start.getDate())
+  const periodStart = toIsoDate(start)
+  const periodEnd = toIsoDate(new Date(end.getTime() - 1))
+
+  const currentBalance = ledgerEntries.reduce((sum, e) => sum + e.hours_delta, 0)
+  const usedInPeriod = ledgerEntries
+    .filter((e) => e.event_date >= periodStart && e.event_date <= periodEnd && e.hours_delta < 0)
+    .reduce((sum, e) => sum + Math.abs(e.hours_delta), 0)
+
+  const allowanceHours = policy.annual_allowance_hours
+  return {
+    allowanceHours,
+    usedHours: usedInPeriod,
+    remainingHours: allowanceHours == null ? currentBalance : Math.max(currentBalance, 0),
+    periodStart,
+    periodEnd,
+  }
+}
+
+/**
+ * Fallback: balance for a front-loaded-annual leave policy computed from
+ * leave_requests directly. Used when no ledger entries exist yet (e.g. policy
+ * created before migration 0010 ran).
  */
 export function computeLeaveBalance(
   policy: LeaveBalancePolicy,

@@ -10,10 +10,11 @@ import { errorMessage } from '../lib/errors'
 import { isValidCalendarDate } from '../lib/dates'
 import { calculateTimesheet } from '../lib/calc'
 import { downloadCsv } from '../lib/csv'
+import { generateShiftsForRange, shiftHours } from '../lib/schedule'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
-import type { CaregiverProfile, LeaveRequest, PaymentRecord, TimeEntry, Timesheet } from '../lib/types'
+import type { CaregiverProfile, LeaveRequest, PaymentRecord, ScheduleShift, ScheduleTemplate, TimeEntry, Timesheet } from '../lib/types'
 
 function computeDueDate(periodEnd: string, caregiver: CaregiverProfile): string {
   if (caregiver.payday_rule === 'days_after_period_end' && caregiver.payday_days_after_period_end != null) {
@@ -42,6 +43,16 @@ export function Pay() {
   const [error, setError] = useState<string | null>(null)
   const [showArchive, setShowArchive] = useState(false)
   const [pendingUnapproved, setPendingUnapproved] = useState<TimeEntry[]>([])
+  // Payment correction state
+  const [correctingPayment, setCorrectingPayment] = useState<PaymentRecord | null>(null)
+  const [correctionAmount, setCorrectionAmount] = useState('')
+  const [correctionNote, setCorrectionNote] = useState('')
+  const [correctionSubmitting, setCorrectionSubmitting] = useState(false)
+  // Nanny timesheet submission state
+  const [showNannyForm, setShowNannyForm] = useState(false)
+  const [nannyPeriodStart, setNannyPeriodStart] = useState('')
+  const [nannyPeriodEnd, setNannyPeriodEnd] = useState('')
+  const [nannySubmitting, setNannySubmitting] = useState(false)
 
   const activeCaregiver = isNanny ? caregiverProfile : caregivers.find((c) => c.id === caregiverId) ?? null
   const activeTimesheets = timesheets.filter((t) => !t.deleted_at)
@@ -77,6 +88,34 @@ export function Pay() {
     if (caregiverId) loadData(caregiverId)
   }, [caregiverId])
 
+  async function computeGuaranteedHoursBase(caregiver: CaregiverProfile, start: string, end: string): Promise<number> {
+    if (!caregiver.guaranteed_hours_enabled) return 0
+    if (caregiver.guaranteed_hours_basis === 'linked_to_schedule') {
+      // Sum shift hours from active recurring schedule where counts_toward_guaranteed_hours = true.
+      const { data: templateRows } = await supabase
+        .from('schedule_templates')
+        .select('*')
+        .eq('caregiver_id', caregiver.id)
+        .eq('active', true)
+      const templates = (templateRows ?? []) as ScheduleTemplate[]
+      if (templates.length === 0) return 0
+      const { data: shiftRows } = await supabase
+        .from('schedule_shifts')
+        .select('*')
+        .in('schedule_template_id', templates.map((t) => t.id))
+      const shiftsByTemplate: Record<string, ScheduleShift[]> = {}
+      for (const shift of (shiftRows ?? []) as ScheduleShift[]) {
+        shiftsByTemplate[shift.schedule_template_id] ??= []
+        shiftsByTemplate[shift.schedule_template_id].push(shift)
+      }
+      const occurrences = generateShiftsForRange(templates, shiftsByTemplate, start, end)
+      return occurrences
+        .filter((o) => o.shift.counts_toward_guaranteed_hours)
+        .reduce((sum, o) => sum + shiftHours(o.shift), 0)
+    }
+    return caregiver.fixed_weekly_guaranteed_hours ?? caregiver.fixed_pay_period_guaranteed_hours ?? 0
+  }
+
   async function doGenerate(timeEntries: TimeEntry[]) {
     if (!caregiverId || !household || !activeCaregiver) return
     const actualWorkedHours = timeEntries
@@ -94,9 +133,7 @@ export function Pay() {
     const sumLeave = (type: LeaveRequest['leave_type']) =>
       leaveRequests.filter((l) => l.leave_type === type).reduce((sum, l) => sum + (l.hours_requested ?? 0), 0)
 
-    const guaranteedHoursBase = activeCaregiver.guaranteed_hours_enabled
-      ? activeCaregiver.fixed_weekly_guaranteed_hours ?? activeCaregiver.fixed_pay_period_guaranteed_hours ?? 0
-      : 0
+    const guaranteedHoursBase = await computeGuaranteedHoursBase(activeCaregiver, periodStart, periodEnd)
 
     const result = calculateTimesheet({
       actualWorkedHours,
@@ -324,6 +361,139 @@ export function Pay() {
     }
   }
 
+  async function handleCorrectPayment(e: FormEvent) {
+    e.preventDefault()
+    if (!correctingPayment || !household) return
+    if (!correctionNote.trim()) {
+      setError('A note is required for payment corrections.')
+      return
+    }
+    setCorrectionSubmitting(true)
+    setError(null)
+    try {
+      const correctedAmount = Number(correctionAmount)
+      const { error: markError } = await supabase
+        .from('payment_records')
+        .update({ status: 'corrected' })
+        .eq('id', correctingPayment.id)
+      if (markError) throw markError
+
+      const { error: insertError } = await supabase.from('payment_records').insert({
+        caregiver_id: correctingPayment.caregiver_id,
+        timesheet_id: correctingPayment.timesheet_id,
+        period_start: correctingPayment.period_start,
+        period_end: correctingPayment.period_end,
+        due_date: new Date().toISOString().slice(0, 10),
+        status: 'due',
+        actual_worked_hours: correctingPayment.actual_worked_hours,
+        regular_worked_hours: correctingPayment.regular_worked_hours,
+        overtime_worked_hours: correctingPayment.overtime_worked_hours,
+        guaranteed_hours: correctingPayment.guaranteed_hours,
+        guarantee_adjustment_hours: correctingPayment.guarantee_adjustment_hours,
+        payable_regular_hours: correctingPayment.payable_regular_hours,
+        payable_overtime_hours: correctingPayment.payable_overtime_hours,
+        paid_pto_hours: correctingPayment.paid_pto_hours,
+        paid_sick_hours: correctingPayment.paid_sick_hours,
+        paid_holiday_hours: correctingPayment.paid_holiday_hours,
+        hourly_rate: correctingPayment.hourly_rate,
+        overtime_rate: correctingPayment.overtime_rate,
+        gross_pay_due: correctedAmount,
+        reimbursements: correctingPayment.reimbursements,
+        manual_adjustments: correctingPayment.manual_adjustments,
+        parent_note: `Correction of payment from ${correctingPayment.paid_at?.slice(0, 10) ?? correctingPayment.period_end}. Original: $${correctingPayment.gross_pay_due.toFixed(2)}. ${correctionNote}`,
+      })
+      if (insertError) throw insertError
+
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'payment_record',
+        entityId: correctingPayment.id,
+        action: 'correct',
+        before: { gross_pay_due: correctingPayment.gross_pay_due, status: correctingPayment.status },
+        after: { gross_pay_due: correctedAmount, note: correctionNote },
+      })
+
+      setCorrectingPayment(null)
+      setCorrectionAmount('')
+      setCorrectionNote('')
+      if (caregiverId) await loadData(caregiverId)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not save correction.'))
+    } finally {
+      setCorrectionSubmitting(false)
+    }
+  }
+
+  async function handleSubmitTimesheet(e: FormEvent) {
+    e.preventDefault()
+    if (!caregiverId || !household) return
+    if (!isValidCalendarDate(nannyPeriodStart) || !isValidCalendarDate(nannyPeriodEnd)) {
+      setError('Please enter valid dates.')
+      return
+    }
+    setNannySubmitting(true)
+    setError(null)
+    try {
+      const { data: entries } = await supabase
+        .from('time_entries')
+        .select('*')
+        .eq('caregiver_id', caregiverId)
+        .is('deleted_at', null)
+        .gte('date', nannyPeriodStart)
+        .lte('date', nannyPeriodEnd)
+        .eq('status', 'approved')
+      const timeEntries = (entries ?? []) as TimeEntry[]
+      const actualWorkedHours = timeEntries.reduce((sum, t) => sum + (t.paid_hours ?? 0), 0)
+
+      const { data: timesheet, error: tsError } = await supabase
+        .from('timesheets')
+        .insert({
+          caregiver_id: caregiverId,
+          period_start: nannyPeriodStart,
+          period_end: nannyPeriodEnd,
+          status: 'submitted',
+          submitted_at: new Date().toISOString(),
+          submitted_by: user?.id ?? null,
+          actual_worked_hours: actualWorkedHours,
+          scheduled_hours: 0,
+          guaranteed_hours: 0,
+          regular_worked_hours: actualWorkedHours,
+          overtime_worked_hours: 0,
+          paid_pto_hours: 0,
+          paid_sick_hours: 0,
+          paid_holiday_hours: 0,
+          family_cancellation_hours: 0,
+          unpaid_time_off_hours: 0,
+          guarantee_adjustment_hours: 0,
+          payable_regular_hours: actualWorkedHours,
+          payable_overtime_hours: 0,
+          gross_pay_due: 0,
+        })
+        .select()
+        .single()
+      if (tsError) throw tsError
+
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'timesheet',
+        entityId: timesheet.id,
+        action: 'submit',
+        after: { periodStart: nannyPeriodStart, periodEnd: nannyPeriodEnd, actualWorkedHours },
+      })
+
+      setShowNannyForm(false)
+      setNannyPeriodStart('')
+      setNannyPeriodEnd('')
+      await loadData(caregiverId)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not submit timesheet.'))
+    } finally {
+      setNannySubmitting(false)
+    }
+  }
+
   function exportTimesheets() {
     downloadCsv(
       'timesheets.csv',
@@ -360,6 +530,11 @@ export function Pay() {
         {isParentOrCoAdmin && (
           <Button variant="secondary" onClick={() => setShowForm((s) => !s)}>
             {showForm ? 'Cancel' : '+ Generate timesheet'}
+          </Button>
+        )}
+        {isNanny && (
+          <Button variant="secondary" onClick={() => setShowNannyForm((s) => !s)}>
+            {showNannyForm ? 'Cancel' : 'Submit timesheet'}
           </Button>
         )}
       </div>
@@ -422,6 +597,78 @@ export function Pay() {
         </Card>
       )}
 
+      {isNanny && showNannyForm && (
+        <Card title="Submit timesheet for review">
+          <form onSubmit={handleSubmitTimesheet} className="space-y-3">
+            <p className="text-xs text-gray-500">
+              Submit your approved time entries for this period so your employer can review and calculate pay.
+            </p>
+            <div className="flex gap-3">
+              <Field label="Period start">
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={nannyPeriodStart}
+                  onChange={(e) => setNannyPeriodStart(e.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Period end">
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={nannyPeriodEnd}
+                  onChange={(e) => setNannyPeriodEnd(e.target.value)}
+                  required
+                />
+              </Field>
+            </div>
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <Button type="submit" className="w-full" disabled={nannySubmitting}>
+              {nannySubmitting ? 'Submitting…' : 'Submit for review'}
+            </Button>
+          </form>
+        </Card>
+      )}
+
+      {correctingPayment && (
+        <Card title="Correct payment">
+          <form onSubmit={handleCorrectPayment} className="space-y-3">
+            <p className="text-xs text-gray-500">
+              Original: ${correctingPayment.gross_pay_due.toFixed(2)} for {correctingPayment.period_start} – {correctingPayment.period_end}.
+              The original record will be marked corrected and a new payment record will be created.
+            </p>
+            <Field label="Corrected amount ($)">
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                className={inputClass}
+                value={correctionAmount}
+                onChange={(e) => setCorrectionAmount(e.target.value)}
+                required
+              />
+            </Field>
+            <Field label="Reason for correction (required)">
+              <input
+                className={inputClass}
+                value={correctionNote}
+                onChange={(e) => setCorrectionNote(e.target.value)}
+                required
+              />
+            </Field>
+            <div className="flex gap-2">
+              <Button type="button" variant="secondary" className="flex-1" onClick={() => setCorrectingPayment(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" className="flex-1" disabled={correctionSubmitting}>
+                {correctionSubmitting ? 'Saving…' : 'Save correction'}
+              </Button>
+            </div>
+          </form>
+        </Card>
+      )}
+
       <Card title="Payments" action={isParentOrCoAdmin && activePayments.length > 0 && (
         <button className="text-xs text-blue-600 underline" onClick={exportPayments}>
           Export CSV
@@ -438,14 +685,31 @@ export function Pay() {
                     {p.period_start} – {p.period_end}
                   </p>
                   <p className="text-xs text-gray-500">Due {p.due_date} · ${p.gross_pay_due.toFixed(2)}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <StatusChip status={p.status} />
-                  {isParentOrCoAdmin && p.status !== 'paid' && p.status !== 'voided' && (
-                    <button className="text-xs text-blue-600 underline" onClick={() => markPaid(p)}>
-                      Mark paid
-                    </button>
+                  {p.parent_note && (
+                    <p className="mt-0.5 text-xs text-gray-400">{p.parent_note}</p>
                   )}
+                </div>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <StatusChip status={p.status} />
+                  <div className="flex items-center gap-2">
+                    {isParentOrCoAdmin && p.status !== 'paid' && p.status !== 'voided' && p.status !== 'corrected' && (
+                      <button className="text-xs text-blue-600 underline" onClick={() => markPaid(p)}>
+                        Mark paid
+                      </button>
+                    )}
+                    {isParentOrCoAdmin && p.status === 'paid' && !correctingPayment && (
+                      <button
+                        className="text-xs text-amber-600 underline"
+                        onClick={() => {
+                          setCorrectingPayment(p)
+                          setCorrectionAmount(p.gross_pay_due.toFixed(2))
+                          setCorrectionNote('')
+                        }}
+                      >
+                        Correct
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
