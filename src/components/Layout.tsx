@@ -21,12 +21,12 @@ export function Layout() {
   const tabs = isNanny ? NANNY_TABS : PARENT_TABS
 
   return (
-    <div className="mx-auto flex min-h-svh max-w-md flex-col bg-gray-50 pt-[env(safe-area-inset-top)]">
-      <main className="flex-1 overflow-y-auto pb-[calc(3.75rem+env(safe-area-inset-bottom))]">
+    <div className="mx-auto flex min-h-dvh max-w-md flex-col bg-gray-50 pt-[env(safe-area-inset-top)]">
+      <main className="flex-1 overflow-y-auto">
         <Outlet />
       </main>
       <nav
-        className="fixed bottom-0 left-1/2 z-10 w-full max-w-md -translate-x-1/2 border-t border-gray-200 bg-white"
+        className="z-10 shrink-0 border-t border-gray-200 bg-white"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="flex">
