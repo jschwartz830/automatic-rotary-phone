@@ -8,7 +8,7 @@ import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
-import type { CaregiverProfile, PayFrequency, PaydayRule, PayPeriodAnchor } from '../lib/types'
+import type { CaregiverProfile, GuaranteedHoursBasis, PayFrequency, PaydayRule, PayPeriodAnchor } from '../lib/types'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const PAY_FREQUENCIES: PayFrequency[] = ['weekly', 'biweekly', 'semi_monthly', 'monthly']
@@ -29,6 +29,7 @@ export function More() {
   const [overtimeThreshold, setOvertimeThreshold] = useState('40')
   const [overtimeMultiplier, setOvertimeMultiplier] = useState('1.5')
   const [guaranteedEnabled, setGuaranteedEnabled] = useState(false)
+  const [guaranteedBasis, setGuaranteedBasis] = useState<GuaranteedHoursBasis>('linked_to_schedule')
   const [guaranteedHours, setGuaranteedHours] = useState('')
   const [payFrequency, setPayFrequency] = useState<PayFrequency>('weekly')
   const [payPeriodAnchor, setPayPeriodAnchor] = useState<PayPeriodAnchor>('start_day')
@@ -54,6 +55,7 @@ export function More() {
     setOvertimeThreshold(caregiver.overtime_threshold_hours.toString())
     setOvertimeMultiplier(caregiver.overtime_multiplier.toString())
     setGuaranteedEnabled(caregiver.guaranteed_hours_enabled)
+    setGuaranteedBasis(caregiver.guaranteed_hours_basis ?? 'linked_to_schedule')
     setGuaranteedHours(caregiver.fixed_weekly_guaranteed_hours?.toString() ?? '')
     setPayFrequency(caregiver.pay_frequency)
     setPayPeriodAnchor(caregiver.pay_period_anchor)
@@ -76,8 +78,15 @@ export function More() {
         overtime_threshold_hours: Number(overtimeThreshold) || 40,
         overtime_multiplier: Number(overtimeMultiplier) || 1.5,
         guaranteed_hours_enabled: guaranteedEnabled,
-        guaranteed_hours_basis: guaranteedEnabled ? 'fixed_weekly' : 'linked_to_schedule',
-        fixed_weekly_guaranteed_hours: guaranteedEnabled && guaranteedHours ? Number(guaranteedHours) : null,
+        guaranteed_hours_basis: guaranteedEnabled ? guaranteedBasis : 'linked_to_schedule',
+        fixed_weekly_guaranteed_hours:
+          guaranteedEnabled && guaranteedBasis === 'fixed_weekly' && guaranteedHours
+            ? Number(guaranteedHours)
+            : null,
+        fixed_pay_period_guaranteed_hours:
+          guaranteedEnabled && guaranteedBasis === 'fixed_pay_period' && guaranteedHours
+            ? Number(guaranteedHours)
+            : null,
         pay_frequency: payFrequency,
         pay_period_anchor: payPeriodAnchor,
         pay_period_start_day: Number(payPeriodStartDay) || 0,
@@ -166,18 +175,38 @@ export function More() {
                 checked={guaranteedEnabled}
                 onChange={(e) => setGuaranteedEnabled(e.target.checked)}
               />
-              Guaranteed weekly hours
+              Guaranteed hours enabled
             </label>
             {guaranteedEnabled && (
-              <Field label="Guaranteed hours per week">
-                <input
-                  type="number"
-                  step="0.25"
-                  className={inputClass}
-                  value={guaranteedHours}
-                  onChange={(e) => setGuaranteedHours(e.target.value)}
-                />
-              </Field>
+              <>
+                <Field label="Guaranteed hours basis">
+                  <select
+                    className={inputClass}
+                    value={guaranteedBasis}
+                    onChange={(e) => setGuaranteedBasis(e.target.value as GuaranteedHoursBasis)}
+                  >
+                    <option value="linked_to_schedule">Linked to recurring schedule</option>
+                    <option value="fixed_weekly">Fixed weekly amount</option>
+                    <option value="fixed_pay_period">Fixed per pay period</option>
+                  </select>
+                </Field>
+                {(guaranteedBasis === 'fixed_weekly' || guaranteedBasis === 'fixed_pay_period') && (
+                  <Field label={guaranteedBasis === 'fixed_weekly' ? 'Guaranteed hours per week' : 'Guaranteed hours per pay period'}>
+                    <input
+                      type="number"
+                      step="0.25"
+                      className={inputClass}
+                      value={guaranteedHours}
+                      onChange={(e) => setGuaranteedHours(e.target.value)}
+                    />
+                  </Field>
+                )}
+                {guaranteedBasis === 'linked_to_schedule' && (
+                  <p className="text-xs text-gray-500">
+                    Guaranteed hours will be calculated from the nanny's active recurring schedule — the sum of shift hours where "counts toward guaranteed hours" is enabled.
+                  </p>
+                )}
+              </>
             )}
             <div className="flex gap-3">
               <Field label="Pay frequency">

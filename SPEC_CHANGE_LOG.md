@@ -8,6 +8,47 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-01 — Phase: guaranteed-hours wiring, schedule-aware reminders, payment corrections, PTO ledger
+
+**`linked_to_schedule` guaranteed hours fully wired (spec 13.6, 16.3, Q&A item 2).**
+`More.tsx` previously saved `guaranteed_hours_basis = 'fixed_weekly'` whenever the
+guarantee checkbox was on, and `'linked_to_schedule'` when it was off — backwards
+from the spec. Now: the checkbox enables/disables the guarantee; a new select
+chooses the basis (`linked_to_schedule`, `fixed_weekly`, `fixed_pay_period`). When
+`linked_to_schedule` is selected, `Pay.tsx`'s `doGenerate` calls
+`generateShiftsForRange` over the pay period and sums shift hours where
+`counts_toward_guaranteed_hours = true`, exactly as spec 16.3 requires.
+Previously it always used the fixed numeric field regardless of basis.
+
+**Schedule-aware missing-clock-out grace period (spec 21, Q&A item 3).**
+`computeReminders` in `reminders.ts` now accepts an optional `scheduleOccurrences`
+array. When occurrences exist for the entry's date, the threshold is the latest
+scheduled shift end time on that day + 30 minutes, matching spec 21 ("after
+scheduled shift end plus grace period"). The 12-hour fallback is kept for days
+with no scheduled shift. `Home.tsx` now loads schedule templates and shifts for
+the past 2 days and passes the generated occurrences into `computeReminders`.
+
+**Payment correction workflow (spec 13.8, Q&A item 4).**
+`Pay.tsx` now has a "Correct" button on paid payment records. Clicking it opens
+an inline form requiring a corrected amount and a mandatory note. On submit:
+the original record's status is set to `'corrected'`; a new payment record is
+created with `status: 'due'`, the corrected amount, and a parent_note explaining
+the correction and original amount; the correction is logged to `audit_events`.
+The original record is never deleted, per spec 13.8.
+
+**PTO ledger event writes (spec 13.7, Q&A item 1 — partial).**
+`Pto.tsx` now writes `leave_ledger` rows for two operations:
+(1) When a parent approves a PTO request, a `'used'` event is written with
+`hours_delta = -hours_requested` and the running `balance_after`.
+(2) When a parent sets or changes an annual allowance, an `'opening_balance'`
+(new policy) or `'manual_adjustment'` (change to existing) event is written.
+The balance display in `Pto.tsx` still reads from `leave_requests` directly for
+now (so existing requests without ledger rows aren't broken); migrating the
+balance read to `sum(leave_ledger.hours_delta)` is the next step and will be
+cleaner once all accrual paths write ledger rows.
+
+---
+
 ## 2026-06-30 — Phase: nanny-facing gaps closed
 
 **Manual time entry now pre-fills from the scheduled shift (spec 13.4, 13.2).**

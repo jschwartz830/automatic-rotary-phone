@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { differenceInCalendarDays, parseISO } from 'date-fns'
+import { differenceInCalendarDays, parseISO, subDays } from 'date-fns'
 import { useHousehold } from '../context/HouseholdContext'
 import { useCaregivers } from '../lib/useCaregivers'
 import { supabase } from '../lib/supabase'
 import { computeReminders, type ReminderCard } from '../lib/reminders'
+import { generateShiftsForRange } from '../lib/schedule'
 import { Card } from '../components/Card'
-import type { LeaveRequest, PaymentRecord, TimeEntry, Timesheet } from '../lib/types'
+import type { LeaveRequest, PaymentRecord, ScheduleShift, ScheduleTemplate, TimeEntry, Timesheet } from '../lib/types'
 
 interface DashboardCard {
   id: string
@@ -117,11 +118,17 @@ export function Home() {
     let cancelled = false
     async function load() {
       setLoading(true)
-      const [timeEntries, timesheets, leaveRequests, paymentRecords] = await Promise.all([
+      const today = new Date()
+      // Load schedule data for the past 2 days (enough to catch missed clock-outs)
+      const rangeStart = subDays(today, 2).toISOString().slice(0, 10)
+      const rangeEnd = today.toISOString().slice(0, 10)
+
+      const [timeEntries, timesheets, leaveRequests, paymentRecords, templateRows] = await Promise.all([
         supabase.from('time_entries').select('*').in('caregiver_id', caregiverIds),
         supabase.from('timesheets').select('*').in('caregiver_id', caregiverIds),
         supabase.from('leave_requests').select('*').in('caregiver_id', caregiverIds),
         supabase.from('payment_records').select('*').in('caregiver_id', caregiverIds),
+        supabase.from('schedule_templates').select('*').in('caregiver_id', caregiverIds).eq('active', true),
       ])
       if (cancelled) return
       const allTimesheets = (timesheets.data ?? []) as Timesheet[]
@@ -130,14 +137,31 @@ export function Home() {
       const activePayments = allPayments.filter((p) => !p.deleted_at)
       const allTimeEntries = (timeEntries.data ?? []) as TimeEntry[]
       const allLeaveRequests = (leaveRequests.data ?? []) as LeaveRequest[]
+      const templates = (templateRows.data ?? []) as ScheduleTemplate[]
+
+      // Load shifts for those templates to build schedule occurrences
+      let scheduleOccurrences: ReturnType<typeof generateShiftsForRange> = []
+      if (templates.length > 0) {
+        const { data: shiftRows } = await supabase
+          .from('schedule_shifts')
+          .select('*')
+          .in('schedule_template_id', templates.map((t) => t.id))
+        const shiftsByTemplate: Record<string, ScheduleShift[]> = {}
+        for (const shift of (shiftRows ?? []) as ScheduleShift[]) {
+          shiftsByTemplate[shift.schedule_template_id] ??= []
+          shiftsByTemplate[shift.schedule_template_id].push(shift)
+        }
+        scheduleOccurrences = generateShiftsForRange(templates, shiftsByTemplate, rangeStart, rangeEnd)
+      }
 
       const cards = computeReminders({
-        today: new Date(),
+        today,
         timeEntries: allTimeEntries,
         timesheets: activeTimesheets,
         leaveRequests: allLeaveRequests,
         paymentRecords: activePayments,
         caregivers,
+        scheduleOccurrences,
       })
       cards.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
       setReminders(cards)

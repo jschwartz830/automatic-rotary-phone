@@ -114,16 +114,49 @@ export function Pto() {
     setSavingPolicy(type)
     try {
       const draft = allowanceDrafts[type] ?? ''
-      const { error: upsertError } = await supabase.from('leave_policies').upsert(
-        {
-          caregiver_id: caregiverId,
-          leave_type: type,
-          accrual_method: 'front_loaded_annual',
-          annual_allowance_hours: draft ? Number(draft) : null,
-        },
-        { onConflict: 'caregiver_id,leave_type' }
-      )
+      const newHours = draft ? Number(draft) : null
+      const existingPolicy = policies.find((p) => p.leave_type === type)
+      const { data: upsertedRows, error: upsertError } = await supabase
+        .from('leave_policies')
+        .upsert(
+          {
+            caregiver_id: caregiverId,
+            leave_type: type,
+            accrual_method: 'front_loaded_annual',
+            annual_allowance_hours: newHours,
+          },
+          { onConflict: 'caregiver_id,leave_type' }
+        )
+        .select()
       if (upsertError) throw upsertError
+
+      // Write an opening_balance ledger event when the policy is first created,
+      // or a manual_adjustment when the allowance changes.
+      if (newHours != null) {
+        const policyId = (upsertedRows?.[0] as { id?: string } | null)?.id ?? existingPolicy?.id
+        if (policyId) {
+          const isNew = !existingPolicy
+          const { data: ledgerRows } = await supabase
+            .from('leave_ledger')
+            .select('hours_delta')
+            .eq('caregiver_id', caregiverId)
+            .eq('leave_policy_id', policyId)
+          const currentBalance = (ledgerRows ?? []).reduce((sum: number, r: { hours_delta: number }) => sum + r.hours_delta, 0)
+          const delta = isNew ? newHours : newHours - (existingPolicy?.annual_allowance_hours ?? 0)
+          if (delta !== 0) {
+            await supabase.from('leave_ledger').insert({
+              caregiver_id: caregiverId,
+              leave_policy_id: policyId,
+              event_date: new Date().toISOString().slice(0, 10),
+              event_type: isNew ? 'opening_balance' : 'manual_adjustment',
+              hours_delta: delta,
+              balance_after: currentBalance + delta,
+              created_by: user?.id ?? null,
+              notes: isNew ? `Initial ${type} allowance set to ${newHours} hrs` : `Allowance updated from ${existingPolicy?.annual_allowance_hours ?? 0} to ${newHours} hrs`,
+            })
+          }
+        }
+      }
 
       await logAuditEvent({
         householdId: household.id,
@@ -147,6 +180,31 @@ export function Pto() {
       .from('leave_requests')
       .update({ status, reviewed_by: user?.id ?? null, reviewed_at: new Date().toISOString() })
       .eq('id', request.id)
+
+    if (status === 'approved' && request.hours_requested) {
+      // Write a leave_ledger event so the balance is event-sourced per spec 13.7.
+      const policy = policies.find((p) => p.leave_type === request.leave_type)
+      if (policy) {
+        // Compute running balance from existing ledger
+        const { data: ledgerRows } = await supabase
+          .from('leave_ledger')
+          .select('hours_delta')
+          .eq('caregiver_id', request.caregiver_id)
+          .eq('leave_policy_id', policy.id)
+        const currentBalance = (ledgerRows ?? []).reduce((sum: number, r: { hours_delta: number }) => sum + r.hours_delta, 0)
+        await supabase.from('leave_ledger').insert({
+          caregiver_id: request.caregiver_id,
+          leave_policy_id: policy.id,
+          event_date: request.start_date,
+          event_type: 'used',
+          hours_delta: -request.hours_requested,
+          balance_after: currentBalance - request.hours_requested,
+          related_leave_request_id: request.id,
+          created_by: user?.id ?? null,
+        })
+      }
+    }
+
     if (caregiverId) await loadRequests(caregiverId)
   }
 
