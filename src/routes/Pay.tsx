@@ -10,6 +10,7 @@ import { errorMessage } from '../lib/errors'
 import { isValidCalendarDate } from '../lib/dates'
 import { calculateTimesheet } from '../lib/calc'
 import { downloadCsv } from '../lib/csv'
+import { catchUpPayPeriod, computeCurrentPayPeriod } from '../lib/payPeriod'
 import {
   generateShiftsForRange,
   scheduleExceptionHoursDelta,
@@ -29,6 +30,13 @@ import type {
   TimeEntry,
   Timesheet,
 } from '../lib/types'
+
+function timesheetErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && (err as { code?: string }).code === '23505') {
+    return 'A timesheet for this exact date range already exists (it may be in Archived below). Adjust the dates instead of regenerating the same period.'
+  }
+  return errorMessage(err, fallback)
+}
 
 function computeDueDate(periodEnd: string, caregiver: CaregiverProfile): string {
   if (caregiver.payday_rule === 'days_after_period_end' && caregiver.payday_days_after_period_end != null) {
@@ -80,6 +88,13 @@ export function Pay() {
   const activeTimesheets = timesheets.filter((t) => !t.deleted_at)
   const trashedTimesheets = timesheets.filter((t) => t.deleted_at)
   const activePayments = payments.filter((p) => !p.deleted_at)
+  // Includes archived timesheets too -- the unique (caregiver, period_start,
+  // period_end) constraint still blocks regenerating an archived period, so
+  // catch-up must resume after it, not before.
+  const lastPeriodEnd = timesheets.reduce<string | null>(
+    (latest, t) => (!latest || t.period_end > latest ? t.period_end : latest),
+    null
+  )
 
   useEffect(() => {
     if (isNanny && caregiverProfile) {
@@ -109,6 +124,33 @@ export function Pay() {
   useEffect(() => {
     if (caregiverId) loadData(caregiverId)
   }, [caregiverId])
+
+  // Default both date-range forms to the pay period tied to the next
+  // payday, so opening either form starts from a sensible range instead of
+  // blank inputs.
+  useEffect(() => {
+    if (!activeCaregiver) return
+    const { start, end } = computeCurrentPayPeriod(activeCaregiver)
+    setPeriodStart(start)
+    setPeriodEnd(end)
+    setNannyPeriodStart(start)
+    setNannyPeriodEnd(end)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caregiverId])
+
+  function applyCatchUpPeriod() {
+    if (!activeCaregiver) return
+    const { start, end } = catchUpPayPeriod(activeCaregiver, lastPeriodEnd)
+    setPeriodStart(start)
+    setPeriodEnd(end)
+  }
+
+  function applyCatchUpNannyPeriod() {
+    if (!activeCaregiver) return
+    const { start, end } = catchUpPayPeriod(activeCaregiver, lastPeriodEnd)
+    setNannyPeriodStart(start)
+    setNannyPeriodEnd(end)
+  }
 
   // Loads schedule templates/shifts/exceptions for a period once so guaranteed
   // hours, scheduled hours, and family cancellation hours can all be derived
@@ -317,7 +359,7 @@ export function Pay() {
       }
       await doGenerate(timeEntries)
     } catch (err) {
-      setError(errorMessage(err, 'Could not generate timesheet.'))
+      setError(timesheetErrorMessage(err, 'Could not generate timesheet.'))
     } finally {
       setSubmitting(false)
     }
@@ -337,7 +379,7 @@ export function Pay() {
         .lte('date', periodEnd)
       await doGenerate((entries ?? []) as TimeEntry[])
     } catch (err) {
-      setError(errorMessage(err, 'Could not generate timesheet.'))
+      setError(timesheetErrorMessage(err, 'Could not generate timesheet.'))
     } finally {
       setSubmitting(false)
     }
@@ -617,7 +659,7 @@ export function Pay() {
       setNannyPeriodEnd('')
       await loadData(caregiverId)
     } catch (err) {
-      setError(errorMessage(err, 'Could not submit timesheet.'))
+      setError(timesheetErrorMessage(err, 'Could not submit timesheet.'))
     } finally {
       setNannySubmitting(false)
     }
@@ -699,6 +741,13 @@ export function Pay() {
                 </Field>
               </div>
             </div>
+            <button
+              type="button"
+              className="text-xs text-blue-600 underline dark:text-blue-400"
+              onClick={applyCatchUpPeriod}
+            >
+              Catch up since last period{lastPeriodEnd ? ` (${lastPeriodEnd})` : ''}
+            </button>
             {activeCaregiver?.family_cancellation_counts_toward_guarantee && (
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Family cancellation and weather/emergency hours are pulled automatically from approved schedule
@@ -770,6 +819,13 @@ export function Pay() {
                 </Field>
               </div>
             </div>
+            <button
+              type="button"
+              className="text-xs text-blue-600 underline dark:text-blue-400"
+              onClick={applyCatchUpNannyPeriod}
+            >
+              Catch up since last period{lastPeriodEnd ? ` (${lastPeriodEnd})` : ''}
+            </button>
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
             <Button type="submit" className="w-full" disabled={nannySubmitting}>
               {nannySubmitting ? 'Submitting…' : 'Submit for review'}
