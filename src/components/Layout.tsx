@@ -22,18 +22,21 @@ export function Layout() {
 
   return (
     <div className="mx-auto flex h-full w-full max-w-md flex-col overflow-hidden bg-gray-50 pt-[env(safe-area-inset-top)] dark:bg-gray-900">
-      <main className="min-h-0 flex-1 overflow-y-auto pb-[calc(3rem+env(safe-area-inset-bottom))]">
+      <main className="min-h-0 flex-1 overflow-y-auto pb-12">
         <Outlet />
       </main>
       {/* The dock is pinned to the TRUE bottom of the screen with
-          position:fixed/bottom:0. This is the one anchor iOS gets right in an
-          installed home-screen app: unlike viewport heights (vh/svh/dvh) and
-          the fixed-positioning containing block used for full-height layout,
-          which can stop short of the screen and leave a phantom-toolbar gap,
-          bottom:0 lands on the real screen edge. */}
+          position:fixed/bottom:0 -- the one anchor iOS gets right in an
+          installed home-screen app (viewport heights and the fixed-positioning
+          containing block can stop short of the real screen edge).
+
+          The tab row sits flush on that bottom edge: we intentionally do NOT
+          add padding-bottom: env(safe-area-inset-bottom). Reserving the home
+          indicator's safe area just floats the icons up and reads as a gap
+          below the dock; keeping the icons at the very bottom is the requested
+          look, and they clear the translucent home indicator fine. */}
       <nav
         className="fixed inset-x-0 bottom-0 z-10 mx-auto max-w-md border-t border-gray-200 bg-white/95 backdrop-blur dark:border-gray-800 dark:bg-gray-900/95"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         {/* Belt-and-suspenders: extend the dock's background below its own box
             so the bottom edge stays covered even in the unlikely case bottom:0
