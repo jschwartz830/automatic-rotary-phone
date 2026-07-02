@@ -57,6 +57,7 @@ export function More() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [joinCode, setJoinCode] = useState<string | null>(null)
   const [joinCodeLoading, setJoinCodeLoading] = useState(false)
+  const [joinCodeError, setJoinCodeError] = useState<string | null>(null)
   const [showAddCaregiver, setShowAddCaregiver] = useState(false)
   const [newCaregiverName, setNewCaregiverName] = useState('')
   const [newCaregiverRate, setNewCaregiverRate] = useState('')
@@ -118,18 +119,32 @@ export function More() {
   async function generateJoinCode() {
     if (!household) return
     setJoinCodeLoading(true)
-    const code = Math.random().toString(36).slice(2, 8).toUpperCase()
-    const { error } = await supabase.from('households').update({ join_code: code }).eq('id', household.id)
-    if (!error) setJoinCode(code)
-    setJoinCodeLoading(false)
+    setJoinCodeError(null)
+    try {
+      const code = Math.random().toString(36).slice(2, 8).toUpperCase()
+      const { error } = await supabase.from('households').update({ join_code: code }).eq('id', household.id)
+      if (error) throw error
+      setJoinCode(code)
+    } catch (err) {
+      setJoinCodeError(errorMessage(err, 'Could not generate join code.'))
+    } finally {
+      setJoinCodeLoading(false)
+    }
   }
 
   async function revokeJoinCode() {
     if (!household) return
     setJoinCodeLoading(true)
-    const { error } = await supabase.from('households').update({ join_code: null }).eq('id', household.id)
-    if (!error) setJoinCode(null)
-    setJoinCodeLoading(false)
+    setJoinCodeError(null)
+    try {
+      const { error } = await supabase.from('households').update({ join_code: null }).eq('id', household.id)
+      if (error) throw error
+      setJoinCode(null)
+    } catch (err) {
+      setJoinCodeError(errorMessage(err, 'Could not revoke join code.'))
+    } finally {
+      setJoinCodeLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -335,6 +350,7 @@ export function More() {
               {joinCodeLoading ? 'Generating…' : 'Generate join code'}
             </Button>
           )}
+          {joinCodeError && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{joinCodeError}</p>}
         </Card>
       )}
 
