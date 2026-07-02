@@ -22,13 +22,10 @@ export function Layout() {
 
   return (
     <div className="fixed inset-0 mx-auto flex max-w-md flex-col overflow-hidden bg-gray-50 pt-[env(safe-area-inset-top)] dark:bg-gray-900">
-      <main className="min-h-0 flex-1 overflow-y-auto">
+      <main className="min-h-0 flex-1 overflow-y-auto pb-12">
         <Outlet />
       </main>
-      <nav
-        className="z-10 shrink-0 border-t border-gray-200 bg-white/95 backdrop-blur dark:border-gray-800 dark:bg-gray-900/95"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-      >
+      <nav className="fixed bottom-0 left-1/2 z-10 w-full max-w-md -translate-x-1/2 border-t border-gray-200 bg-white/95 backdrop-blur dark:border-gray-800 dark:bg-gray-900/95">
         {/* Fixed row height keeps the bar identically sized on every tab,
             regardless of how each icon glyph happens to measure itself. */}
         <div className="flex h-12">
