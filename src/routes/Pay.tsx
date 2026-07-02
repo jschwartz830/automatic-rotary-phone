@@ -10,11 +10,25 @@ import { errorMessage } from '../lib/errors'
 import { isValidCalendarDate } from '../lib/dates'
 import { calculateTimesheet } from '../lib/calc'
 import { downloadCsv } from '../lib/csv'
-import { generateShiftsForRange, shiftHours } from '../lib/schedule'
+import {
+  generateShiftsForRange,
+  scheduleExceptionHoursDelta,
+  shiftHours,
+  sumExceptionHoursByType,
+} from '../lib/schedule'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
-import type { CaregiverProfile, LeaveRequest, PaymentRecord, ScheduleShift, ScheduleTemplate, TimeEntry, Timesheet } from '../lib/types'
+import type {
+  CaregiverProfile,
+  LeaveRequest,
+  PaymentRecord,
+  ScheduleException,
+  ScheduleShift,
+  ScheduleTemplate,
+  TimeEntry,
+  Timesheet,
+} from '../lib/types'
 
 function computeDueDate(periodEnd: string, caregiver: CaregiverProfile): string {
   if (caregiver.payday_rule === 'days_after_period_end' && caregiver.payday_days_after_period_end != null) {
@@ -39,7 +53,6 @@ export function Pay() {
   const [showForm, setShowForm] = useState(false)
   const [periodStart, setPeriodStart] = useState('')
   const [periodEnd, setPeriodEnd] = useState('')
-  const [familyCancellationHours, setFamilyCancellationHours] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showArchive, setShowArchive] = useState(false)
@@ -97,30 +110,61 @@ export function Pay() {
     if (caregiverId) loadData(caregiverId)
   }, [caregiverId])
 
-  async function computeGuaranteedHoursBase(caregiver: CaregiverProfile, start: string, end: string): Promise<number> {
-    if (!caregiver.guaranteed_hours_enabled) return 0
-    if (caregiver.guaranteed_hours_basis === 'linked_to_schedule') {
-      // Sum shift hours from active recurring schedule where counts_toward_guaranteed_hours = true.
-      const { data: templateRows } = await supabase
-        .from('schedule_templates')
-        .select('*')
-        .eq('caregiver_id', caregiver.id)
-        .eq('active', true)
-      const templates = (templateRows ?? []) as ScheduleTemplate[]
-      if (templates.length === 0) return 0
+  // Loads schedule templates/shifts/exceptions for a period once so guaranteed
+  // hours, scheduled hours, and family cancellation hours can all be derived
+  // from the same schedule-exceptions snapshot (spec 13.3, 16.2, 16.3).
+  async function loadScheduleContext(caregiverId: string, start: string, end: string) {
+    const { data: templateRows } = await supabase
+      .from('schedule_templates')
+      .select('*')
+      .eq('caregiver_id', caregiverId)
+      .eq('active', true)
+    const templates = (templateRows ?? []) as ScheduleTemplate[]
+    const shiftsByTemplate: Record<string, ScheduleShift[]> = {}
+    if (templates.length > 0) {
       const { data: shiftRows } = await supabase
         .from('schedule_shifts')
         .select('*')
         .in('schedule_template_id', templates.map((t) => t.id))
-      const shiftsByTemplate: Record<string, ScheduleShift[]> = {}
       for (const shift of (shiftRows ?? []) as ScheduleShift[]) {
         shiftsByTemplate[shift.schedule_template_id] ??= []
         shiftsByTemplate[shift.schedule_template_id].push(shift)
       }
-      const occurrences = generateShiftsForRange(templates, shiftsByTemplate, start, end)
-      return occurrences
+    }
+    const shiftsById: Record<string, ScheduleShift> = Object.fromEntries(
+      Object.values(shiftsByTemplate).flat().map((s) => [s.id, s])
+    )
+    const occurrences = generateShiftsForRange(templates, shiftsByTemplate, start, end)
+
+    const { data: exceptionRows } = await supabase
+      .from('schedule_exceptions')
+      .select('*')
+      .eq('caregiver_id', caregiverId)
+      .eq('status', 'approved')
+      .gte('date', start)
+      .lte('date', end)
+    const exceptions = (exceptionRows ?? []) as ScheduleException[]
+
+    return { occurrences, exceptions, shiftsById }
+  }
+
+  function computeGuaranteedHoursBase(
+    caregiver: CaregiverProfile,
+    occurrences: ReturnType<typeof generateShiftsForRange>,
+    exceptions: ScheduleException[],
+    shiftsById: Record<string, ScheduleShift>
+  ): number {
+    if (!caregiver.guaranteed_hours_enabled) return 0
+    if (caregiver.guaranteed_hours_basis === 'linked_to_schedule') {
+      // Sum shift hours from active recurring schedule where
+      // counts_toward_guaranteed_hours = true, then apply the net effect of
+      // any one-off exceptions explicitly marked as counting toward the
+      // guarantee (spec 13.6 "Schedule-Linked Guarantee").
+      const base = occurrences
         .filter((o) => o.shift.counts_toward_guaranteed_hours)
         .reduce((sum, o) => sum + shiftHours(o.shift), 0)
+      const exceptionDelta = scheduleExceptionHoursDelta(exceptions, shiftsById, { onlyGuaranteed: true })
+      return Math.max(base + exceptionDelta, 0)
     }
     return caregiver.fixed_weekly_guaranteed_hours ?? caregiver.fixed_pay_period_guaranteed_hours ?? 0
   }
@@ -142,9 +186,17 @@ export function Pay() {
     const sumLeave = (type: LeaveRequest['leave_type']) =>
       leaveRequests.filter((l) => l.leave_type === type).reduce((sum, l) => sum + (l.hours_requested ?? 0), 0)
 
-    const guaranteedHoursBase = await computeGuaranteedHoursBase(activeCaregiver, periodStart, periodEnd)
+    const { occurrences, exceptions, shiftsById } = await loadScheduleContext(caregiverId, periodStart, periodEnd)
+    const scheduledHours = Math.max(
+      occurrences.reduce((sum, o) => sum + shiftHours(o.shift), 0) +
+        scheduleExceptionHoursDelta(exceptions, shiftsById),
+      0
+    )
+    const guaranteedHoursBase = computeGuaranteedHoursBase(activeCaregiver, occurrences, exceptions, shiftsById)
+    // Family cancellation hours (spec 13.3, 13.6) now come from approved
+    // schedule exceptions instead of manual entry -- see SPEC_CHANGE_LOG.md.
     const cancellationHours = activeCaregiver.family_cancellation_counts_toward_guarantee
-      ? Number(familyCancellationHours) || 0
+      ? sumExceptionHoursByType(exceptions, shiftsById, 'family_cancellation', { requireAffectsPay: true })
       : 0
 
     const result = calculateTimesheet({
@@ -172,6 +224,7 @@ export function Pay() {
         status: 'approved',
         approved_at: new Date().toISOString(),
         approved_by: user?.id ?? null,
+        scheduled_hours: scheduledHours,
         guaranteed_hours: result.guaranteedHours,
         actual_worked_hours: actualWorkedHours,
         regular_worked_hours: result.regularWorkedHours,
@@ -229,7 +282,6 @@ export function Pay() {
 
     setShowForm(false)
     setPendingUnapproved([])
-    setFamilyCancellationHours('')
     await loadData(caregiverId)
   }
 
@@ -641,17 +693,14 @@ export function Pay() {
               </div>
             </div>
             {activeCaregiver?.family_cancellation_counts_toward_guarantee && (
-              <Field label="Family cancellation hours this period">
-                <input
-                  type="number"
-                  step="0.25"
-                  min="0"
-                  className={inputClass}
-                  value={familyCancellationHours}
-                  onChange={(e) => setFamilyCancellationHours(e.target.value)}
-                  placeholder="0"
-                />
-              </Field>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Family cancellation hours are pulled automatically from approved schedule exceptions for this
+                period. Add them from the{' '}
+                <button type="button" className="text-blue-600 underline dark:text-blue-400" onClick={() => navigate('/calendar')}>
+                  Calendar
+                </button>{' '}
+                before generating if any cancellations happened.
+              </p>
             )}
             {pendingUnapproved.length > 0 && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2 dark:border-amber-500/30 dark:bg-amber-500/10">
