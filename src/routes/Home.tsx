@@ -13,6 +13,7 @@ import type {
   LeavePolicy,
   LeaveRequest,
   PaymentRecord,
+  ScheduleException,
   ScheduleShift,
   ScheduleTemplate,
   TimeEntry,
@@ -46,6 +47,7 @@ const REMINDER_ROUTES: Record<string, string> = {
   payment_overdue: '/pay',
   payment_due: '/pay',
   pto_balance_low: '/pto',
+  schedule_change: '/calendar',
 }
 
 function buildDashboardCards(input: {
@@ -136,16 +138,30 @@ export function Home() {
       const rangeStart = subDays(today, 2).toISOString().slice(0, 10)
       const rangeEnd = today.toISOString().slice(0, 10)
 
-      const [timeEntries, timesheets, leaveRequests, paymentRecords, templateRows, leavePolicyRows, leaveLedgerRows] =
-        await Promise.all([
-          supabase.from('time_entries').select('*').in('caregiver_id', caregiverIds),
-          supabase.from('timesheets').select('*').in('caregiver_id', caregiverIds),
-          supabase.from('leave_requests').select('*').in('caregiver_id', caregiverIds),
-          supabase.from('payment_records').select('*').in('caregiver_id', caregiverIds),
-          supabase.from('schedule_templates').select('*').in('caregiver_id', caregiverIds).eq('active', true),
-          supabase.from('leave_policies').select('*').in('caregiver_id', caregiverIds).in('leave_type', BALANCE_LEAVE_TYPES),
-          supabase.from('leave_ledger').select('*').in('caregiver_id', caregiverIds),
-        ])
+      const [
+        timeEntries,
+        timesheets,
+        leaveRequests,
+        paymentRecords,
+        templateRows,
+        leavePolicyRows,
+        leaveLedgerRows,
+        scheduleExceptionRows,
+      ] = await Promise.all([
+        supabase.from('time_entries').select('*').in('caregiver_id', caregiverIds),
+        supabase.from('timesheets').select('*').in('caregiver_id', caregiverIds),
+        supabase.from('leave_requests').select('*').in('caregiver_id', caregiverIds),
+        supabase.from('payment_records').select('*').in('caregiver_id', caregiverIds),
+        supabase.from('schedule_templates').select('*').in('caregiver_id', caregiverIds).eq('active', true),
+        supabase.from('leave_policies').select('*').in('caregiver_id', caregiverIds).in('leave_type', BALANCE_LEAVE_TYPES),
+        supabase.from('leave_ledger').select('*').in('caregiver_id', caregiverIds),
+        supabase
+          .from('schedule_exceptions')
+          .select('*')
+          .in('caregiver_id', caregiverIds)
+          .eq('status', 'approved')
+          .gte('date', rangeEnd),
+      ])
       if (cancelled) return
       const allTimesheets = (timesheets.data ?? []) as Timesheet[]
       const allPayments = (paymentRecords.data ?? []) as PaymentRecord[]
@@ -156,6 +172,7 @@ export function Home() {
       const templates = (templateRows.data ?? []) as ScheduleTemplate[]
       const leavePolicies = (leavePolicyRows.data ?? []) as LeavePolicy[]
       const leaveLedger = (leaveLedgerRows.data ?? []) as LeaveLedgerEntry[]
+      const scheduleExceptions = (scheduleExceptionRows.data ?? []) as ScheduleException[]
 
       const leaveBalances: LeaveBalanceSummary[] = leavePolicies
         .filter((p) => p.annual_allowance_hours != null)
@@ -195,6 +212,7 @@ export function Home() {
         caregivers,
         scheduleOccurrences,
         leaveBalances,
+        scheduleExceptions,
       })
       cards.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
       setReminders(cards)

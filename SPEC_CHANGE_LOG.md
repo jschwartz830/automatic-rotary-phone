@@ -8,6 +8,91 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-02 — Schedule Exceptions UI, schedule-linked guarantee wiring, schedule_change reminder
+
+**Schedule Exceptions UI built (spec 13.3).** `Schedule.tsx`'s weekly calendar
+grid now supports the previously-unbuilt `schedule_exceptions` table end to
+end. Parents/co-admins can, from a day's expanded detail panel, add an
+exception of type `added_shift`, `removed_shift`, `shortened_shift`,
+`extended_shift`, `family_cancellation`, `holiday`, `weather_emergency`, or
+`other` — with an optional link to that day's scheduled shift, a new
+start/end time where relevant, an hours override (auto-computed otherwise),
+`affects_pay` / `counts_toward_guaranteed_hours` flags, and separate
+private/nanny-visible notes. Exceptions are created directly as `approved`
+(matching the existing recurring-shift pattern, where parent actions take
+effect immediately) and are audit-logged on create/delete. The calendar now
+shows an exception pill per day and strikes through a recurring occurrence
+that a `removed_shift` exception targets, without deleting the recurring
+template shift itself.
+
+**PTO/sick/unpaid_time_off intentionally excluded from this UI.** Spec 13.3
+lists `pto`, `sick`, and `unpaid_time_off` as exception types, but spec 13.7's
+`leave_requests`/`leave_ledger` flow already fully owns those (balances,
+accrual, approval) and is what `Pto.tsx` and the rest of the app read from.
+Building a second UI against the same three types on `schedule_exceptions`
+would create two disconnected records of the same leave with no balance
+impact from the second. Kept leave requests as the single source for those
+three types; `schedule_exceptions` here only covers the other eight types,
+which have no equivalent elsewhere. RLS already reflected this split (nanny
+can only insert `pto`/`sick`/`unpaid_time_off` rows on `schedule_exceptions`,
+which this UI doesn't exercise) — no migration needed.
+
+**Family cancellation hours now computed automatically (closes the batch-3
+stopgap, Q&A item 12).** `Pay.tsx`'s "Family cancellation hours this period"
+manual number input is gone. `doGenerate` now sums hours from approved
+`family_cancellation` exceptions (`affects_pay = true`) in the pay period
+directly from `schedule_exceptions`, exactly as the exceptions UI intends. The
+generate-timesheet form links to the Calendar instead so the parent can add
+any cancellations before generating.
+
+**`linked_to_schedule` guaranteed hours now account for one-off exceptions
+(spec 13.6 "Schedule-Linked Guarantee").** Previously `computeGuaranteedHoursBase`
+only summed recurring template shift hours. It now also applies the net
+effect of approved `added_shift`/`removed_shift`/`shortened_shift`/
+`extended_shift` exceptions marked `counts_toward_guaranteed_hours = true` —
+matching the spec text that one-off changes should *not* move the guarantee
+unless explicitly flagged. New helpers `exceptionHours`,
+`sumExceptionHoursByType`, and `scheduleExceptionHoursDelta` in
+`src/lib/schedule.ts` do this math and are shared by the calendar and pay
+calc so both agree on the same numbers.
+
+**`timesheets.scheduled_hours` populated for the first time (spec 16.2).**
+This column existed since migration 0001 but `doGenerate` never wrote to it
+(always left at the default of 0). It's now `sum(recurring shift hours) +`
+net exception delta for the period, using the same helpers above.
+
+**`schedule_change` reminder implemented (spec 15.14, closes a "Known gap").**
+`computeReminders` now takes an optional `scheduleExceptions` array and emits
+a `schedule_change` card for any approved shift-modifying exception
+(`added_shift`/`removed_shift`/`shortened_shift`/`extended_shift`) dated today
+or later that was created in the last 3 days — an arbitrary but reasonable
+"still fresh" window the spec doesn't define. `family_cancellation`/`holiday`/
+`weather_emergency`/`other` don't generate this reminder since they aren't
+schedule *changes* in the same sense. `Home.tsx` now loads upcoming approved
+exceptions for the dashboard's caregivers and passes them through.
+
+### Known gaps for next phase (not ambiguous, just not built yet)
+
+- **Recurring schedule types beyond `weekly`** (13.2) — `biweekly`,
+  `monthly_by_date`, `monthly_by_weekday`, `custom` have DB support but no
+  form UI.
+- **Co-admin permission management UI** (10/11) — RLS already enforces
+  restricted permissions server-side; there's no screen to view household
+  members or toggle a co-admin's restrictions.
+- **Reminder settings** (13.9) — only payment lead-time is configurable;
+  no per-type enable/disable, recipients, or quiet hours.
+- **`weekly_summary` reminder / digest** (15.14) — needs its own design
+  (what it summarizes, cadence) before it's buildable.
+- **Additional exports** (13.11) — only timesheets and payments CSV export
+  exist; PTO ledger and annual-summary exports don't.
+- **Time entry validation** (13.4) — no warnings for overlapping entries,
+  break-longer-than-shift, or actual-vs-scheduled variance.
+- **Holiday/weather-emergency pay impact** — see
+  `QUESTIONS_AND_CLARIFICATIONS.md` open item; these exception types are
+  fully calendar-visible now but don't yet flow into a payable-hours bucket.
+
+---
+
 ## 2026-07-01 (batch 3) — Mobile PWA fit, multi-caregiver, payment lifecycle, leave enforcement, household settings
 
 **Mobile home-screen fit fixed.** The bottom tab bar (`Layout.tsx`) didn't

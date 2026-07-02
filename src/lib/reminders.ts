@@ -1,5 +1,5 @@
 import { differenceInCalendarDays, parseISO } from 'date-fns'
-import type { CaregiverProfile, LeaveRequest, PaymentRecord, TimeEntry, Timesheet } from './types'
+import type { CaregiverProfile, LeaveRequest, PaymentRecord, ScheduleException, TimeEntry, Timesheet } from './types'
 import type { GeneratedShiftOccurrence } from './schedule'
 
 const DEFAULT_PAYMENT_REMINDER_DAYS_BEFORE = [0, 1]
@@ -8,6 +8,12 @@ const DEFAULT_PAYMENT_REMINDER_DAYS_BEFORE = [0, 1]
 // threshold. One workday's worth of hours remaining is a reasonable, simple
 // default -- see SPEC_CHANGE_LOG.md.
 const LOW_BALANCE_THRESHOLD_HOURS = 8
+
+// Spec 15.14 lists "schedule_change" but doesn't define a lookback window.
+// Surfacing changes made in the last few days for a not-yet-passed date keeps
+// the card relevant without re-showing every historical exception forever.
+const SCHEDULE_CHANGE_LOOKBACK_DAYS = 3
+const SCHEDULE_CHANGE_TYPES = new Set(['added_shift', 'removed_shift', 'shortened_shift', 'extended_shift'])
 
 export interface ReminderCard {
   id: string
@@ -36,8 +42,19 @@ export function computeReminders(input: {
   caregivers?: CaregiverProfile[]
   scheduleOccurrences?: GeneratedShiftOccurrence[]
   leaveBalances?: LeaveBalanceSummary[]
+  scheduleExceptions?: ScheduleException[]
 }): ReminderCard[] {
-  const { today, timeEntries, timesheets, leaveRequests, paymentRecords, caregivers, scheduleOccurrences, leaveBalances } = input
+  const {
+    today,
+    timeEntries,
+    timesheets,
+    leaveRequests,
+    paymentRecords,
+    caregivers,
+    scheduleOccurrences,
+    leaveBalances,
+    scheduleExceptions,
+  } = input
   // Index schedule occurrences by date for O(1) lookup
   const occurrencesByDate = new Map<string, GeneratedShiftOccurrence[]>()
   for (const occ of scheduleOccurrences ?? []) {
@@ -177,6 +194,18 @@ export function computeReminders(input: {
             : `${balance.leaveType.toUpperCase()} balance is low: ${balance.remainingHours.toFixed(1)} hrs left.`,
       })
     }
+  }
+
+  for (const ex of scheduleExceptions ?? []) {
+    if (ex.status !== 'approved' || !SCHEDULE_CHANGE_TYPES.has(ex.exception_type)) continue
+    if (differenceInCalendarDays(parseISO(ex.date), today) < 0) continue // don't resurface past shifts
+    if (differenceInCalendarDays(today, parseISO(ex.created_at.slice(0, 10))) > SCHEDULE_CHANGE_LOOKBACK_DAYS) continue
+    cards.push({
+      id: `schedule-change-${ex.id}`,
+      type: 'schedule_change',
+      severity: 'info',
+      message: `Schedule changed for ${ex.date}: ${ex.exception_type.replace(/_/g, ' ')}.`,
+    })
   }
 
   return cards
