@@ -482,7 +482,19 @@ export function Schedule() {
                     )}
                   </div>
                   {totalHours > 0 && (
-                    <span className="shrink-0 text-sm font-semibold text-gray-700 dark:text-gray-300">{totalHours.toFixed(1)}h</span>
+                    <span className="shrink-0 text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      {actualHours > 0 ? (
+                        <>
+                          <span className={actualHours > totalHours ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}>
+                            {actualHours.toFixed(1)}h
+                          </span>
+                          {' / '}
+                          {totalHours.toFixed(1)}h
+                        </>
+                      ) : (
+                        `${totalHours.toFixed(1)}h`
+                      )}
+                    </span>
                   )}
                 </button>
 
