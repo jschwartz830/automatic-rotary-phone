@@ -49,11 +49,25 @@ jobs:
   deploy:
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment-retry.outputs.page_url }}
     runs-on: ubuntu-latest
     needs: build
 
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
+        continue-on-error: true
         uses: actions/deploy-pages@v4
+        with:
+          timeout: 300000
+
+      - name: Retry deploy to GitHub Pages
+        id: deployment-retry
+        if: steps.deployment.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+        with:
+          timeout: 300000
+
+      - name: Fail if all deploy attempts failed
+        if: steps.deployment.outcome == 'failure' && steps.deployment-retry.outcome == 'failure'
+        run: exit 1
