@@ -8,6 +8,22 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-02 (batch 2) — Weather-emergency exceptions now affect pay
+
+**Resolved Q&A item 15 (option A).** `weather_emergency` exceptions with
+`affects_pay = true` are now summed into `family_cancellation_hours` in
+`Pay.tsx`'s `doGenerate`, alongside `family_cancellation` exceptions — both
+represent guarantee-protected non-worked pay, and there was no separate
+schema column to route weather-day hours through. Still gated on the
+caregiver's `family_cancellation_counts_toward_guarantee` setting, the only
+toggle that exists for this bucket. `holiday` exceptions remain calendar-only
+(paid holidays go through the existing `leave_requests` holiday leave type,
+which has real accrual/balance tracking); `other` exceptions are intentionally
+excluded as too broad a catch-all to assume guarantee-protected. The
+generate-timesheet form's helper text was updated to mention both hour types.
+
+---
+
 ## 2026-07-02 — Schedule Exceptions UI, schedule-linked guarantee wiring, schedule_change reminder
 
 **Schedule Exceptions UI built (spec 13.3).** `Schedule.tsx`'s weekly calendar
@@ -87,9 +103,6 @@ exceptions for the dashboard's caregivers and passes them through.
   exist; PTO ledger and annual-summary exports don't.
 - **Time entry validation** (13.4) — no warnings for overlapping entries,
   break-longer-than-shift, or actual-vs-scheduled variance.
-- **Holiday/weather-emergency pay impact** — see
-  `QUESTIONS_AND_CLARIFICATIONS.md` open item; these exception types are
-  fully calendar-visible now but don't yet flow into a payable-hours bucket.
 
 ---
 

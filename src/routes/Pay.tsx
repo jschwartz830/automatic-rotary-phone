@@ -195,8 +195,15 @@ export function Pay() {
     const guaranteedHoursBase = computeGuaranteedHoursBase(activeCaregiver, occurrences, exceptions, shiftsById)
     // Family cancellation hours (spec 13.3, 13.6) now come from approved
     // schedule exceptions instead of manual entry -- see SPEC_CHANGE_LOG.md.
+    // weather_emergency exceptions are folded into the same bucket: both
+    // represent "caregiver didn't work, but is paid because of the
+    // guarantee" -- there's no separate payable-hours column for weather
+    // days, and inventing one for a single exception type wasn't worth a
+    // migration. `other` exceptions are intentionally excluded -- too broad
+    // a catch-all to assume it should always be guarantee-protected pay.
     const cancellationHours = activeCaregiver.family_cancellation_counts_toward_guarantee
-      ? sumExceptionHoursByType(exceptions, shiftsById, 'family_cancellation', { requireAffectsPay: true })
+      ? sumExceptionHoursByType(exceptions, shiftsById, 'family_cancellation', { requireAffectsPay: true }) +
+        sumExceptionHoursByType(exceptions, shiftsById, 'weather_emergency', { requireAffectsPay: true })
       : 0
 
     const result = calculateTimesheet({
@@ -694,12 +701,12 @@ export function Pay() {
             </div>
             {activeCaregiver?.family_cancellation_counts_toward_guarantee && (
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Family cancellation hours are pulled automatically from approved schedule exceptions for this
-                period. Add them from the{' '}
+                Family cancellation and weather/emergency hours are pulled automatically from approved schedule
+                exceptions for this period. Add them from the{' '}
                 <button type="button" className="text-blue-600 underline dark:text-blue-400" onClick={() => navigate('/calendar')}>
                   Calendar
                 </button>{' '}
-                before generating if any cancellations happened.
+                before generating if any happened.
               </p>
             )}
             {pendingUnapproved.length > 0 && (
