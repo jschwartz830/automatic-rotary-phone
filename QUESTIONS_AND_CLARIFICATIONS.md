@@ -8,48 +8,29 @@ rather than a silent guess.
 
 ## Open items
 
-### 15. Do holiday / weather-emergency schedule exceptions affect pay?
+None right now. See `SPEC_CHANGE_LOG.md`'s "Known gaps" notes for build-out
+work that's scoped but not yet done — those aren't ambiguous, just not built.
 
-Spec 13.3 lists `holiday` and `weather_emergency` as `schedule_exceptions`
-types with `affects_pay`/`counts_toward_guaranteed_hours` flags, implying
-they can produce paid, non-worked hours the same way `family_cancellation`
-does. But the `timesheets`/`payment_records` schema (15.9/15.13) only has a
-bucket for `family_cancellation_hours` — there's no `holiday_exception_hours`
-or `weather_emergency_hours` column, and `paid_holiday_hours` is already fed
-from `leave_requests` (the accrual-tracked holiday leave type from 13.7).
+---
 
-Right now (as of this session): `holiday` and `weather_emergency` exceptions
-are fully visible on the calendar (pill, note, remove) and their
-`affects_pay`/`counts_toward_guaranteed_hours` flags are stored, but neither
-flows into any payable-hours bucket when a timesheet is generated. A parent
-who marks a snow day as `weather_emergency` with `affects_pay = true` won't
-see it reflected in gross pay due — only `family_cancellation` exceptions are
-wired to pay right now.
+## Resolved items — 2026-07-02 (batch 2)
 
-**Option A (recommended): fold `weather_emergency` into the same
-`family_cancellation_hours` bucket.** Both represent "caregiver didn't work,
-but is paid because of the guarantee" — same shape as family cancellation,
-just a different reason. Cheapest fix (a few-line change to
-`sumExceptionHoursByType` calls in `Pay.tsx`), no schema change. Downside:
-the CSV/timesheet line item is literally labeled "family cancellation," which
-would now include weather-related hours too — a minor labeling accuracy
-tradeoff.
+### 15. Do holiday / weather-emergency schedule exceptions affect pay? — RESOLVED (option A)
 
-**Option B: add a new `other_exception_hours` (or similarly named) column**
-to `timesheets`/`payment_records` covering `weather_emergency` + `other`, so
-the label stays accurate. Requires a migration and a new line item in the
-timesheet display/export.
-
-**Option C: leave holiday/weather exceptions as calendar-only markers.** No
-pay wiring at all — households who want a paid holiday or weather day use
-the existing `leave_requests` holiday flow (or manually adjust
-`manual_adjustments` on the payment record) instead. Simplest, but the
-`affects_pay` flag on those two exception types becomes dead UI.
-
-Let me know which you'd like and I'll build it next.
-
-See `SPEC_CHANGE_LOG.md`'s "Known gaps" notes for build-out work that's
-scoped but not yet done (not ambiguous, just not built).
+**Decision:** `weather_emergency` exceptions with `affects_pay = true` are now
+folded into the same `family_cancellation_hours` bucket as
+`family_cancellation` exceptions — both represent "caregiver didn't work, but
+is paid because of the guarantee." `Pay.tsx`'s `doGenerate` now sums both
+types (still gated on the caregiver's `family_cancellation_counts_toward_guarantee`
+setting, the only toggle available for this bucket). `holiday` exceptions
+remain calendar-only markers — paid holidays continue to flow through the
+existing `leave_requests` holiday leave type (13.7), which already has
+accrual/balance tracking that a bare calendar marker doesn't. `other`
+exceptions are intentionally excluded from the pay bucket — too broad a
+catch-all to assume it should always be guarantee-protected pay; households
+that need it reflected in gross pay can use `manual_adjustments` on the
+payment record. Accepted tradeoff: the `family_cancellation_hours` line item
+label is no longer 100% literal once it includes weather-day hours too.
 
 ---
 
