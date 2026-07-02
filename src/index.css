@@ -9,7 +9,9 @@
 html,
 body,
 #root {
-  height: 100%;
+  /* --app-height is the real screen height measured in JS (see lib/appHeight);
+     100dvh is only a pre-hydration fallback. */
+  height: var(--app-height, 100dvh);
   overflow: hidden;
 }
 
