@@ -3,6 +3,11 @@ import { createRoot } from 'react-dom/client'
 import { registerSW } from 'virtual:pwa-register'
 import './index.css'
 import App from './App.tsx'
+import { installAppHeight } from './lib/appHeight'
+
+// Pin a real-screen-height CSS variable before React paints so the app shell
+// fills the true viewport on installed iOS home-screen apps.
+installAppHeight()
 
 if ('serviceWorker' in navigator) {
   registerSW({

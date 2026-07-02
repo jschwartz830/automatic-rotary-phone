@@ -17,7 +17,7 @@ import { SetupRequired } from './routes/SetupRequired'
 
 function Loading() {
   return (
-    <div className="fixed inset-0 flex items-center justify-center overflow-y-auto bg-gray-50 pt-[env(safe-area-inset-top)] text-sm text-gray-400 dark:bg-gray-900">
+    <div className="flex h-full w-full items-center justify-center overflow-y-auto bg-gray-50 pt-[env(safe-area-inset-top)] text-sm text-gray-400 dark:bg-gray-900">
       Loading…
     </div>
   )
