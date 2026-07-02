@@ -9,6 +9,7 @@ import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
+import { APP_VERSION, APP_VERSION_TITLE, forceRefreshApp } from '../lib/version'
 import type { CaregiverProfile, GuaranteedHoursBasis, PayFrequency, PaydayRule, PayPeriodAnchor } from '../lib/types'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -34,6 +35,8 @@ export function More() {
   const { household, isParentAdmin, isParentOrCoAdmin, refresh: refreshHousehold } = useHousehold()
   const { theme, setTheme, timeFormat, setTimeFormat } = usePreferences()
   const { caregivers, refresh } = useCaregivers(household?.id)
+  const [showVersionDetail, setShowVersionDetail] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [caregiverId, setCaregiverId] = useState<string | null>(null)
   const [rate, setRate] = useState('')
   const [overtimeThreshold, setOvertimeThreshold] = useState('40')
@@ -229,6 +232,15 @@ export function More() {
       setSaveError(errorMessage(err, 'Could not save pay settings.'))
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleForceRefresh() {
+    setRefreshing(true)
+    try {
+      await forceRefreshApp()
+    } catch {
+      setRefreshing(false)
     }
   }
 
@@ -625,6 +637,35 @@ export function More() {
         </p>
         <Button variant="secondary" onClick={() => signOut()}>
           Sign out
+        </Button>
+      </Card>
+
+      <Card title="About">
+        <button
+          type="button"
+          className="w-full text-left"
+          onClick={() => setShowVersionDetail((s) => !s)}
+        >
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Version <span className="font-mono">{APP_VERSION}</span>
+          </p>
+        </button>
+        {showVersionDetail && (
+          <div className="mt-2 space-y-1 rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-900 dark:text-gray-400">
+            <p className="font-semibold text-gray-700 dark:text-gray-300">Latest merged version</p>
+            <p>
+              Version stamp: Version <span className="font-mono">{APP_VERSION}</span>
+            </p>
+            <p>Latest merge/change title: {APP_VERSION_TITLE}</p>
+          </div>
+        )}
+        <Button
+          variant="secondary"
+          className="mt-3 w-full"
+          onClick={handleForceRefresh}
+          disabled={refreshing}
+        >
+          {refreshing ? 'Refreshing…' : 'Force refresh (clear cache & update)'}
         </Button>
       </Card>
     </div>
