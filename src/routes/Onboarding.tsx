@@ -86,7 +86,7 @@ export function Onboarding() {
 
   if (mode === 'choose') {
     return (
-      <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 pt-[env(safe-area-inset-top)] dark:bg-gray-900">
+      <div className="fixed inset-0 flex items-center justify-center overflow-y-auto bg-gray-50 px-6 pt-[env(safe-area-inset-top)] dark:bg-gray-900">
         <div className="w-full max-w-sm space-y-4">
           <div>
             <h1 className="mb-1 text-2xl font-bold text-gray-900 dark:text-gray-50">Welcome</h1>
@@ -113,7 +113,7 @@ export function Onboarding() {
 
   if (mode === 'join') {
     return (
-      <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 pt-[env(safe-area-inset-top)] dark:bg-gray-900">
+      <div className="fixed inset-0 flex items-center justify-center overflow-y-auto bg-gray-50 px-6 pt-[env(safe-area-inset-top)] dark:bg-gray-900">
         <div className="w-full max-w-sm">
           <button onClick={() => setMode('choose')} className="mb-4 text-sm text-blue-600 underline dark:text-blue-400">
             ← Back
@@ -144,7 +144,7 @@ export function Onboarding() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 dark:bg-gray-900">
+    <div className="fixed inset-0 flex items-center justify-center overflow-y-auto bg-gray-50 px-6 dark:bg-gray-900">
       <div className="w-full max-w-sm">
         <button onClick={() => setMode('choose')} className="mb-4 text-sm text-blue-600 underline dark:text-blue-400">
           ← Back

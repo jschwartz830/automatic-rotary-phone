@@ -1,6 +1,6 @@
 export function SetupRequired() {
   return (
-    <div className="flex min-h-svh items-center justify-center bg-gray-50 px-6 pt-[env(safe-area-inset-top)] dark:bg-gray-900">
+    <div className="fixed inset-0 flex items-center justify-center overflow-y-auto bg-gray-50 px-6 pt-[env(safe-area-inset-top)] dark:bg-gray-900">
       <div className="w-full max-w-md space-y-4">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">Connect Supabase to finish setup</h1>
         <p className="text-sm text-gray-600 dark:text-gray-400">
