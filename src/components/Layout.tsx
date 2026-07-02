@@ -28,7 +28,7 @@ export function Layout() {
       <nav
         className="fixed left-1/2 z-10 w-full max-w-md -translate-x-1/2 border-t border-gray-200 bg-white/95 backdrop-blur dark:border-gray-800 dark:bg-gray-900/95"
         style={{
-          bottom: 'calc(env(safe-area-inset-bottom) * -1)',
+          bottom: 0,
           paddingBottom: 'env(safe-area-inset-bottom)',
         }}
       >
