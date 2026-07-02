@@ -21,6 +21,17 @@ body {
   overscroll-behavior-y: none;
 }
 
-.dark body {
-  background-color: #030712;
+/* The page behind the app shell is painted the shell's own color so that if
+   iOS ever reports a viewport shorter than the true screen (the "phantom
+   toolbar" bug on installed home-screen apps), the sliver below the shell
+   blends in seamlessly instead of showing a contrasting strip. The dock itself
+   is pinned to the true bottom edge with position:fixed (see Layout.tsx). */
+html,
+body {
+  background-color: #f9fafb;
+}
+
+html.dark,
+html.dark body {
+  background-color: #111827;
 }
