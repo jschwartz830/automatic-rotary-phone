@@ -8,8 +8,41 @@ rather than a silent guess.
 
 ## Open items
 
-None right now. See `SPEC_CHANGE_LOG.md`'s "Known gaps" notes for build-out
-work that's scoped but not yet done — those aren't ambiguous, just not built.
+### 16. Which known-gap phase to build next? — NEEDS DECISION
+
+The remaining spec areas are all scoped and buildable; the question is order.
+Candidates (see `SPEC_CHANGE_LOG.md` "Known gaps"):
+
+- **A. Recurring schedule types beyond weekly (13.2)** — add form UI for
+  `biweekly` / `monthly_by_date` / `monthly_by_weekday`. Generation logic
+  already exists; this is purely the create-shift UI.
+- **B. Co-admin permission management UI (10/11)** — a household-members screen
+  to add a co-admin and toggle their restricted permissions. RLS already
+  enforces it server-side; this exposes it.
+- **C. Additional exports (13.11)** — PTO ledger CSV and an annual-summary
+  export, alongside the existing timesheet/payment exports.
+- **D. Reminder settings + weekly digest (13.9 / 15.14)** — see item 17; partly
+  a design question.
+
+**Recommendation:** A first (schedule flexibility is core to the whole
+guarantee/timesheet flow and is the most-requested real-world need), then C
+(cheap, high-value, no new concepts), then B.
+
+### 17. `weekly_summary` digest + reminder settings scope (13.9 / 15.14) — NEEDS DECISION
+
+Two under-specified pieces:
+
+- The spec names a `weekly_summary` reminder but never defines *what* it
+  summarizes or its cadence.
+- Reminder settings (13.9) list per-type enable/disable, recipients, and quiet
+  hours — but the app is in-app-only (no email/SMS backend, per resolved item
+  5), so "recipients" and "quiet hours" have no delivery channel to act on yet.
+
+**Recommendation:** Build the in-app pieces only — a per-caregiver weekly
+in-app summary card (hours worked, OT, PTO used, pay due for the week) plus
+per-reminder-type enable/disable toggles. Defer recipients/quiet hours until
+there's an email/SMS backend, since they're meaningless without one. Flag this
+so we're not silently dropping spec fields.
 
 ---
 

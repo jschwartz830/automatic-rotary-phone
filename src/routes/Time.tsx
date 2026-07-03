@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { usePreferences } from '../context/PreferencesContext'
@@ -8,12 +8,27 @@ import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
 import { hoursBetween, round2 } from '../lib/calc'
 import { isValidCalendarDate } from '../lib/dates'
-import { generateShiftsForRange } from '../lib/schedule'
+import { generateShiftsForRange, shiftHours } from '../lib/schedule'
+import { validateTimeEntry, type ActingRole } from '../lib/timeValidation'
 import { formatDateTime, formatEntryTimeRange } from '../lib/time'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
 import type { ScheduleShift, ScheduleTemplate, TimeEntry, TimeEntryMethod } from '../lib/types'
+
+function WarningList({ warnings }: { warnings: string[] }) {
+  if (warnings.length === 0) return null
+  return (
+    <ul className="space-y-1 rounded-md bg-amber-50 p-2 dark:bg-amber-950/40">
+      {warnings.map((w, i) => (
+        <li key={i} className="flex gap-1.5 text-xs text-amber-700 dark:text-amber-300">
+          <span aria-hidden>⚠</span>
+          <span>{w}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 const DEFAULT_START_TIME = '09:00'
 const DEFAULT_END_TIME = '17:00'
@@ -377,6 +392,60 @@ export function Time() {
   const activeEntries = entries.filter((e) => !e.deleted_at)
   const archivedEntries = entries.filter((e) => e.deleted_at)
 
+  // Shared validation context (spec 13.4). Warnings are advisory — they don't
+  // block saving, matching the spec's "warn when" wording.
+  const selectedCaregiver =
+    caregivers.find((c) => c.id === caregiverId) ?? (isNanny ? caregiverProfile : null)
+  const weekStartsOn: 0 | 1 = household?.week_start_day === 'monday' ? 1 : 0
+  const actingRole: ActingRole = isNanny ? 'nanny' : 'parent'
+  const overtimeThresholdHours = selectedCaregiver?.overtime_threshold_hours ?? 0
+
+  function scheduledHoursFor(dateStr: string): number | null {
+    if (!isValidCalendarDate(dateStr)) return null
+    const occ = generateShiftsForRange(templates, shiftsByTemplate, dateStr, dateStr)
+    if (occ.length === 0) return null
+    return occ.reduce((sum, o) => sum + shiftHours(o.shift), 0)
+  }
+
+  const addWarnings = useMemo(() => {
+    if (!showForm || !isValidCalendarDate(date)) return []
+    return validateTimeEntry(
+      { date, startTime, endTime, breakMinutes: Number(breakMinutes) || 0, status: 'submitted' },
+      {
+        role: actingRole,
+        existingEntries: entries,
+        scheduledHoursForDate: scheduledHoursFor(date),
+        overtimeThresholdHours,
+        weekStartsOn,
+      }
+    )
+    // scheduledHoursFor closes over templates/shiftsByTemplate, included below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showForm, date, startTime, endTime, breakMinutes, entries, actingRole, overtimeThresholdHours, weekStartsOn, templates, shiftsByTemplate])
+
+  const editingEntry = entries.find((e) => e.id === editingEntryId) ?? null
+  const editWarnings = useMemo(() => {
+    if (!editingEntry || !isValidCalendarDate(editDate)) return []
+    return validateTimeEntry(
+      {
+        date: editDate,
+        startTime: editStart,
+        endTime: editEnd,
+        breakMinutes: Number(editBreak) || 0,
+        status: editingEntry.status,
+        entryId: editingEntry.id,
+      },
+      {
+        role: actingRole,
+        existingEntries: entries,
+        scheduledHoursForDate: scheduledHoursFor(editDate),
+        overtimeThresholdHours,
+        weekStartsOn,
+      }
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingEntry, editDate, editStart, editEnd, editBreak, entries, actingRole, overtimeThresholdHours, weekStartsOn, templates, shiftsByTemplate])
+
   return (
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
@@ -444,6 +513,7 @@ export function Time() {
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {hoursBetween(startTime, endTime, Number(breakMinutes) || 0).toFixed(2)} paid hours
             </p>
+            <WarningList warnings={addWarnings} />
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? 'Saving…' : 'Save entry'}
@@ -536,6 +606,7 @@ export function Time() {
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                       {hoursBetween(editStart, editEnd, Number(editBreak) || 0).toFixed(2)} paid hours
                     </p>
+                    <WarningList warnings={editWarnings} />
                     {editError && <p className="text-sm text-red-600 dark:text-red-400">{editError}</p>}
                     <Button className="w-full" onClick={() => handleSaveEdit(entry)} disabled={editSaving}>
                       {editSaving ? 'Saving…' : 'Save changes'}

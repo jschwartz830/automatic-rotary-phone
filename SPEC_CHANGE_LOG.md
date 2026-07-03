@@ -8,6 +8,66 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-03 — Time-entry validation warnings (spec 13.4)
+
+**Time-entry validation built (spec 13.4 "Validation", closes a "Known gap").**
+`Time.tsx`'s manual add form and the inline edit form now show live, advisory
+warnings as the user fills them in, powered by a new pure helper
+`src/lib/timeValidation.ts` (`validateTimeEntry`). Warnings are non-blocking,
+matching the spec's "warn when" wording — the save still goes through. Covered
+cases from the spec's list:
+
+- **End time before start / crosses midnight** — the data model has no explicit
+  overnight flag, so an end earlier than the start is interpreted as a midnight
+  crossing (consistent with `hoursBetween`); the warning surfaces that
+  assumption so a typo isn't silently accepted. Also flags a zero-length entry
+  when start == end.
+- **Break longer than shift** — unpaid break ≥ the raw shift span.
+- **Time overlaps another entry** — checks the caregiver's other active entries
+  on the same date (using their manual times, falling back to clock
+  timestamps), with midnight-crossing normalization on both sides.
+- **Actual hours materially differ from scheduled** — compares logged paid
+  hours to the summed scheduled-shift hours for that date. "Materially" isn't
+  defined by the spec; chosen band is the larger of 1 hour or 25% of the
+  scheduled total, so both short and long shifts get a sensible tolerance.
+- **Weekly worked hours exceed overtime threshold** — sums the draft plus the
+  caregiver's other entries in the same week bucket (household `week_start_day`)
+  against `overtime_threshold_hours`.
+- **Editing a submitted (nanny) / approved (parent) entry** — advisory notice
+  that the entry has already progressed past the freely-editable state.
+
+Not handled here by design: **clock-out missing** stays in the reminders engine
+(`missing_clock_out`), since it's a background condition rather than a property
+of a form being filled in; and the hard blocks for **editing a paid/locked
+period** remain enforced by the existing `canEdit`/`canArchive` gates and RLS,
+not downgraded to a warning.
+
+No schema or spec-text change — 13.4 already specifies these warnings; this is
+implementation of an existing requirement.
+
+**Scheduled-hours pre-fill confirmed already in place.** The requested
+"default time entry to the scheduled hours (still defaulting to the current
+day)" was already implemented on 2026-06-30 (`Time.tsx` pre-fills
+start/end/break from the selected date's scheduled shift, date defaults to
+today). No change needed; noted here for traceability.
+
+### Known gaps for next phase (not ambiguous, just not built yet)
+
+- **Recurring schedule types beyond `weekly`** (13.2) — `biweekly`,
+  `monthly_by_date`, `monthly_by_weekday`, `custom` have DB + generation
+  support but no form UI to create them.
+- **Co-admin permission management UI** (10/11) — RLS already enforces
+  restricted permissions server-side; there's no screen to view household
+  members or toggle a co-admin's restrictions.
+- **Reminder settings** (13.9) — only payment lead-time is configurable;
+  no per-type enable/disable, recipients, or quiet hours.
+- **`weekly_summary` reminder / digest** (15.14) — needs its own design
+  (what it summarizes, cadence) before it's buildable.
+- **Additional exports** (13.11) — only timesheets and payments CSV export
+  exist; PTO ledger and annual-summary exports don't.
+
+---
+
 ## 2026-07-02 (batch 2) — Weather-emergency exceptions now affect pay
 
 **Resolved Q&A item 15 (option A).** `weather_emergency` exceptions with
