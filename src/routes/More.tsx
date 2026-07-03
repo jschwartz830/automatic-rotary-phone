@@ -58,6 +58,9 @@ export function More() {
   const [joinCode, setJoinCode] = useState<string | null>(null)
   const [joinCodeLoading, setJoinCodeLoading] = useState(false)
   const [joinCodeError, setJoinCodeError] = useState<string | null>(null)
+  const [parentJoinCode, setParentJoinCode] = useState<string | null>(null)
+  const [parentJoinCodeLoading, setParentJoinCodeLoading] = useState(false)
+  const [parentJoinCodeError, setParentJoinCodeError] = useState<string | null>(null)
   const [showAddCaregiver, setShowAddCaregiver] = useState(false)
   const [newCaregiverName, setNewCaregiverName] = useState('')
   const [newCaregiverRate, setNewCaregiverRate] = useState('')
@@ -78,9 +81,16 @@ export function More() {
 
   useEffect(() => {
     if (!household || !isParentOrCoAdmin) return
-    supabase.from('households').select('join_code').eq('id', household.id).single().then(({ data }) => {
-      setJoinCode((data as { join_code: string | null } | null)?.join_code ?? null)
-    })
+    supabase
+      .from('households')
+      .select('join_code, parent_join_code')
+      .eq('id', household.id)
+      .single()
+      .then(({ data }) => {
+        const row = data as { join_code: string | null; parent_join_code: string | null } | null
+        setJoinCode(row?.join_code ?? null)
+        setParentJoinCode(row?.parent_join_code ?? null)
+      })
   }, [household, isParentOrCoAdmin])
 
   useEffect(() => {
@@ -144,6 +154,37 @@ export function More() {
       setJoinCodeError(errorMessage(err, 'Could not revoke join code.'))
     } finally {
       setJoinCodeLoading(false)
+    }
+  }
+
+  async function generateParentJoinCode() {
+    if (!household) return
+    setParentJoinCodeLoading(true)
+    setParentJoinCodeError(null)
+    try {
+      const code = Math.random().toString(36).slice(2, 8).toUpperCase()
+      const { error } = await supabase.from('households').update({ parent_join_code: code }).eq('id', household.id)
+      if (error) throw error
+      setParentJoinCode(code)
+    } catch (err) {
+      setParentJoinCodeError(errorMessage(err, 'Could not generate co-parent code.'))
+    } finally {
+      setParentJoinCodeLoading(false)
+    }
+  }
+
+  async function revokeParentJoinCode() {
+    if (!household) return
+    setParentJoinCodeLoading(true)
+    setParentJoinCodeError(null)
+    try {
+      const { error } = await supabase.from('households').update({ parent_join_code: null }).eq('id', household.id)
+      if (error) throw error
+      setParentJoinCode(null)
+    } catch (err) {
+      setParentJoinCodeError(errorMessage(err, 'Could not revoke co-parent code.'))
+    } finally {
+      setParentJoinCodeLoading(false)
     }
   }
 
@@ -351,6 +392,44 @@ export function More() {
             </Button>
           )}
           {joinCodeError && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{joinCodeError}</p>}
+        </Card>
+      )}
+
+      {isParentAdmin && (
+        <Card title="Co-parent access">
+          <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
+            Share this code with a second parent so they can sign up and join as a co-admin with full access.
+          </p>
+          {parentJoinCode ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 rounded-xl bg-gray-50 px-4 py-3 dark:bg-gray-900">
+                <span className="flex-1 font-mono text-2xl font-bold tracking-widest text-gray-900 dark:text-gray-50">
+                  {parentJoinCode}
+                </span>
+                <button
+                  className="text-xs text-blue-600 underline disabled:opacity-50 dark:text-blue-400"
+                  disabled={parentJoinCodeLoading}
+                  onClick={generateParentJoinCode}
+                >
+                  Regenerate
+                </button>
+              </div>
+              <button
+                className="text-xs text-red-500 underline disabled:opacity-50 dark:text-red-400"
+                disabled={parentJoinCodeLoading}
+                onClick={revokeParentJoinCode}
+              >
+                Revoke code
+              </button>
+            </div>
+          ) : (
+            <Button variant="secondary" onClick={generateParentJoinCode} disabled={parentJoinCodeLoading}>
+              {parentJoinCodeLoading ? 'Generating…' : 'Generate co-parent code'}
+            </Button>
+          )}
+          {parentJoinCodeError && (
+            <p className="mt-3 text-xs text-red-600 dark:text-red-400">{parentJoinCodeError}</p>
+          )}
         </Card>
       )}
 

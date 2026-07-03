@@ -104,7 +104,7 @@ export function Onboarding() {
             className="w-full rounded-2xl border border-gray-100 bg-white p-4 text-left shadow-sm shadow-gray-900/5 transition active:scale-[0.98] active:bg-gray-50 dark:border-gray-800 dark:bg-gray-800 dark:shadow-none dark:active:bg-gray-700"
           >
             <p className="font-semibold text-gray-900 dark:text-gray-100">Join a household</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">I'm a nanny / caregiver with a join code from my employer.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">I'm a nanny or co-parent with a join code.</p>
           </button>
         </div>
       </div>
@@ -120,7 +120,7 @@ export function Onboarding() {
           </button>
           <h1 className="mb-1 text-2xl font-bold text-gray-900 dark:text-gray-50">Join a household</h1>
           <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">
-            Enter the join code your employer shared with you.
+            Enter the join code that was shared with you.
           </p>
           <form onSubmit={handleJoin} className="space-y-4">
             <Field label="Join code">
