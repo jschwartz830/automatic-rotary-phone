@@ -8,6 +8,61 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-03 (batch 2) — Co-admin permission management UI (spec 10/11)
+
+**Household members / co-admin permissions UI built (spec 10/11, closes a
+"Known gap"; resolves Q&A item 16 — user chose this phase).** `More.tsx` has a
+new parent-admin-only "Household members" card that lists every member (name,
+email, role) and, for each `parent_co_admin`, exposes checkboxes for the
+permissions the database actually enforces. Unchecking one writes
+`household_users.permissions[key] = false`, which the existing RLS
+(`can_manage_household_setting` / `coadmin_permission_allowed`) and the
+`caregiver_profiles` restriction trigger already honor server-side — so the UI
+is a real control surface, not a cosmetic one.
+
+Only the **seven enforced keys** are shown, matching what has a backend effect:
+`edit_pay_rate`, `edit_pto_policy`, `edit_guaranteed_hours_policy`,
+`edit_schedule`, `edit_household`, `manage_users`, `view_audit_log`. The spec's
+role matrix (11) lists more optionally-restrictable rows (approve timesheet,
+mark payment, approve PTO, export records), but those are gated by
+`is_parent_or_coadmin` in RLS with no per-key check, so a co-admin can't be
+restricted from them today without new policies. Rather than show toggles that
+do nothing, they're omitted; adding real per-key enforcement for them is future
+work. The card is gated to **parent admin only** (not co-admins) so a co-admin
+can't lift their own restrictions, matching spec 10's "Change permissions" as
+an admin capability. Members can also be removed (with an inline confirm);
+permission changes and removals are audit-logged.
+
+**Co-parent join code — landed independently on `main` via PR #38.** This
+branch originally added its own co-parent join code (a separate
+`coadmin_join_code` column + generalized `join_household_by_code`), but PR #38
+merged the same feature to `main` first, using `parent_join_code`. On rebase,
+this branch's duplicate migration and "Co-parent access" card were dropped in
+favor of main's implementation to avoid a colliding `0013` migration and a
+double card. The members UI below builds on top of main's co-parent card. Net
+effect is the same: a household can add a second parent via a distinct code
+that grants `parent_co_admin`, and the onboarding join copy is role-agnostic.
+
+**Deferred by decision (Q&A item 17):** `weekly_summary` digest + per-type
+reminder settings will be built in-app-only when reached (no recipients / quiet
+hours until there's an email/SMS backend). Recorded so the dropped spec fields
+are a conscious choice, not an oversight.
+
+### Known gaps for next phase (not ambiguous, just not built yet)
+
+- **Recurring schedule types beyond `weekly`** (13.2) — `biweekly`,
+  `monthly_by_date`, `monthly_by_weekday`, `custom` have DB + generation
+  support but no form UI to create them.
+- **Per-key enforcement for the remaining matrix rows** (11) — approve
+  timesheet / mark payment / approve PTO / export records are co-admin-allowed
+  by default with no restrict toggle (would need new RLS keys + UI).
+- **Reminder settings + `weekly_summary` digest** (13.9 / 15.14) — in-app-only
+  scope decided (item 17); not yet built.
+- **Additional exports** (13.11) — only timesheets and payments CSV export
+  exist; PTO ledger and annual-summary exports don't.
+
+---
+
 ## 2026-07-03 — Time-entry validation warnings (spec 13.4)
 
 **Time-entry validation built (spec 13.4 "Validation", closes a "Known gap").**

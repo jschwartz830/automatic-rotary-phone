@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
@@ -10,7 +10,37 @@ import { errorMessage } from '../lib/errors'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { APP_VERSION, APP_VERSION_TITLE, forceRefreshApp } from '../lib/version'
-import type { CaregiverProfile, GuaranteedHoursBasis, PayFrequency, PaydayRule, PayPeriodAnchor } from '../lib/types'
+import type { CaregiverProfile, GuaranteedHoursBasis, HouseholdRole, PayFrequency, PaydayRule, PayPeriodAnchor } from '../lib/types'
+
+// Co-admin permissions that the database actually enforces (via
+// can_manage_household_setting in the RLS policies / caregiver-profile trigger).
+// A co-admin has each one by default; permissions[key] === false revokes it.
+// Only these keys have a real server-side effect, so only these are exposed.
+const COADMIN_PERMISSIONS: { key: string; label: string }[] = [
+  { key: 'edit_pay_rate', label: 'Edit pay rate & pay settings' },
+  { key: 'edit_pto_policy', label: 'Edit PTO / leave policy' },
+  { key: 'edit_guaranteed_hours_policy', label: 'Edit guaranteed-hours settings' },
+  { key: 'edit_schedule', label: 'Edit schedule & exceptions' },
+  { key: 'edit_household', label: 'Edit household settings' },
+  { key: 'manage_users', label: 'Manage household members' },
+  { key: 'view_audit_log', label: 'View audit log' },
+]
+
+interface MemberRow {
+  id: string
+  user_id: string
+  role: HouseholdRole
+  status: string
+  permissions: Record<string, boolean>
+  full_name: string | null
+  email: string | null
+}
+
+const ROLE_LABELS: Record<HouseholdRole, string> = {
+  parent_admin: 'Parent admin',
+  parent_co_admin: 'Co-admin',
+  nanny: 'Nanny',
+}
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const COMMON_TIMEZONES = [
@@ -61,6 +91,10 @@ export function More() {
   const [parentJoinCode, setParentJoinCode] = useState<string | null>(null)
   const [parentJoinCodeLoading, setParentJoinCodeLoading] = useState(false)
   const [parentJoinCodeError, setParentJoinCodeError] = useState<string | null>(null)
+  const [members, setMembers] = useState<MemberRow[]>([])
+  const [membersError, setMembersError] = useState<string | null>(null)
+  const [savingMemberId, setSavingMemberId] = useState<string | null>(null)
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null)
   const [showAddCaregiver, setShowAddCaregiver] = useState(false)
   const [newCaregiverName, setNewCaregiverName] = useState('')
   const [newCaregiverRate, setNewCaregiverRate] = useState('')
@@ -92,6 +126,91 @@ export function More() {
         setParentJoinCode(row?.parent_join_code ?? null)
       })
   }, [household, isParentOrCoAdmin])
+
+  const loadMembers = useCallback(async () => {
+    if (!household) return
+    setMembersError(null)
+    const { data: hu, error } = await supabase
+      .from('household_users')
+      .select('id, user_id, role, status, permissions')
+      .eq('household_id', household.id)
+    if (error) {
+      setMembersError(errorMessage(error, 'Could not load household members.'))
+      return
+    }
+    const rows = (hu ?? []) as Omit<MemberRow, 'full_name' | 'email'>[]
+    const ids = rows.map((r) => r.user_id)
+    const { data: us } = ids.length
+      ? await supabase.from('users').select('id, full_name, email').in('id', ids)
+      : { data: [] as { id: string; full_name: string | null; email: string | null }[] }
+    const byId = Object.fromEntries((us ?? []).map((u) => [u.id, u]))
+    setMembers(
+      rows
+        .map((r) => ({
+          ...r,
+          permissions: (r.permissions ?? {}) as Record<string, boolean>,
+          full_name: byId[r.user_id]?.full_name ?? null,
+          email: byId[r.user_id]?.email ?? null,
+        }))
+        .sort((a, b) => a.role.localeCompare(b.role))
+    )
+  }, [household])
+
+  useEffect(() => {
+    if (isParentAdmin) loadMembers()
+  }, [isParentAdmin, loadMembers])
+
+  async function toggleMemberPermission(member: MemberRow, key: string, allowed: boolean) {
+    if (!household) return
+    setSavingMemberId(member.id)
+    setMembersError(null)
+    try {
+      const newPermissions = { ...member.permissions, [key]: allowed }
+      const { error } = await supabase
+        .from('household_users')
+        .update({ permissions: newPermissions })
+        .eq('id', member.id)
+      if (error) throw error
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'household_user',
+        entityId: member.id,
+        action: 'update_permissions',
+        before: { [key]: member.permissions[key] ?? true },
+        after: { [key]: allowed },
+      })
+      await loadMembers()
+    } catch (err) {
+      setMembersError(errorMessage(err, 'Could not update permissions.'))
+    } finally {
+      setSavingMemberId(null)
+    }
+  }
+
+  async function removeMember(member: MemberRow) {
+    if (!household) return
+    setSavingMemberId(member.id)
+    setMembersError(null)
+    try {
+      const { error } = await supabase.from('household_users').delete().eq('id', member.id)
+      if (error) throw error
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'household_user',
+        entityId: member.id,
+        action: 'remove',
+        before: { role: member.role, email: member.email },
+      })
+      setConfirmRemoveId(null)
+      await loadMembers()
+    } catch (err) {
+      setMembersError(errorMessage(err, 'Could not remove member.'))
+    } finally {
+      setSavingMemberId(null)
+    }
+  }
 
   useEffect(() => {
     if (!household) return
@@ -398,7 +517,8 @@ export function More() {
       {isParentAdmin && (
         <Card title="Co-parent access">
           <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
-            Share this code with a second parent so they can sign up and join as a co-admin with full access.
+            Share this separate code with a second parent so they can sign up and join as a co-admin. Keep it
+            distinct from the nanny code — it grants management access.
           </p>
           {parentJoinCode ? (
             <div className="space-y-3">
@@ -430,6 +550,99 @@ export function More() {
           {parentJoinCodeError && (
             <p className="mt-3 text-xs text-red-600 dark:text-red-400">{parentJoinCodeError}</p>
           )}
+        </Card>
+      )}
+
+      {isParentAdmin && (
+        <Card title="Household members">
+          <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
+            Everyone with access to this household. Co-admins have full access by default; uncheck a permission
+            to restrict it.
+          </p>
+          {members.length === 0 ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">No members yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {members.map((member) => {
+                const isSelf = member.user_id === user?.id
+                return (
+                  <div key={member.id} className="rounded-xl border border-gray-100 p-3 dark:border-gray-700">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          {member.full_name || member.email || 'Member'}
+                          {isSelf && <span className="ml-1 text-xs font-normal text-gray-400">(you)</span>}
+                        </p>
+                        {member.email && member.full_name && (
+                          <p className="truncate text-xs text-gray-500 dark:text-gray-400">{member.email}</p>
+                        )}
+                      </div>
+                      <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                        {ROLE_LABELS[member.role]}
+                      </span>
+                    </div>
+
+                    {member.role === 'parent_admin' && (
+                      <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">Full access — cannot be restricted.</p>
+                    )}
+
+                    {member.role === 'parent_co_admin' && (
+                      <div className="mt-2 space-y-1.5">
+                        {COADMIN_PERMISSIONS.map((perm) => {
+                          const allowed = member.permissions[perm.key] !== false
+                          return (
+                            <label
+                              key={perm.key}
+                              className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={allowed}
+                                disabled={savingMemberId === member.id}
+                                onChange={(e) => toggleMemberPermission(member, perm.key, e.target.checked)}
+                              />
+                              {perm.label}
+                            </label>
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    {!isSelf && member.role !== 'parent_admin' && (
+                      <div className="mt-2">
+                        {confirmRemoveId === member.id ? (
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs text-gray-600 dark:text-gray-400">Remove this member?</span>
+                            <button
+                              className="text-xs text-red-600 underline disabled:opacity-50 dark:text-red-400"
+                              disabled={savingMemberId === member.id}
+                              onClick={() => removeMember(member)}
+                            >
+                              Yes, remove
+                            </button>
+                            <button
+                              className="text-xs text-gray-500 underline dark:text-gray-400"
+                              onClick={() => setConfirmRemoveId(null)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className="text-xs text-red-500 underline dark:text-red-400"
+                            onClick={() => setConfirmRemoveId(member.id)}
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          {membersError && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{membersError}</p>}
         </Card>
       )}
 

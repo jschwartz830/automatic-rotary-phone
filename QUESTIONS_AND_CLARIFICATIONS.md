@@ -8,41 +8,29 @@ rather than a silent guess.
 
 ## Open items
 
-### 16. Which known-gap phase to build next? — NEEDS DECISION
+None right now. See `SPEC_CHANGE_LOG.md`'s "Known gaps" notes for build-out
+work that's scoped but not yet done — those aren't ambiguous, just not built.
 
-The remaining spec areas are all scoped and buildable; the question is order.
-Candidates (see `SPEC_CHANGE_LOG.md` "Known gaps"):
+---
 
-- **A. Recurring schedule types beyond weekly (13.2)** — add form UI for
-  `biweekly` / `monthly_by_date` / `monthly_by_weekday`. Generation logic
-  already exists; this is purely the create-shift UI.
-- **B. Co-admin permission management UI (10/11)** — a household-members screen
-  to add a co-admin and toggle their restricted permissions. RLS already
-  enforces it server-side; this exposes it.
-- **C. Additional exports (13.11)** — PTO ledger CSV and an annual-summary
-  export, alongside the existing timesheet/payment exports.
-- **D. Reminder settings + weekly digest (13.9 / 15.14)** — see item 17; partly
-  a design question.
+## Resolved items — 2026-07-03
 
-**Recommendation:** A first (schedule flexibility is core to the whole
-guarantee/timesheet flow and is the most-requested real-world need), then C
-(cheap, high-value, no new concepts), then B.
+### 16. Which known-gap phase to build next? — RESOLVED (co-admin permissions UI)
 
-### 17. `weekly_summary` digest + reminder settings scope (13.9 / 15.14) — NEEDS DECISION
+**Decision (chosen in chat):** Build the **co-admin permission management UI**
+next. Delivered: a parent-admin-only "Household members" card in `More.tsx`
+listing members and exposing per-co-admin toggles for the seven RLS-enforced
+permission keys. The "add a co-admin" path (a separate co-parent join code)
+landed independently on `main` via PR #38; this branch builds its members UI on
+top of it. See `SPEC_CHANGE_LOG.md` 2026-07-03 (batch 2).
 
-Two under-specified pieces:
+### 17. `weekly_summary` digest + reminder settings scope (13.9 / 15.14) — RESOLVED (in-app only, deferred)
 
-- The spec names a `weekly_summary` reminder but never defines *what* it
-  summarizes or its cadence.
-- Reminder settings (13.9) list per-type enable/disable, recipients, and quiet
-  hours — but the app is in-app-only (no email/SMS backend, per resolved item
-  5), so "recipients" and "quiet hours" have no delivery channel to act on yet.
-
-**Recommendation:** Build the in-app pieces only — a per-caregiver weekly
-in-app summary card (hours worked, OT, PTO used, pay due for the week) plus
-per-reminder-type enable/disable toggles. Defer recipients/quiet hours until
-there's an email/SMS backend, since they're meaningless without one. Flag this
-so we're not silently dropping spec fields.
+**Decision (chosen in chat):** When this phase is built, do the **in-app pieces
+only** — a weekly in-app summary card plus per-reminder-type enable/disable
+toggles. Defer "recipients" and "quiet hours" until there's an email/SMS
+backend, since they have no delivery channel today (consistent with resolved
+item 5). Not yet built; tracked under "Known gaps."
 
 ---
 
