@@ -13,6 +13,27 @@ work that's scoped but not yet done — those aren't ambiguous, just not built.
 
 ---
 
+## Resolved items — 2026-07-03
+
+### 16. Which known-gap phase to build next? — RESOLVED (co-admin permissions UI)
+
+**Decision (chosen in chat):** Build the **co-admin permission management UI**
+next. Delivered: a parent-admin-only "Household members" card in `More.tsx`
+listing members and exposing per-co-admin toggles for the seven RLS-enforced
+permission keys. The "add a co-admin" path (a separate co-parent join code)
+landed independently on `main` via PR #38; this branch builds its members UI on
+top of it. See `SPEC_CHANGE_LOG.md` 2026-07-03 (batch 2).
+
+### 17. `weekly_summary` digest + reminder settings scope (13.9 / 15.14) — RESOLVED (in-app only, deferred)
+
+**Decision (chosen in chat):** When this phase is built, do the **in-app pieces
+only** — a weekly in-app summary card plus per-reminder-type enable/disable
+toggles. Defer "recipients" and "quiet hours" until there's an email/SMS
+backend, since they have no delivery channel today (consistent with resolved
+item 5). Not yet built; tracked under "Known gaps."
+
+---
+
 ## Resolved items — 2026-07-02 (batch 2)
 
 ### 15. Do holiday / weather-emergency schedule exceptions affect pay? — RESOLVED (option A)

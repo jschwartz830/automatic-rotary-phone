@@ -8,6 +8,121 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-03 (batch 2) — Co-admin permission management UI (spec 10/11)
+
+**Household members / co-admin permissions UI built (spec 10/11, closes a
+"Known gap"; resolves Q&A item 16 — user chose this phase).** `More.tsx` has a
+new parent-admin-only "Household members" card that lists every member (name,
+email, role) and, for each `parent_co_admin`, exposes checkboxes for the
+permissions the database actually enforces. Unchecking one writes
+`household_users.permissions[key] = false`, which the existing RLS
+(`can_manage_household_setting` / `coadmin_permission_allowed`) and the
+`caregiver_profiles` restriction trigger already honor server-side — so the UI
+is a real control surface, not a cosmetic one.
+
+Only the **seven enforced keys** are shown, matching what has a backend effect:
+`edit_pay_rate`, `edit_pto_policy`, `edit_guaranteed_hours_policy`,
+`edit_schedule`, `edit_household`, `manage_users`, `view_audit_log`. The spec's
+role matrix (11) lists more optionally-restrictable rows (approve timesheet,
+mark payment, approve PTO, export records), but those are gated by
+`is_parent_or_coadmin` in RLS with no per-key check, so a co-admin can't be
+restricted from them today without new policies. Rather than show toggles that
+do nothing, they're omitted; adding real per-key enforcement for them is future
+work. The card is gated to **parent admin only** (not co-admins) so a co-admin
+can't lift their own restrictions, matching spec 10's "Change permissions" as
+an admin capability. Members can also be removed (with an inline confirm);
+permission changes and removals are audit-logged.
+
+**Co-parent join code — landed independently on `main` via PR #38.** This
+branch originally added its own co-parent join code (a separate
+`coadmin_join_code` column + generalized `join_household_by_code`), but PR #38
+merged the same feature to `main` first, using `parent_join_code`. On rebase,
+this branch's duplicate migration and "Co-parent access" card were dropped in
+favor of main's implementation to avoid a colliding `0013` migration and a
+double card. The members UI below builds on top of main's co-parent card. Net
+effect is the same: a household can add a second parent via a distinct code
+that grants `parent_co_admin`, and the onboarding join copy is role-agnostic.
+
+**Deferred by decision (Q&A item 17):** `weekly_summary` digest + per-type
+reminder settings will be built in-app-only when reached (no recipients / quiet
+hours until there's an email/SMS backend). Recorded so the dropped spec fields
+are a conscious choice, not an oversight.
+
+### Known gaps for next phase (not ambiguous, just not built yet)
+
+- **Recurring schedule types beyond `weekly`** (13.2) — `biweekly`,
+  `monthly_by_date`, `monthly_by_weekday`, `custom` have DB + generation
+  support but no form UI to create them.
+- **Per-key enforcement for the remaining matrix rows** (11) — approve
+  timesheet / mark payment / approve PTO / export records are co-admin-allowed
+  by default with no restrict toggle (would need new RLS keys + UI).
+- **Reminder settings + `weekly_summary` digest** (13.9 / 15.14) — in-app-only
+  scope decided (item 17); not yet built.
+- **Additional exports** (13.11) — only timesheets and payments CSV export
+  exist; PTO ledger and annual-summary exports don't.
+
+---
+
+## 2026-07-03 — Time-entry validation warnings (spec 13.4)
+
+**Time-entry validation built (spec 13.4 "Validation", closes a "Known gap").**
+`Time.tsx`'s manual add form and the inline edit form now show live, advisory
+warnings as the user fills them in, powered by a new pure helper
+`src/lib/timeValidation.ts` (`validateTimeEntry`). Warnings are non-blocking,
+matching the spec's "warn when" wording — the save still goes through. Covered
+cases from the spec's list:
+
+- **End time before start / crosses midnight** — the data model has no explicit
+  overnight flag, so an end earlier than the start is interpreted as a midnight
+  crossing (consistent with `hoursBetween`); the warning surfaces that
+  assumption so a typo isn't silently accepted. Also flags a zero-length entry
+  when start == end.
+- **Break longer than shift** — unpaid break ≥ the raw shift span.
+- **Time overlaps another entry** — checks the caregiver's other active entries
+  on the same date (using their manual times, falling back to clock
+  timestamps), with midnight-crossing normalization on both sides.
+- **Actual hours materially differ from scheduled** — compares logged paid
+  hours to the summed scheduled-shift hours for that date. "Materially" isn't
+  defined by the spec; chosen band is the larger of 1 hour or 25% of the
+  scheduled total, so both short and long shifts get a sensible tolerance.
+- **Weekly worked hours exceed overtime threshold** — sums the draft plus the
+  caregiver's other entries in the same week bucket (household `week_start_day`)
+  against `overtime_threshold_hours`.
+- **Editing a submitted (nanny) / approved (parent) entry** — advisory notice
+  that the entry has already progressed past the freely-editable state.
+
+Not handled here by design: **clock-out missing** stays in the reminders engine
+(`missing_clock_out`), since it's a background condition rather than a property
+of a form being filled in; and the hard blocks for **editing a paid/locked
+period** remain enforced by the existing `canEdit`/`canArchive` gates and RLS,
+not downgraded to a warning.
+
+No schema or spec-text change — 13.4 already specifies these warnings; this is
+implementation of an existing requirement.
+
+**Scheduled-hours pre-fill confirmed already in place.** The requested
+"default time entry to the scheduled hours (still defaulting to the current
+day)" was already implemented on 2026-06-30 (`Time.tsx` pre-fills
+start/end/break from the selected date's scheduled shift, date defaults to
+today). No change needed; noted here for traceability.
+
+### Known gaps for next phase (not ambiguous, just not built yet)
+
+- **Recurring schedule types beyond `weekly`** (13.2) — `biweekly`,
+  `monthly_by_date`, `monthly_by_weekday`, `custom` have DB + generation
+  support but no form UI to create them.
+- **Co-admin permission management UI** (10/11) — RLS already enforces
+  restricted permissions server-side; there's no screen to view household
+  members or toggle a co-admin's restrictions.
+- **Reminder settings** (13.9) — only payment lead-time is configurable;
+  no per-type enable/disable, recipients, or quiet hours.
+- **`weekly_summary` reminder / digest** (15.14) — needs its own design
+  (what it summarizes, cadence) before it's buildable.
+- **Additional exports** (13.11) — only timesheets and payments CSV export
+  exist; PTO ledger and annual-summary exports don't.
+
+---
+
 ## 2026-07-02 (batch 2) — Weather-emergency exceptions now affect pay
 
 **Resolved Q&A item 15 (option A).** `weather_emergency` exceptions with
