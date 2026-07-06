@@ -486,17 +486,13 @@ export function Time() {
             <Field label="Date">
               <input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} required />
             </Field>
-            <div className="flex gap-3">
-              <div className="min-w-0 flex-1">
-                <Field label="Start">
-                  <input type="time" className={inputClass} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
-                </Field>
-              </div>
-              <div className="min-w-0 flex-1">
-                <Field label="End">
-                  <input type="time" className={inputClass} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
-                </Field>
-              </div>
+            <div className="space-y-3">
+              <Field label="Start">
+                <input type="time" className={inputClass} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+              </Field>
+              <Field label="End">
+                <input type="time" className={inputClass} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+              </Field>
             </div>
             <Field label="Unpaid break (minutes)">
               <input
@@ -565,27 +561,23 @@ export function Time() {
                         onChange={(e) => setEditDate(e.target.value)}
                       />
                     </Field>
-                    <div className="flex gap-3">
-                      <div className="min-w-0 flex-1">
-                        <Field label="Start">
-                          <input
-                            type="time"
-                            className={inputClass}
-                            value={editStart}
-                            onChange={(e) => setEditStart(e.target.value)}
-                          />
-                        </Field>
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <Field label="End">
-                          <input
-                            type="time"
-                            className={inputClass}
-                            value={editEnd}
-                            onChange={(e) => setEditEnd(e.target.value)}
-                          />
-                        </Field>
-                      </div>
+                    <div className="space-y-3">
+                      <Field label="Start">
+                        <input
+                          type="time"
+                          className={inputClass}
+                          value={editStart}
+                          onChange={(e) => setEditStart(e.target.value)}
+                        />
+                      </Field>
+                      <Field label="End">
+                        <input
+                          type="time"
+                          className={inputClass}
+                          value={editEnd}
+                          onChange={(e) => setEditEnd(e.target.value)}
+                        />
+                      </Field>
                     </div>
                     <Field label="Unpaid break (minutes)">
                       <input
