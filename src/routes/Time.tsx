@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { usePreferences } from '../context/PreferencesContext'
@@ -34,6 +35,7 @@ const DEFAULT_START_TIME = '09:00'
 const DEFAULT_END_TIME = '17:00'
 
 export function Time() {
+  const navigate = useNavigate()
   const { user } = useAuth()
   const { timeFormat } = usePreferences()
   const { household, isNanny, isParentOrCoAdmin, caregiverProfile } = useHousehold()
@@ -454,6 +456,24 @@ export function Time() {
           {showForm ? 'Cancel' : '+ Add time'}
         </Button>
       </div>
+
+      {isParentOrCoAdmin && (
+        <div className="flex gap-1 rounded-xl bg-gray-100 p-1 dark:bg-gray-900">
+          <button
+            type="button"
+            className="flex-1 rounded-lg bg-white px-3 py-2 text-sm font-medium text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100"
+          >
+            Time
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/pto')}
+            className="flex-1 rounded-lg px-3 py-2 text-sm font-medium text-gray-500 dark:text-gray-400"
+          >
+            PTO
+          </button>
+        </div>
+      )}
 
       {isNanny && (
         <Card title="Clock in / clock out">

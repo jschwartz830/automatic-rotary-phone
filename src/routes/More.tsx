@@ -324,22 +324,6 @@ export function More() {
     <div className="space-y-4 p-4">
       <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">More</h1>
 
-      <Card title="Navigate">
-        <div className="flex flex-wrap gap-2">
-          <Link to="/calendar" className="rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-900 dark:bg-gray-700 dark:text-gray-100">
-            Schedule
-          </Link>
-          <Link to="/pto" className="rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-900 dark:bg-gray-700 dark:text-gray-100">
-            PTO
-          </Link>
-          {isParentOrCoAdmin && (
-            <Link to="/audit-log" className="rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-900 dark:bg-gray-700 dark:text-gray-100">
-              Audit Log
-            </Link>
-          )}
-        </div>
-      </Card>
-
       {isParentOrCoAdmin && (
         <Card title="Household settings">
           <form onSubmit={handleSaveHousehold} className="space-y-3">
@@ -706,6 +690,15 @@ export function More() {
           {refreshing ? 'Refreshing…' : 'Force refresh (clear cache & update)'}
         </Button>
       </Card>
+
+      {isParentOrCoAdmin && (
+        <Link
+          to="/audit-log"
+          className="block rounded-xl bg-gray-100 px-3 py-2 text-center text-sm font-medium text-gray-900 dark:bg-gray-700 dark:text-gray-100"
+        >
+          Audit Log
+        </Link>
+      )}
     </div>
   )
 }
