@@ -100,6 +100,18 @@ export function More() {
   const [newCaregiverRate, setNewCaregiverRate] = useState('')
   const [addCaregiverSubmitting, setAddCaregiverSubmitting] = useState(false)
   const [addCaregiverError, setAddCaregiverError] = useState<string | null>(null)
+  const [profileName, setProfileName] = useState('')
+  const [profileEmail, setProfileEmail] = useState('')
+  const [profilePhone, setProfilePhone] = useState('')
+  const [profileStartDate, setProfileStartDate] = useState('')
+  const [profileEmploymentStatus, setProfileEmploymentStatus] =
+    useState<CaregiverProfile['employment_status']>('active')
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileSavedAt, setProfileSavedAt] = useState<number | null>(null)
+  const [profileSaveError, setProfileSaveError] = useState<string | null>(null)
+  const [confirmRemoveCaregiver, setConfirmRemoveCaregiver] = useState(false)
+  const [removingCaregiver, setRemovingCaregiver] = useState(false)
+  const [removeCaregiverError, setRemoveCaregiverError] = useState<string | null>(null)
   const [householdName, setHouseholdName] = useState('')
   const [timezone, setTimezone] = useState('America/New_York')
   const [weekStartDay, setWeekStartDay] = useState<'sunday' | 'monday'>('monday')
@@ -309,6 +321,19 @@ export function More() {
 
   useEffect(() => {
     if (!caregiver) return
+    setProfileName(caregiver.name)
+    setProfileEmail(caregiver.email ?? '')
+    setProfilePhone(caregiver.phone ?? '')
+    setProfileStartDate(caregiver.start_date ?? '')
+    setProfileEmploymentStatus(caregiver.employment_status)
+    setProfileSavedAt(null)
+    setProfileSaveError(null)
+    setConfirmRemoveCaregiver(false)
+    setRemoveCaregiverError(null)
+  }, [caregiver])
+
+  useEffect(() => {
+    if (!caregiver) return
     setRate(caregiver.default_hourly_rate?.toString() ?? '')
     setOvertimeThreshold(caregiver.overtime_threshold_hours.toString())
     setOvertimeMultiplier(caregiver.overtime_multiplier.toString())
@@ -358,6 +383,65 @@ export function More() {
       setAddCaregiverError(errorMessage(err, 'Could not add caregiver.'))
     } finally {
       setAddCaregiverSubmitting(false)
+    }
+  }
+
+  async function handleSaveProfile(e: FormEvent) {
+    e.preventDefault()
+    if (!caregiver || !household || !profileName.trim()) return
+    setProfileSaving(true)
+    setProfileSaveError(null)
+    try {
+      const updates: Partial<CaregiverProfile> = {
+        name: profileName.trim(),
+        email: profileEmail.trim() || null,
+        phone: profilePhone.trim() || null,
+        start_date: profileStartDate || null,
+        employment_status: profileEmploymentStatus,
+      }
+      const { error } = await supabase.from('caregiver_profiles').update(updates).eq('id', caregiver.id)
+      if (error) throw error
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'caregiver_profile',
+        entityId: caregiver.id,
+        action: 'update',
+        after: updates as Record<string, unknown>,
+      })
+      await refresh()
+      setProfileSavedAt(Date.now())
+    } catch (err) {
+      setProfileSaveError(errorMessage(err, 'Could not save caregiver profile.'))
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
+  async function handleRemoveCaregiver() {
+    if (!caregiver || !household) return
+    setRemovingCaregiver(true)
+    setRemoveCaregiverError(null)
+    try {
+      const removedId = caregiver.id
+      const removedName = caregiver.name
+      const { error } = await supabase.from('caregiver_profiles').delete().eq('id', removedId)
+      if (error) throw error
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'caregiver_profile',
+        entityId: removedId,
+        action: 'remove',
+        before: { name: removedName },
+      })
+      setConfirmRemoveCaregiver(false)
+      setCaregiverId(null)
+      await refresh()
+    } catch (err) {
+      setRemoveCaregiverError(errorMessage(err, 'Could not remove caregiver.'))
+    } finally {
+      setRemovingCaregiver(false)
     }
   }
 
@@ -689,8 +773,114 @@ export function More() {
           ) : (
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {caregivers.length} {caregivers.length === 1 ? 'caregiver' : 'caregivers'} on this household. Pick one
-              below to edit pay settings.
+              below to edit their profile or pay settings.
             </p>
+          )}
+        </Card>
+      )}
+
+      {isParentOrCoAdmin && caregivers.length > 0 && (
+        <Card title="Caregiver profile">
+          <CaregiverSelect caregivers={caregivers} value={caregiverId} onChange={setCaregiverId} />
+          <form onSubmit={handleSaveProfile} className="space-y-3">
+            <Field label="Name">
+              <input
+                className={inputClass}
+                value={profileName}
+                onChange={(e) => setProfileName(e.target.value)}
+                required
+              />
+            </Field>
+            <Field label="Email (optional)">
+              <input
+                type="email"
+                className={inputClass}
+                value={profileEmail}
+                onChange={(e) => setProfileEmail(e.target.value)}
+              />
+            </Field>
+            <Field label="Phone (optional)">
+              <input
+                type="tel"
+                className={inputClass}
+                value={profilePhone}
+                onChange={(e) => setProfilePhone(e.target.value)}
+              />
+            </Field>
+            <div className="flex gap-2">
+              <div className="min-w-0 flex-1">
+                <Field label="Start date (optional)">
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={profileStartDate}
+                    onChange={(e) => setProfileStartDate(e.target.value)}
+                  />
+                </Field>
+              </div>
+              <div className="min-w-0 flex-1">
+                <Field label="Employment status">
+                  <select
+                    className={inputClass}
+                    value={profileEmploymentStatus}
+                    onChange={(e) =>
+                      setProfileEmploymentStatus(e.target.value as CaregiverProfile['employment_status'])
+                    }
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="terminated">Terminated</option>
+                  </select>
+                </Field>
+              </div>
+            </div>
+            <Button type="submit" className="w-full" disabled={profileSaving}>
+              {profileSaving ? 'Saving…' : 'Save profile'}
+            </Button>
+            {profileSaveError && <p className="text-xs text-red-600 dark:text-red-400">{profileSaveError}</p>}
+            {profileSavedAt && !profileSaveError && (
+              <p className="text-xs text-green-600 dark:text-green-400">Saved.</p>
+            )}
+          </form>
+
+          {isParentAdmin && caregiver && (
+            <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-700">
+              {confirmRemoveCaregiver ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-600 dark:text-gray-400">
+                    Permanently remove <span className="font-semibold">{caregiver.name}</span>? This also deletes
+                    their schedule, time entries, timesheets, leave, and payment history and cannot be undone. To
+                    keep their history, set their employment status to Inactive or Terminated instead.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      className="text-xs text-red-600 underline disabled:opacity-50 dark:text-red-400"
+                      disabled={removingCaregiver}
+                      onClick={handleRemoveCaregiver}
+                    >
+                      {removingCaregiver ? 'Removing…' : 'Yes, remove permanently'}
+                    </button>
+                    <button
+                      className="text-xs text-gray-500 underline dark:text-gray-400"
+                      disabled={removingCaregiver}
+                      onClick={() => setConfirmRemoveCaregiver(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  className="text-xs text-red-500 underline dark:text-red-400"
+                  onClick={() => setConfirmRemoveCaregiver(true)}
+                >
+                  Remove caregiver
+                </button>
+              )}
+              {removeCaregiverError && (
+                <p className="mt-2 text-xs text-red-600 dark:text-red-400">{removeCaregiverError}</p>
+              )}
+            </div>
           )}
         </Card>
       )}
