@@ -7,7 +7,8 @@ import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
 import { Card, Button, Field, inputClass } from '../components/Card'
-import type { CaregiverProfile, GuaranteedHoursBasis, PayFrequency, PaydayRule, PayPeriodAnchor } from '../lib/types'
+import { useLeavePolicies } from '../lib/useLeavePolicies'
+import type { CaregiverProfile, GuaranteedHoursBasis, LeaveType, PayFrequency, PaydayRule, PayPeriodAnchor } from '../lib/types'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const PAY_FREQUENCIES: PayFrequency[] = ['weekly', 'biweekly', 'semi_monthly', 'monthly']
@@ -18,6 +19,7 @@ const REMINDER_OPTIONS = [
   { value: 2, label: '2 days before' },
   { value: 3, label: '3 days before' },
 ]
+const BALANCE_TYPES: LeaveType[] = ['pto', 'sick']
 
 export function CaregiverDetail() {
   const { id } = useParams<{ id: string }>()
@@ -26,6 +28,10 @@ export function CaregiverDetail() {
   const { household, isParentAdmin } = useHousehold()
   const { caregivers, refresh } = useCaregivers(household?.id)
   const caregiver = caregivers.find((c) => c.id === id) ?? null
+  const { policies, refresh: refreshPolicies } = useLeavePolicies(id ?? null)
+  const [allowanceDrafts, setAllowanceDrafts] = useState<Record<string, string>>({})
+  const [savingPolicy, setSavingPolicy] = useState<LeaveType | null>(null)
+  const [policyError, setPolicyError] = useState<string | null>(null)
 
   const [profileName, setProfileName] = useState('')
   const [profileEmail, setProfileEmail] = useState('')
@@ -89,6 +95,82 @@ export function CaregiverDetail() {
     setPaydayDaysAfterPeriodEnd(caregiver.payday_days_after_period_end?.toString() ?? '5')
     setReminderDays(caregiver.payment_reminder_days_before?.length ? caregiver.payment_reminder_days_before : [0, 1])
   }, [caregiver])
+
+  useEffect(() => {
+    const drafts: Record<string, string> = {}
+    for (const type of BALANCE_TYPES) {
+      const policy = policies.find((p) => p.leave_type === type)
+      drafts[type] = policy?.annual_allowance_hours?.toString() ?? ''
+    }
+    setAllowanceDrafts(drafts)
+  }, [policies])
+
+  async function saveAllowance(type: LeaveType) {
+    if (!caregiver || !household) return
+    setSavingPolicy(type)
+    setPolicyError(null)
+    try {
+      const draft = allowanceDrafts[type] ?? ''
+      const newHours = draft ? Number(draft) : null
+      const existingPolicy = policies.find((p) => p.leave_type === type)
+      const { data: upsertedRows, error: upsertError } = await supabase
+        .from('leave_policies')
+        .upsert(
+          {
+            caregiver_id: caregiver.id,
+            leave_type: type,
+            accrual_method: 'front_loaded_annual',
+            annual_allowance_hours: newHours,
+          },
+          { onConflict: 'caregiver_id,leave_type' }
+        )
+        .select()
+      if (upsertError) throw upsertError
+
+      // Write an opening_balance ledger event when the policy is first created,
+      // or a manual_adjustment when the allowance changes.
+      if (newHours != null) {
+        const policyId = (upsertedRows?.[0] as { id?: string } | null)?.id ?? existingPolicy?.id
+        if (policyId) {
+          const isNew = !existingPolicy
+          const { data: ledgerRows } = await supabase
+            .from('leave_ledger')
+            .select('hours_delta')
+            .eq('caregiver_id', caregiver.id)
+            .eq('leave_policy_id', policyId)
+          const currentBalance = (ledgerRows ?? []).reduce((sum: number, r: { hours_delta: number }) => sum + r.hours_delta, 0)
+          const delta = isNew ? newHours : newHours - (existingPolicy?.annual_allowance_hours ?? 0)
+          if (delta !== 0) {
+            await supabase.from('leave_ledger').insert({
+              caregiver_id: caregiver.id,
+              leave_policy_id: policyId,
+              event_date: new Date().toISOString().slice(0, 10),
+              event_type: isNew ? 'opening_balance' : 'manual_adjustment',
+              hours_delta: delta,
+              balance_after: currentBalance + delta,
+              created_by: user?.id ?? null,
+              notes: isNew ? `Initial ${type} allowance set to ${newHours} hrs` : `Allowance updated from ${existingPolicy?.annual_allowance_hours ?? 0} to ${newHours} hrs`,
+            })
+          }
+        }
+      }
+
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'leave_policy',
+        entityId: caregiver.id,
+        action: 'update',
+        after: { leaveType: type, annualAllowanceHours: draft },
+      })
+
+      await refreshPolicies()
+    } catch (err) {
+      setPolicyError(errorMessage(err, 'Could not save allowance.'))
+    } finally {
+      setSavingPolicy(null)
+    }
+  }
 
   async function handleSaveProfile(e: FormEvent) {
     e.preventDefault()
@@ -494,6 +576,35 @@ export function CaregiverDetail() {
           {saveError && <p className="text-xs text-red-600 dark:text-red-400">{saveError}</p>}
           {savedAt && !saveError && <p className="text-xs text-green-600 dark:text-green-400">Saved.</p>}
         </form>
+      </Card>
+
+      <Card title="PTO settings">
+        <div className="space-y-4">
+          {BALANCE_TYPES.map((type) => (
+            <Field key={type} label={`Annual ${type} hours allowed`}>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  className={`${inputClass} flex-1`}
+                  placeholder="Annual hours allowed"
+                  value={allowanceDrafts[type] ?? ''}
+                  onChange={(e) => setAllowanceDrafts((d) => ({ ...d, [type]: e.target.value }))}
+                />
+                <button
+                  type="button"
+                  className="text-xs text-blue-600 underline disabled:opacity-50 dark:text-blue-400"
+                  disabled={savingPolicy === type}
+                  onClick={() => saveAllowance(type)}
+                >
+                  {savingPolicy === type ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </Field>
+          ))}
+          {policyError && <p className="text-xs text-red-600 dark:text-red-400">{policyError}</p>}
+        </div>
       </Card>
     </div>
   )
