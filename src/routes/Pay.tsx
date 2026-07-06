@@ -717,29 +717,25 @@ export function Pay() {
       {showForm && (
         <Card title="Generate timesheet from time entries">
           <form onSubmit={handleGenerateTimesheet} className="space-y-3">
-            <div className="flex gap-3">
-              <div className="min-w-0 flex-1">
-                <Field label="Period start">
-                  <input
-                    type="date"
-                    className={inputClass}
-                    value={periodStart}
-                    onChange={(e) => setPeriodStart(e.target.value)}
-                    required
-                  />
-                </Field>
-              </div>
-              <div className="min-w-0 flex-1">
-                <Field label="Period end">
-                  <input
-                    type="date"
-                    className={inputClass}
-                    value={periodEnd}
-                    onChange={(e) => setPeriodEnd(e.target.value)}
-                    required
-                  />
-                </Field>
-              </div>
+            <div className="space-y-3">
+              <Field label="Period start">
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={periodStart}
+                  onChange={(e) => setPeriodStart(e.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Period end">
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={periodEnd}
+                  onChange={(e) => setPeriodEnd(e.target.value)}
+                  required
+                />
+              </Field>
             </div>
             <button
               type="button"
@@ -795,29 +791,25 @@ export function Pay() {
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Submit your approved time entries for this period so your employer can review and calculate pay.
             </p>
-            <div className="flex gap-3">
-              <div className="min-w-0 flex-1">
-                <Field label="Period start">
-                  <input
-                    type="date"
-                    className={inputClass}
-                    value={nannyPeriodStart}
-                    onChange={(e) => setNannyPeriodStart(e.target.value)}
-                    required
-                  />
-                </Field>
-              </div>
-              <div className="min-w-0 flex-1">
-                <Field label="Period end">
-                  <input
-                    type="date"
-                    className={inputClass}
-                    value={nannyPeriodEnd}
-                    onChange={(e) => setNannyPeriodEnd(e.target.value)}
-                    required
-                  />
-                </Field>
-              </div>
+            <div className="space-y-3">
+              <Field label="Period start">
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={nannyPeriodStart}
+                  onChange={(e) => setNannyPeriodStart(e.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Period end">
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={nannyPeriodEnd}
+                  onChange={(e) => setNannyPeriodEnd(e.target.value)}
+                  required
+                />
+              </Field>
             </div>
             <button
               type="button"

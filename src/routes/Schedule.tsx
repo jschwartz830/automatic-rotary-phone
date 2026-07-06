@@ -11,10 +11,12 @@ import { exceptionHours, generateShiftsForRange, scheduleExceptionHoursDelta, sh
 import { formatEntryTimeRange, formatTimeOfDay } from '../lib/time'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
+import { Modal } from '../components/Modal'
 import { StatusChip } from '../components/StatusChip'
 import type {
   ExceptionType,
   LeaveRequest,
+  RecurrenceType,
   ScheduleException,
   ScheduleShift,
   ScheduleTemplate,
@@ -73,8 +75,18 @@ export function Schedule() {
   const [exceptionsForWeek, setExceptionsForWeek] = useState<ScheduleException[]>([])
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
-  const [showForm, setShowForm] = useState(false)
-  const [dayOfWeek, setDayOfWeek] = useState('1')
+  const [showAddShiftModal, setShowAddShiftModal] = useState(false)
+  const [recurrenceChoice, setRecurrenceChoice] = useState<'weekly' | 'monthly' | 'once' | 'other'>('weekly')
+  const [selectedDays, setSelectedDays] = useState<string[]>(['1'])
+  const [monthlyMode, setMonthlyMode] = useState<'date' | 'weekday'>('date')
+  const [monthlyDate, setMonthlyDate] = useState('1')
+  const [monthlyWeekday, setMonthlyWeekday] = useState('1')
+  const [monthlyWeekOrdinal, setMonthlyWeekOrdinal] = useState<
+    'first' | 'second' | 'third' | 'fourth' | 'last'
+  >('first')
+  const [onceDate, setOnceDate] = useState(() => toIsoDate(new Date()))
+  const [otherDayOfWeek, setOtherDayOfWeek] = useState('1')
+  const [otherNote, setOtherNote] = useState('')
   const [startTime, setStartTime] = useState('09:00')
   const [endTime, setEndTime] = useState('17:00')
   const [breakMinutes, setBreakMinutes] = useState('0')
@@ -187,51 +199,144 @@ export function Schedule() {
     }
   }, [weekStart, caregiverId])
 
+  function resetShiftForm() {
+    setRecurrenceChoice('weekly')
+    setSelectedDays(['1'])
+    setMonthlyMode('date')
+    setMonthlyDate('1')
+    setMonthlyWeekday('1')
+    setMonthlyWeekOrdinal('first')
+    setOnceDate(toIsoDate(new Date()))
+    setOtherDayOfWeek('1')
+    setOtherNote('')
+    setStartTime('09:00')
+    setEndTime('17:00')
+    setBreakMinutes('0')
+    setError(null)
+  }
+
+  async function findOrCreateTemplate(recurrenceType: RecurrenceType, name: string): Promise<ScheduleTemplate> {
+    const existing = templates.find((t) => t.recurrence_type === recurrenceType)
+    if (existing) return existing
+    const { data: newTemplate, error: templateError } = await supabase
+      .from('schedule_templates')
+      .insert({
+        caregiver_id: caregiverId,
+        name,
+        recurrence_type: recurrenceType,
+        recurrence_rule: {},
+        effective_start_date: new Date().toISOString().slice(0, 10),
+        created_by: user?.id ?? null,
+      })
+      .select()
+      .single()
+    if (templateError) throw templateError
+    const template = newTemplate as ScheduleTemplate
+    setTemplates((prev) => [...prev, template])
+    return template
+  }
+
   async function handleAddShift(e: FormEvent) {
     e.preventDefault()
     if (!caregiverId || !household) return
     setSubmitting(true)
     setError(null)
     try {
-      let template = templates[0]
-      if (!template) {
-        const { data: newTemplate, error: templateError } = await supabase
-          .from('schedule_templates')
+      if (recurrenceChoice === 'once') {
+        if (!user) throw new Error('Not signed in.')
+        const { error: insertError, data: inserted } = await supabase
+          .from('schedule_exceptions')
           .insert({
             caregiver_id: caregiverId,
-            name: 'Standard week',
-            recurrence_type: 'weekly',
-            recurrence_rule: {},
-            effective_start_date: new Date().toISOString().slice(0, 10),
-            created_by: user?.id ?? null,
+            date: onceDate,
+            exception_type: 'added_shift',
+            start_time: startTime,
+            end_time: endTime,
+            status: 'approved',
+            created_by: user.id,
+            approved_by: user.id,
           })
           .select()
           .single()
-        if (templateError) throw templateError
-        template = newTemplate as ScheduleTemplate
-        setTemplates([template])
+        if (insertError) throw insertError
+
+        await logAuditEvent({
+          householdId: household.id,
+          actorUserId: user.id,
+          entityType: 'schedule_exception',
+          entityId: inserted.id,
+          action: 'create',
+          after: { date: onceDate, exception_type: 'added_shift', startTime, endTime },
+        })
+        await loadExceptions(caregiverId, weekStart)
+      } else if (recurrenceChoice === 'weekly') {
+        if (selectedDays.length === 0) throw new Error('Choose at least one day of the week.')
+        const template = await findOrCreateTemplate('weekly', 'Weekly schedule')
+        for (const day of selectedDays) {
+          const { error: shiftError } = await supabase.from('schedule_shifts').insert({
+            schedule_template_id: template.id,
+            day_of_week: Number(day),
+            start_time: startTime,
+            end_time: endTime,
+            break_minutes: Number(breakMinutes) || 0,
+          })
+          if (shiftError) throw shiftError
+        }
+        await logAuditEvent({
+          householdId: household.id,
+          actorUserId: user?.id ?? '',
+          entityType: 'schedule_shift',
+          entityId: template.id,
+          action: 'create',
+          after: { days: selectedDays, startTime, endTime },
+        })
+        await loadSchedule(caregiverId)
+      } else if (recurrenceChoice === 'monthly') {
+        const recurrenceType: RecurrenceType = monthlyMode === 'date' ? 'monthly_by_date' : 'monthly_by_weekday'
+        const template = await findOrCreateTemplate(recurrenceType, 'Monthly schedule')
+        const { error: shiftError } = await supabase.from('schedule_shifts').insert({
+          schedule_template_id: template.id,
+          day_of_week: monthlyMode === 'weekday' ? Number(monthlyWeekday) : null,
+          monthly_day: monthlyMode === 'date' ? Number(monthlyDate) : null,
+          monthly_week: monthlyMode === 'weekday' ? monthlyWeekOrdinal : null,
+          start_time: startTime,
+          end_time: endTime,
+          break_minutes: Number(breakMinutes) || 0,
+        })
+        if (shiftError) throw shiftError
+        await logAuditEvent({
+          householdId: household.id,
+          actorUserId: user?.id ?? '',
+          entityType: 'schedule_shift',
+          entityId: template.id,
+          action: 'create',
+          after: { recurrenceType, monthlyDate, monthlyWeekday, monthlyWeekOrdinal, startTime, endTime },
+        })
+        await loadSchedule(caregiverId)
+      } else {
+        const template = await findOrCreateTemplate('custom', 'Custom schedule')
+        const { error: shiftError } = await supabase.from('schedule_shifts').insert({
+          schedule_template_id: template.id,
+          day_of_week: Number(otherDayOfWeek),
+          start_time: startTime,
+          end_time: endTime,
+          break_minutes: Number(breakMinutes) || 0,
+          notes: otherNote || null,
+        })
+        if (shiftError) throw shiftError
+        await logAuditEvent({
+          householdId: household.id,
+          actorUserId: user?.id ?? '',
+          entityType: 'schedule_shift',
+          entityId: template.id,
+          action: 'create',
+          after: { day_of_week: otherDayOfWeek, startTime, endTime, notes: otherNote },
+        })
+        await loadSchedule(caregiverId)
       }
 
-      const { error: shiftError } = await supabase.from('schedule_shifts').insert({
-        schedule_template_id: template.id,
-        day_of_week: Number(dayOfWeek),
-        start_time: startTime,
-        end_time: endTime,
-        break_minutes: Number(breakMinutes) || 0,
-      })
-      if (shiftError) throw shiftError
-
-      await logAuditEvent({
-        householdId: household.id,
-        actorUserId: user?.id ?? '',
-        entityType: 'schedule_shift',
-        entityId: template.id,
-        action: 'create',
-        after: { day_of_week: dayOfWeek, startTime, endTime },
-      })
-
-      setShowForm(false)
-      await loadSchedule(caregiverId)
+      setShowAddShiftModal(false)
+      resetShiftForm()
     } catch (err) {
       setError(errorMessage(err, 'Could not add shift.'))
     } finally {
@@ -345,18 +450,38 @@ export function Schedule() {
   const todayStr = toIsoDate(new Date())
 
   const allShifts = templates.flatMap((t) =>
-    (shifts[t.id] ?? []).map((s) => ({ ...s, templateName: t.name }))
+    (shifts[t.id] ?? []).map((s) => ({ ...s, templateName: t.name, recurrenceType: t.recurrence_type }))
   )
-  const sortedShifts = [...allShifts].sort((a, b) => (a.day_of_week ?? 0) - (b.day_of_week ?? 0))
+  const sortedShifts = [...allShifts].sort(
+    (a, b) => (a.day_of_week ?? a.monthly_day ?? 0) - (b.day_of_week ?? b.monthly_day ?? 0)
+  )
   const shiftsById: Record<string, ScheduleShift> = Object.fromEntries(allShifts.map((s) => [s.id, s]))
+
+  function describeShiftRecurrence(shift: ScheduleShift & { recurrenceType: RecurrenceType }): string {
+    switch (shift.recurrenceType) {
+      case 'weekly':
+        return DAYS[shift.day_of_week ?? 0]
+      case 'biweekly':
+        return `${DAYS[shift.day_of_week ?? 0]} · biweekly`
+      case 'monthly_by_date':
+        return `Day ${shift.monthly_day} of month`
+      case 'monthly_by_weekday': {
+        const ordinal = shift.monthly_week ?? 'first'
+        return `${ordinal.charAt(0).toUpperCase()}${ordinal.slice(1)} ${DAYS[shift.day_of_week ?? 0]} of month`
+      }
+      case 'custom':
+      default:
+        return `${DAYS[shift.day_of_week ?? 0]} · custom`
+    }
+  }
 
   return (
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">Schedule</h1>
         {isParentOrCoAdmin && (
-          <Button variant="secondary" onClick={() => setShowForm((s) => !s)}>
-            {showForm ? 'Cancel' : '+ Add shift'}
+          <Button variant="secondary" onClick={() => { resetShiftForm(); setShowAddShiftModal(true) }}>
+            + Add shift
           </Button>
         )}
       </div>
@@ -618,17 +743,13 @@ export function Schedule() {
                               </Field>
                             )}
                             {EXCEPTION_TYPES_WITH_TIME_RANGE.includes(exceptionType) && (
-                              <div className="flex gap-2">
-                                <div className="min-w-0 flex-1">
-                                  <Field label="New start">
-                                    <input type="time" className={inputClass} value={exceptionStart} onChange={(e) => setExceptionStart(e.target.value)} />
-                                  </Field>
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <Field label="New end">
-                                    <input type="time" className={inputClass} value={exceptionEnd} onChange={(e) => setExceptionEnd(e.target.value)} />
-                                  </Field>
-                                </div>
+                              <div className="space-y-2">
+                                <Field label="New start">
+                                  <input type="time" className={inputClass} value={exceptionStart} onChange={(e) => setExceptionStart(e.target.value)} />
+                                </Field>
+                                <Field label="New end">
+                                  <input type="time" className={inputClass} value={exceptionEnd} onChange={(e) => setExceptionEnd(e.target.value)} />
+                                </Field>
                               </div>
                             )}
                             <Field label="Hours (leave blank to auto-calculate)">
@@ -693,47 +814,6 @@ export function Schedule() {
         </div>
       </Card>
 
-      {showForm && (
-        <Card title="New recurring shift">
-          <form onSubmit={handleAddShift} className="space-y-3">
-            <Field label="Day of week">
-              <select className={inputClass} value={dayOfWeek} onChange={(e) => setDayOfWeek(e.target.value)}>
-                {DAYS.map((d, i) => (
-                  <option key={d} value={i}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <div className="flex gap-3">
-              <div className="min-w-0 flex-1">
-                <Field label="Start time">
-                  <input type="time" className={inputClass} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
-                </Field>
-              </div>
-              <div className="min-w-0 flex-1">
-                <Field label="End time">
-                  <input type="time" className={inputClass} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
-                </Field>
-              </div>
-            </div>
-            <Field label="Unpaid break (minutes)">
-              <input
-                type="number"
-                min="0"
-                className={inputClass}
-                value={breakMinutes}
-                onChange={(e) => setBreakMinutes(e.target.value)}
-              />
-            </Field>
-            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? 'Saving…' : 'Save shift'}
-            </Button>
-          </form>
-        </Card>
-      )}
-
       {sortedShifts.length > 0 && (
         <Card title="Recurring schedule">
           <div className="space-y-2">
@@ -741,9 +821,12 @@ export function Schedule() {
               <div key={shift.id} className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                    {DAYS[shift.day_of_week ?? 0]} · {formatTimeOfDay(shift.start_time, timeFormat)}–{formatTimeOfDay(shift.end_time, timeFormat)}
+                    {describeShiftRecurrence(shift)} · {formatTimeOfDay(shift.start_time, timeFormat)}–{formatTimeOfDay(shift.end_time, timeFormat)}
                   </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{shiftHours(shift).toFixed(2)} hrs recurring</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {shiftHours(shift).toFixed(2)} hrs recurring
+                    {shift.notes ? ` · ${shift.notes}` : ''}
+                  </p>
                 </div>
                 {isParentOrCoAdmin && (
                   <button
@@ -757,6 +840,159 @@ export function Schedule() {
             ))}
           </div>
         </Card>
+      )}
+
+      {showAddShiftModal && (
+        <Modal title="Add shift" onClose={() => setShowAddShiftModal(false)}>
+          <form onSubmit={handleAddShift} className="space-y-3">
+            <Field label="Repeats">
+              <select
+                className={inputClass}
+                value={recurrenceChoice}
+                onChange={(e) => setRecurrenceChoice(e.target.value as typeof recurrenceChoice)}
+              >
+                <option value="weekly">Weekly (choose day or days)</option>
+                <option value="monthly">Monthly</option>
+                <option value="once">One time (doesn't repeat)</option>
+                <option value="other">Other / custom</option>
+              </select>
+            </Field>
+
+            {recurrenceChoice === 'weekly' && (
+              <Field label="Days of week">
+                <div className="flex flex-wrap gap-2">
+                  {DAYS.map((d, i) => {
+                    const val = String(i)
+                    const checked = selectedDays.includes(val)
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() =>
+                          setSelectedDays((prev) =>
+                            checked ? prev.filter((x) => x !== val) : [...prev, val].sort()
+                          )
+                        }
+                        className={`flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold transition-colors ${
+                          checked
+                            ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                            : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                        }`}
+                      >
+                        {d[0]}
+                      </button>
+                    )
+                  })}
+                </div>
+              </Field>
+            )}
+
+            {recurrenceChoice === 'monthly' && (
+              <>
+                <Field label="Monthly pattern">
+                  <select
+                    className={inputClass}
+                    value={monthlyMode}
+                    onChange={(e) => setMonthlyMode(e.target.value as 'date' | 'weekday')}
+                  >
+                    <option value="date">On a specific day of the month</option>
+                    <option value="weekday">On a specific weekday (e.g. 2nd Tuesday)</option>
+                  </select>
+                </Field>
+                {monthlyMode === 'date' ? (
+                  <Field label="Day of month">
+                    <input
+                      type="number"
+                      min="1"
+                      max="31"
+                      className={inputClass}
+                      value={monthlyDate}
+                      onChange={(e) => setMonthlyDate(e.target.value)}
+                    />
+                  </Field>
+                ) : (
+                  <div className="space-y-3">
+                    <Field label="Week">
+                      <select
+                        className={inputClass}
+                        value={monthlyWeekOrdinal}
+                        onChange={(e) => setMonthlyWeekOrdinal(e.target.value as typeof monthlyWeekOrdinal)}
+                      >
+                        <option value="first">First</option>
+                        <option value="second">Second</option>
+                        <option value="third">Third</option>
+                        <option value="fourth">Fourth</option>
+                        <option value="last">Last</option>
+                      </select>
+                    </Field>
+                    <Field label="Day">
+                      <select className={inputClass} value={monthlyWeekday} onChange={(e) => setMonthlyWeekday(e.target.value)}>
+                        {DAYS.map((d, i) => (
+                          <option key={d} value={i}>
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+                )}
+              </>
+            )}
+
+            {recurrenceChoice === 'once' && (
+              <Field label="Date">
+                <input type="date" className={inputClass} value={onceDate} onChange={(e) => setOnceDate(e.target.value)} />
+              </Field>
+            )}
+
+            {recurrenceChoice === 'other' && (
+              <>
+                <Field label="Day of week">
+                  <select className={inputClass} value={otherDayOfWeek} onChange={(e) => setOtherDayOfWeek(e.target.value)}>
+                    {DAYS.map((d, i) => (
+                      <option key={d} value={i}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Note (optional)">
+                  <input
+                    className={inputClass}
+                    value={otherNote}
+                    onChange={(e) => setOtherNote(e.target.value)}
+                    placeholder="e.g. every other Friday"
+                  />
+                </Field>
+              </>
+            )}
+
+            <Field label="Start time">
+              <input type="time" className={inputClass} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+            </Field>
+            <Field label="End time">
+              <input type="time" className={inputClass} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+            </Field>
+            <Field label="Unpaid break (minutes)">
+              <input
+                type="number"
+                min="0"
+                className={inputClass}
+                value={breakMinutes}
+                onChange={(e) => setBreakMinutes(e.target.value)}
+              />
+            </Field>
+            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+            <div className="flex gap-2 pt-1">
+              <Button type="button" variant="secondary" className="flex-1" onClick={() => setShowAddShiftModal(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" className="flex-1" disabled={submitting}>
+                {submitting ? 'Saving…' : 'Save shift'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
       )}
     </div>
   )

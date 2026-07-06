@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { usePreferences } from '../context/PreferencesContext'
@@ -8,9 +8,9 @@ import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
 import { Card, Button, Field, inputClass } from '../components/Card'
-import { CaregiverSelect } from '../components/CaregiverSelect'
+import { StatusChip } from '../components/StatusChip'
 import { APP_VERSION, APP_VERSION_TITLE, forceRefreshApp } from '../lib/version'
-import type { CaregiverProfile, GuaranteedHoursBasis, HouseholdRole, PayFrequency, PaydayRule, PayPeriodAnchor } from '../lib/types'
+import type { HouseholdRole } from '../lib/types'
 
 // Co-admin permissions that the database actually enforces (via
 // can_manage_household_setting in the RLS policies / caregiver-profile trigger).
@@ -42,7 +42,6 @@ const ROLE_LABELS: Record<HouseholdRole, string> = {
   nanny: 'Nanny',
 }
 
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const COMMON_TIMEZONES = [
   'America/New_York',
   'America/Chicago',
@@ -51,40 +50,15 @@ const COMMON_TIMEZONES = [
   'America/Anchorage',
   'Pacific/Honolulu',
 ]
-const PAY_FREQUENCIES: PayFrequency[] = ['weekly', 'biweekly', 'semi_monthly', 'monthly']
-const PAYDAY_RULES: PaydayRule[] = ['same_day_each_week', 'days_after_period_end', 'manual']
-const REMINDER_OPTIONS = [
-  { value: 0, label: 'Same day' },
-  { value: 1, label: '1 day before' },
-  { value: 2, label: '2 days before' },
-  { value: 3, label: '3 days before' },
-]
 
 export function More() {
+  const navigate = useNavigate()
   const { user, signOut } = useAuth()
   const { household, isParentAdmin, isParentOrCoAdmin, refresh: refreshHousehold } = useHousehold()
   const { theme, setTheme, timeFormat, setTimeFormat } = usePreferences()
   const { caregivers, refresh } = useCaregivers(household?.id)
   const [showVersionDetail, setShowVersionDetail] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
-  const [caregiverId, setCaregiverId] = useState<string | null>(null)
-  const [rate, setRate] = useState('')
-  const [overtimeThreshold, setOvertimeThreshold] = useState('40')
-  const [overtimeMultiplier, setOvertimeMultiplier] = useState('1.5')
-  const [guaranteedEnabled, setGuaranteedEnabled] = useState(false)
-  const [guaranteedBasis, setGuaranteedBasis] = useState<GuaranteedHoursBasis>('linked_to_schedule')
-  const [guaranteedHours, setGuaranteedHours] = useState('')
-  const [payFrequency, setPayFrequency] = useState<PayFrequency>('weekly')
-  const [payPeriodAnchor, setPayPeriodAnchor] = useState<PayPeriodAnchor>('start_day')
-  const [payPeriodStartDay, setPayPeriodStartDay] = useState('1')
-  const [payPeriodEndDay, setPayPeriodEndDay] = useState('4')
-  const [paydayRule, setPaydayRule] = useState<PaydayRule>('days_after_period_end')
-  const [paydayDayOfWeek, setPaydayDayOfWeek] = useState('5')
-  const [paydayDaysAfterPeriodEnd, setPaydayDaysAfterPeriodEnd] = useState('5')
-  const [reminderDays, setReminderDays] = useState<number[]>([0, 1])
-  const [saving, setSaving] = useState(false)
-  const [savedAt, setSavedAt] = useState<number | null>(null)
-  const [saveError, setSaveError] = useState<string | null>(null)
   const [joinCode, setJoinCode] = useState<string | null>(null)
   const [joinCodeLoading, setJoinCodeLoading] = useState(false)
   const [joinCodeError, setJoinCodeError] = useState<string | null>(null)
@@ -100,30 +74,12 @@ export function More() {
   const [newCaregiverRate, setNewCaregiverRate] = useState('')
   const [addCaregiverSubmitting, setAddCaregiverSubmitting] = useState(false)
   const [addCaregiverError, setAddCaregiverError] = useState<string | null>(null)
-  const [profileName, setProfileName] = useState('')
-  const [profileEmail, setProfileEmail] = useState('')
-  const [profilePhone, setProfilePhone] = useState('')
-  const [profileStartDate, setProfileStartDate] = useState('')
-  const [profileEmploymentStatus, setProfileEmploymentStatus] =
-    useState<CaregiverProfile['employment_status']>('active')
-  const [profileSaving, setProfileSaving] = useState(false)
-  const [profileSavedAt, setProfileSavedAt] = useState<number | null>(null)
-  const [profileSaveError, setProfileSaveError] = useState<string | null>(null)
-  const [confirmRemoveCaregiver, setConfirmRemoveCaregiver] = useState(false)
-  const [removingCaregiver, setRemovingCaregiver] = useState(false)
-  const [removeCaregiverError, setRemoveCaregiverError] = useState<string | null>(null)
   const [householdName, setHouseholdName] = useState('')
   const [timezone, setTimezone] = useState('America/New_York')
   const [weekStartDay, setWeekStartDay] = useState<'sunday' | 'monday'>('monday')
   const [householdSaving, setHouseholdSaving] = useState(false)
   const [householdSavedAt, setHouseholdSavedAt] = useState<number | null>(null)
   const [householdSaveError, setHouseholdSaveError] = useState<string | null>(null)
-
-  const caregiver = caregivers.find((c) => c.id === caregiverId) ?? null
-
-  useEffect(() => {
-    if (!caregiverId && caregivers.length > 0) setCaregiverId(caregivers[0].id)
-  }, [caregivers, caregiverId])
 
   useEffect(() => {
     if (!household || !isParentOrCoAdmin) return
@@ -319,37 +275,6 @@ export function More() {
     }
   }
 
-  useEffect(() => {
-    if (!caregiver) return
-    setProfileName(caregiver.name)
-    setProfileEmail(caregiver.email ?? '')
-    setProfilePhone(caregiver.phone ?? '')
-    setProfileStartDate(caregiver.start_date ?? '')
-    setProfileEmploymentStatus(caregiver.employment_status)
-    setProfileSavedAt(null)
-    setProfileSaveError(null)
-    setConfirmRemoveCaregiver(false)
-    setRemoveCaregiverError(null)
-  }, [caregiver])
-
-  useEffect(() => {
-    if (!caregiver) return
-    setRate(caregiver.default_hourly_rate?.toString() ?? '')
-    setOvertimeThreshold(caregiver.overtime_threshold_hours.toString())
-    setOvertimeMultiplier(caregiver.overtime_multiplier.toString())
-    setGuaranteedEnabled(caregiver.guaranteed_hours_enabled)
-    setGuaranteedBasis(caregiver.guaranteed_hours_basis ?? 'linked_to_schedule')
-    setGuaranteedHours(caregiver.fixed_weekly_guaranteed_hours?.toString() ?? '')
-    setPayFrequency(caregiver.pay_frequency)
-    setPayPeriodAnchor(caregiver.pay_period_anchor)
-    setPayPeriodStartDay(caregiver.pay_period_start_day.toString())
-    setPayPeriodEndDay(caregiver.pay_period_end_day?.toString() ?? '4')
-    setPaydayRule(caregiver.payday_rule)
-    setPaydayDayOfWeek(caregiver.payday_day_of_week?.toString() ?? '5')
-    setPaydayDaysAfterPeriodEnd(caregiver.payday_days_after_period_end?.toString() ?? '5')
-    setReminderDays(caregiver.payment_reminder_days_before?.length ? caregiver.payment_reminder_days_before : [0, 1])
-  }, [caregiver])
-
   async function handleAddCaregiver(e: FormEvent) {
     e.preventDefault()
     if (!household || !newCaregiverName.trim()) return
@@ -375,122 +300,14 @@ export function More() {
         after: { name: newCaregiverName.trim() },
       })
       await refresh()
-      setCaregiverId(newCaregiver.id)
       setNewCaregiverName('')
       setNewCaregiverRate('')
       setShowAddCaregiver(false)
+      navigate(`/caregiver/${newCaregiver.id}`)
     } catch (err) {
       setAddCaregiverError(errorMessage(err, 'Could not add caregiver.'))
     } finally {
       setAddCaregiverSubmitting(false)
-    }
-  }
-
-  async function handleSaveProfile(e: FormEvent) {
-    e.preventDefault()
-    if (!caregiver || !household || !profileName.trim()) return
-    setProfileSaving(true)
-    setProfileSaveError(null)
-    try {
-      const updates: Partial<CaregiverProfile> = {
-        name: profileName.trim(),
-        email: profileEmail.trim() || null,
-        phone: profilePhone.trim() || null,
-        start_date: profileStartDate || null,
-        employment_status: profileEmploymentStatus,
-      }
-      const { error } = await supabase.from('caregiver_profiles').update(updates).eq('id', caregiver.id)
-      if (error) throw error
-      await logAuditEvent({
-        householdId: household.id,
-        actorUserId: user?.id ?? '',
-        entityType: 'caregiver_profile',
-        entityId: caregiver.id,
-        action: 'update',
-        after: updates as Record<string, unknown>,
-      })
-      await refresh()
-      setProfileSavedAt(Date.now())
-    } catch (err) {
-      setProfileSaveError(errorMessage(err, 'Could not save caregiver profile.'))
-    } finally {
-      setProfileSaving(false)
-    }
-  }
-
-  async function handleRemoveCaregiver() {
-    if (!caregiver || !household) return
-    setRemovingCaregiver(true)
-    setRemoveCaregiverError(null)
-    try {
-      const removedId = caregiver.id
-      const removedName = caregiver.name
-      const { error } = await supabase.from('caregiver_profiles').delete().eq('id', removedId)
-      if (error) throw error
-      await logAuditEvent({
-        householdId: household.id,
-        actorUserId: user?.id ?? '',
-        entityType: 'caregiver_profile',
-        entityId: removedId,
-        action: 'remove',
-        before: { name: removedName },
-      })
-      setConfirmRemoveCaregiver(false)
-      setCaregiverId(null)
-      await refresh()
-    } catch (err) {
-      setRemoveCaregiverError(errorMessage(err, 'Could not remove caregiver.'))
-    } finally {
-      setRemovingCaregiver(false)
-    }
-  }
-
-  async function handleSave(e: FormEvent) {
-    e.preventDefault()
-    if (!caregiver || !household) return
-    setSaving(true)
-    setSaveError(null)
-    try {
-      const updates: Partial<CaregiverProfile> = {
-        default_hourly_rate: rate ? Number(rate) : null,
-        overtime_threshold_hours: Number(overtimeThreshold) || 40,
-        overtime_multiplier: Number(overtimeMultiplier) || 1.5,
-        guaranteed_hours_enabled: guaranteedEnabled,
-        guaranteed_hours_basis: guaranteedEnabled ? guaranteedBasis : 'linked_to_schedule',
-        fixed_weekly_guaranteed_hours:
-          guaranteedEnabled && guaranteedBasis === 'fixed_weekly' && guaranteedHours
-            ? Number(guaranteedHours)
-            : null,
-        fixed_pay_period_guaranteed_hours:
-          guaranteedEnabled && guaranteedBasis === 'fixed_pay_period' && guaranteedHours
-            ? Number(guaranteedHours)
-            : null,
-        pay_frequency: payFrequency,
-        pay_period_anchor: payPeriodAnchor,
-        pay_period_start_day: Number(payPeriodStartDay) || 0,
-        pay_period_end_day: payPeriodAnchor === 'end_day' ? Number(payPeriodEndDay) || 0 : null,
-        payday_rule: paydayRule,
-        payday_day_of_week: paydayRule === 'same_day_each_week' ? Number(paydayDayOfWeek) || 0 : null,
-        payday_days_after_period_end:
-          paydayRule === 'days_after_period_end' ? Number(paydayDaysAfterPeriodEnd) || 0 : null,
-        payment_reminder_days_before: reminderDays.length ? reminderDays : [0],
-      }
-      const { error } = await supabase.from('caregiver_profiles').update(updates).eq('id', caregiver.id)
-      if (error) throw error
-      await logAuditEvent({
-        householdId: household.id,
-        actorUserId: user?.id ?? '',
-        entityType: 'caregiver_profile',
-        entityId: caregiver.id,
-        action: 'update',
-        after: updates as Record<string, unknown>,
-      })
-      await refresh()
-      setSavedAt(Date.now())
-    } catch (err) {
-      setSaveError(errorMessage(err, 'Could not save pay settings.'))
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -731,19 +548,34 @@ export function More() {
       )}
 
       {isParentOrCoAdmin && (
-        <Card
-          title="Caregivers"
-          action={
-            <button
-              className="text-xs text-blue-600 underline dark:text-blue-400"
-              onClick={() => setShowAddCaregiver((s) => !s)}
-            >
-              {showAddCaregiver ? 'Cancel' : '+ Add caregiver'}
-            </button>
-          }
-        >
-          {showAddCaregiver && (
-            <form onSubmit={handleAddCaregiver} className="mb-3 space-y-3 border-b border-gray-100 pb-3 dark:border-gray-700">
+        <Card title="Caregivers">
+          {caregivers.length === 0 ? (
+            <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">No caregivers yet.</p>
+          ) : (
+            <div className="mb-3 space-y-2">
+              {caregivers.map((c) => (
+                <button
+                  key={c.id}
+                  className="flex w-full items-center justify-between gap-2 rounded-xl border border-gray-100 p-3 text-left active:bg-gray-50 dark:border-gray-700 dark:active:bg-gray-900"
+                  onClick={() => navigate(`/caregiver/${c.id}`)}
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">{c.name}</p>
+                    {c.default_hourly_rate != null && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400">${c.default_hourly_rate.toFixed(2)}/hr</p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <StatusChip status={c.employment_status} />
+                    <span className="text-gray-300 dark:text-gray-600">›</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {showAddCaregiver ? (
+            <form onSubmit={handleAddCaregiver} className="space-y-3 border-t border-gray-100 pt-3 dark:border-gray-700">
               <Field label="Caregiver name">
                 <input
                   className={inputClass}
@@ -763,315 +595,23 @@ export function More() {
                 />
               </Field>
               {addCaregiverError && <p className="text-xs text-red-600 dark:text-red-400">{addCaregiverError}</p>}
-              <Button type="submit" className="w-full" disabled={addCaregiverSubmitting}>
-                {addCaregiverSubmitting ? 'Adding…' : 'Add caregiver'}
-              </Button>
+              <div className="flex gap-2">
+                <Button type="button" variant="secondary" className="flex-1" onClick={() => setShowAddCaregiver(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" className="flex-1" disabled={addCaregiverSubmitting}>
+                  {addCaregiverSubmitting ? 'Adding…' : 'Add caregiver'}
+                </Button>
+              </div>
             </form>
-          )}
-          {caregivers.length === 0 ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400">No caregivers yet.</p>
           ) : (
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {caregivers.length} {caregivers.length === 1 ? 'caregiver' : 'caregivers'} on this household. Pick one
-              below to edit their profile or pay settings.
-            </p>
+            <button
+              className="w-full rounded-xl border border-dashed border-gray-300 py-2.5 text-sm font-medium text-gray-500 dark:border-gray-700 dark:text-gray-400"
+              onClick={() => setShowAddCaregiver(true)}
+            >
+              + Add caregiver
+            </button>
           )}
-        </Card>
-      )}
-
-      {isParentOrCoAdmin && caregivers.length > 0 && (
-        <Card title="Caregiver profile">
-          <CaregiverSelect caregivers={caregivers} value={caregiverId} onChange={setCaregiverId} />
-          <form onSubmit={handleSaveProfile} className="space-y-3">
-            <Field label="Name">
-              <input
-                className={inputClass}
-                value={profileName}
-                onChange={(e) => setProfileName(e.target.value)}
-                required
-              />
-            </Field>
-            <Field label="Email (optional)">
-              <input
-                type="email"
-                className={inputClass}
-                value={profileEmail}
-                onChange={(e) => setProfileEmail(e.target.value)}
-              />
-            </Field>
-            <Field label="Phone (optional)">
-              <input
-                type="tel"
-                className={inputClass}
-                value={profilePhone}
-                onChange={(e) => setProfilePhone(e.target.value)}
-              />
-            </Field>
-            <div className="flex gap-2">
-              <div className="min-w-0 flex-1">
-                <Field label="Start date (optional)">
-                  <input
-                    type="date"
-                    className={inputClass}
-                    value={profileStartDate}
-                    onChange={(e) => setProfileStartDate(e.target.value)}
-                  />
-                </Field>
-              </div>
-              <div className="min-w-0 flex-1">
-                <Field label="Employment status">
-                  <select
-                    className={inputClass}
-                    value={profileEmploymentStatus}
-                    onChange={(e) =>
-                      setProfileEmploymentStatus(e.target.value as CaregiverProfile['employment_status'])
-                    }
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="terminated">Terminated</option>
-                  </select>
-                </Field>
-              </div>
-            </div>
-            <Button type="submit" className="w-full" disabled={profileSaving}>
-              {profileSaving ? 'Saving…' : 'Save profile'}
-            </Button>
-            {profileSaveError && <p className="text-xs text-red-600 dark:text-red-400">{profileSaveError}</p>}
-            {profileSavedAt && !profileSaveError && (
-              <p className="text-xs text-green-600 dark:text-green-400">Saved.</p>
-            )}
-          </form>
-
-          {isParentAdmin && caregiver && (
-            <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-700">
-              {confirmRemoveCaregiver ? (
-                <div className="space-y-2">
-                  <p className="text-xs text-gray-600 dark:text-gray-400">
-                    Permanently remove <span className="font-semibold">{caregiver.name}</span>? This also deletes
-                    their schedule, time entries, timesheets, leave, and payment history and cannot be undone. To
-                    keep their history, set their employment status to Inactive or Terminated instead.
-                  </p>
-                  <div className="flex items-center gap-3">
-                    <button
-                      className="text-xs text-red-600 underline disabled:opacity-50 dark:text-red-400"
-                      disabled={removingCaregiver}
-                      onClick={handleRemoveCaregiver}
-                    >
-                      {removingCaregiver ? 'Removing…' : 'Yes, remove permanently'}
-                    </button>
-                    <button
-                      className="text-xs text-gray-500 underline dark:text-gray-400"
-                      disabled={removingCaregiver}
-                      onClick={() => setConfirmRemoveCaregiver(false)}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  className="text-xs text-red-500 underline dark:text-red-400"
-                  onClick={() => setConfirmRemoveCaregiver(true)}
-                >
-                  Remove caregiver
-                </button>
-              )}
-              {removeCaregiverError && (
-                <p className="mt-2 text-xs text-red-600 dark:text-red-400">{removeCaregiverError}</p>
-              )}
-            </div>
-          )}
-        </Card>
-      )}
-
-      {isParentOrCoAdmin && caregivers.length > 0 && (
-        <Card title="Caregiver pay settings">
-          <CaregiverSelect caregivers={caregivers} value={caregiverId} onChange={setCaregiverId} />
-          <form onSubmit={handleSave} className="space-y-3">
-            <Field label="Hourly rate">
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                className={inputClass}
-                value={rate}
-                onChange={(e) => setRate(e.target.value)}
-              />
-            </Field>
-            <div className="flex gap-2">
-              <div className="min-w-0 flex-1">
-                <Field label="OT after (hrs/wk)">
-                  <input
-                    type="number"
-                    className={inputClass}
-                    value={overtimeThreshold}
-                    onChange={(e) => setOvertimeThreshold(e.target.value)}
-                  />
-                </Field>
-              </div>
-              <div className="min-w-0 flex-1">
-                <Field label="OT multiplier">
-                  <input
-                    type="number"
-                    step="0.1"
-                    className={inputClass}
-                    value={overtimeMultiplier}
-                    onChange={(e) => setOvertimeMultiplier(e.target.value)}
-                  />
-                </Field>
-              </div>
-            </div>
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
-                type="checkbox"
-                checked={guaranteedEnabled}
-                onChange={(e) => setGuaranteedEnabled(e.target.checked)}
-              />
-              Guaranteed hours enabled
-            </label>
-            {guaranteedEnabled && (
-              <>
-                <Field label="Guaranteed hours basis">
-                  <select
-                    className={inputClass}
-                    value={guaranteedBasis}
-                    onChange={(e) => setGuaranteedBasis(e.target.value as GuaranteedHoursBasis)}
-                  >
-                    <option value="linked_to_schedule">Linked to recurring schedule</option>
-                    <option value="fixed_weekly">Fixed weekly amount</option>
-                    <option value="fixed_pay_period">Fixed per pay period</option>
-                  </select>
-                </Field>
-                {(guaranteedBasis === 'fixed_weekly' || guaranteedBasis === 'fixed_pay_period') && (
-                  <Field label={guaranteedBasis === 'fixed_weekly' ? 'Guaranteed hours per week' : 'Guaranteed hours per pay period'}>
-                    <input
-                      type="number"
-                      step="0.25"
-                      className={inputClass}
-                      value={guaranteedHours}
-                      onChange={(e) => setGuaranteedHours(e.target.value)}
-                    />
-                  </Field>
-                )}
-                {guaranteedBasis === 'linked_to_schedule' && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Guaranteed hours will be calculated from the nanny's active recurring schedule — the sum of shift hours where "counts toward guaranteed hours" is enabled.
-                  </p>
-                )}
-              </>
-            )}
-            <div className="flex gap-3">
-              <div className="min-w-0 flex-1">
-                <Field label="Pay frequency">
-                  <select
-                    className={inputClass}
-                    value={payFrequency}
-                    onChange={(e) => setPayFrequency(e.target.value as PayFrequency)}
-                  >
-                    {PAY_FREQUENCIES.map((f) => (
-                      <option key={f} value={f}>
-                        {f.replace(/_/g, ' ')}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              </div>
-              <div className="min-w-0 flex-1">
-                <Field label="Pay period anchored by">
-                  <select
-                    className={inputClass}
-                    value={payPeriodAnchor}
-                    onChange={(e) => setPayPeriodAnchor(e.target.value as PayPeriodAnchor)}
-                  >
-                    <option value="start_day">Start day</option>
-                    <option value="end_day">End day / payday</option>
-                  </select>
-                </Field>
-              </div>
-            </div>
-            {payPeriodAnchor === 'start_day' ? (
-              <Field label="Pay period starts">
-                <select className={inputClass} value={payPeriodStartDay} onChange={(e) => setPayPeriodStartDay(e.target.value)}>
-                  {DAYS.map((d, i) => (
-                    <option key={d} value={i}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            ) : (
-              <Field label="Pay period ends">
-                <select className={inputClass} value={payPeriodEndDay} onChange={(e) => setPayPeriodEndDay(e.target.value)}>
-                  {DAYS.map((d, i) => (
-                    <option key={d} value={i}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            )}
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              For example, a nanny who works Monday–Thursday and is paid at the end of her last shift would be
-              anchored to &ldquo;End day&rdquo; = Thursday.
-            </p>
-            <Field label="Payday rule">
-              <select className={inputClass} value={paydayRule} onChange={(e) => setPaydayRule(e.target.value as PaydayRule)}>
-                {PAYDAY_RULES.map((r) => (
-                  <option key={r} value={r}>
-                    {r.replace(/_/g, ' ')}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            {paydayRule === 'same_day_each_week' && (
-              <Field label="Payday">
-                <select className={inputClass} value={paydayDayOfWeek} onChange={(e) => setPaydayDayOfWeek(e.target.value)}>
-                  {DAYS.map((d, i) => (
-                    <option key={d} value={i}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            )}
-            {paydayRule === 'days_after_period_end' && (
-              <Field label="Days after period end">
-                <input
-                  type="number"
-                  min="0"
-                  className={inputClass}
-                  value={paydayDaysAfterPeriodEnd}
-                  onChange={(e) => setPaydayDaysAfterPeriodEnd(e.target.value)}
-                />
-              </Field>
-            )}
-            <Field label="Remind me about payday">
-              <div className="flex flex-wrap gap-3">
-                {REMINDER_OPTIONS.map((opt) => (
-                  <label key={opt.value} className="flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300">
-                    <input
-                      type="checkbox"
-                      checked={reminderDays.includes(opt.value)}
-                      onChange={(e) =>
-                        setReminderDays((prev) =>
-                          e.target.checked
-                            ? [...prev, opt.value].sort((a, b) => a - b)
-                            : prev.filter((d) => d !== opt.value)
-                        )
-                      }
-                    />
-                    {opt.label}
-                  </label>
-                ))}
-              </div>
-            </Field>
-            <Button type="submit" className="w-full" disabled={saving}>
-              {saving ? 'Saving…' : 'Save settings'}
-            </Button>
-            {saveError && <p className="text-xs text-red-600 dark:text-red-400">{saveError}</p>}
-            {savedAt && !saveError && <p className="text-xs text-green-600 dark:text-green-400">Saved.</p>}
-          </form>
         </Card>
       )}
 
