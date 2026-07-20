@@ -10,6 +10,7 @@ import { errorMessage } from '../lib/errors'
 import { isValidCalendarDate } from '../lib/dates'
 import { useLeavePolicies } from '../lib/useLeavePolicies'
 import { computeLeaveBalance, computeLeaveBalanceFromLedger, type LeaveBalancePolicy } from '../lib/leave'
+import { downloadCsv } from '../lib/csv'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
@@ -175,6 +176,22 @@ export function Pto() {
     if (caregiverId) await loadRequests(caregiverId)
   }
 
+  // Spec 13.11: PTO ledger CSV export, Parent Admin / Co-Admin only.
+  function exportLedger() {
+    const policyById = Object.fromEntries(policies.map((p) => [p.id, p]))
+    downloadCsv(
+      `pto-ledger-${activeCaregiver?.name ?? caregiverId}.csv`,
+      ledgerEntries.map((e) => ({
+        event_date: e.event_date,
+        leave_type: policyById[e.leave_policy_id]?.leave_type ?? '',
+        event_type: e.event_type,
+        hours_delta: e.hours_delta,
+        balance_after: e.balance_after,
+        notes: e.notes ?? '',
+      }))
+    )
+  }
+
   return (
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
@@ -205,7 +222,17 @@ export function Pto() {
       {isParentOrCoAdmin && <CaregiverSelect caregivers={caregivers} value={caregiverId} onChange={setCaregiverId} />}
 
       {caregiverId && (
-        <Card title="Balances">
+        <Card
+          title="Balances"
+          action={
+            isParentOrCoAdmin &&
+            ledgerEntries.length > 0 && (
+              <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={exportLedger}>
+                Export ledger CSV
+              </button>
+            )
+          }
+        >
           <div className="space-y-3">
             {BALANCE_TYPES.map((type) => {
               const policy: LeaveBalancePolicy = policies.find((p) => p.leave_type === type) ?? {
