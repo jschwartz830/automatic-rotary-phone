@@ -8,8 +8,31 @@ rather than a silent guess.
 
 ## Open items
 
-None right now. See `SPEC_CHANGE_LOG.md`'s "Known gaps" notes for build-out
-work that's scoped but not yet done — those aren't ambiguous, just not built.
+### 18. Which known-gap phase to build next?
+
+With exports (PTO ledger + annual summary) and biweekly recurrence UI closed
+out this session, three "Known gaps" remain in `SPEC_CHANGE_LOG.md`:
+
+* Per-key permission enforcement for the remaining role-matrix rows (approve
+  timesheet / mark payment / approve PTO / export records) — needs new RLS
+  policies + a migration, not just UI.
+* Reminder settings (per-type enable/disable) + the `weekly_summary` digest —
+  needs the design decision in item 19 below before it's buildable.
+* A combined "full records" export (CSV/JSON) bundling everything into one
+  download.
+
+Raised in chat with options and a recommendation — see the conversation for
+the resolution.
+
+### 19. `weekly_summary` digest — what does it actually summarize, and when?
+
+Spec 15.14 lists `weekly_summary` as a reminder type but never defines its
+content or cadence, unlike every other reminder type which has a concrete
+trigger condition in spec 21. Item 17 (resolved 2026-07-03) already decided
+it should be in-app-only, no recipients/quiet hours — but not what's *in* it.
+
+Raised in chat with options and a recommendation — see the conversation for
+the resolution.
 
 ---
 

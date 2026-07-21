@@ -76,8 +76,9 @@ export function Schedule() {
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [showAddShiftModal, setShowAddShiftModal] = useState(false)
-  const [recurrenceChoice, setRecurrenceChoice] = useState<'weekly' | 'monthly' | 'once' | 'other'>('weekly')
+  const [recurrenceChoice, setRecurrenceChoice] = useState<'weekly' | 'biweekly' | 'monthly' | 'once' | 'other'>('weekly')
   const [selectedDays, setSelectedDays] = useState<string[]>(['1'])
+  const [biweeklyAnchorDate, setBiweeklyAnchorDate] = useState(() => toIsoDate(new Date()))
   const [monthlyMode, setMonthlyMode] = useState<'date' | 'weekday'>('date')
   const [monthlyDate, setMonthlyDate] = useState('1')
   const [monthlyWeekday, setMonthlyWeekday] = useState('1')
@@ -202,6 +203,7 @@ export function Schedule() {
   function resetShiftForm() {
     setRecurrenceChoice('weekly')
     setSelectedDays(['1'])
+    setBiweeklyAnchorDate(toIsoDate(new Date()))
     setMonthlyMode('date')
     setMonthlyDate('1')
     setMonthlyWeekday('1')
@@ -215,7 +217,11 @@ export function Schedule() {
     setError(null)
   }
 
-  async function findOrCreateTemplate(recurrenceType: RecurrenceType, name: string): Promise<ScheduleTemplate> {
+  async function findOrCreateTemplate(
+    recurrenceType: RecurrenceType,
+    name: string,
+    effectiveStartDate?: string
+  ): Promise<ScheduleTemplate> {
     const existing = templates.find((t) => t.recurrence_type === recurrenceType)
     if (existing) return existing
     const { data: newTemplate, error: templateError } = await supabase
@@ -225,7 +231,7 @@ export function Schedule() {
         name,
         recurrence_type: recurrenceType,
         recurrence_rule: {},
-        effective_start_date: new Date().toISOString().slice(0, 10),
+        effective_start_date: effectiveStartDate ?? new Date().toISOString().slice(0, 10),
         created_by: user?.id ?? null,
       })
       .select()
@@ -289,6 +295,28 @@ export function Schedule() {
           entityId: template.id,
           action: 'create',
           after: { days: selectedDays, startTime, endTime },
+        })
+        await loadSchedule(caregiverId)
+      } else if (recurrenceChoice === 'biweekly') {
+        if (selectedDays.length === 0) throw new Error('Choose at least one day of the week.')
+        const template = await findOrCreateTemplate('biweekly', 'Biweekly schedule', biweeklyAnchorDate)
+        for (const day of selectedDays) {
+          const { error: shiftError } = await supabase.from('schedule_shifts').insert({
+            schedule_template_id: template.id,
+            day_of_week: Number(day),
+            start_time: startTime,
+            end_time: endTime,
+            break_minutes: Number(breakMinutes) || 0,
+          })
+          if (shiftError) throw shiftError
+        }
+        await logAuditEvent({
+          householdId: household.id,
+          actorUserId: user?.id ?? '',
+          entityType: 'schedule_shift',
+          entityId: template.id,
+          action: 'create',
+          after: { days: selectedDays, startTime, endTime, biweeklyAnchorDate },
         })
         await loadSchedule(caregiverId)
       } else if (recurrenceChoice === 'monthly') {
@@ -852,13 +880,14 @@ export function Schedule() {
                 onChange={(e) => setRecurrenceChoice(e.target.value as typeof recurrenceChoice)}
               >
                 <option value="weekly">Weekly (choose day or days)</option>
+                <option value="biweekly">Every other week (choose day or days)</option>
                 <option value="monthly">Monthly</option>
                 <option value="once">One time (doesn't repeat)</option>
                 <option value="other">Other / custom</option>
               </select>
             </Field>
 
-            {recurrenceChoice === 'weekly' && (
+            {(recurrenceChoice === 'weekly' || recurrenceChoice === 'biweekly') && (
               <Field label="Days of week">
                 <div className="flex flex-wrap gap-2">
                   {DAYS.map((d, i) => {
@@ -884,6 +913,20 @@ export function Schedule() {
                     )
                   })}
                 </div>
+              </Field>
+            )}
+
+            {recurrenceChoice === 'biweekly' && (
+              <Field label="First on-week starts">
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={biweeklyAnchorDate}
+                  onChange={(e) => setBiweeklyAnchorDate(e.target.value)}
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  The week containing this date is a scheduled week; the following week is off, alternating from there.
+                </p>
               </Field>
             )}
 

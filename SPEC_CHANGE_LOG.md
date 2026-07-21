@@ -8,6 +8,92 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-20 — PTO ledger + annual summary exports (spec 13.11), biweekly recurrence UI (spec 13.2)
+
+**PTO ledger CSV export built (spec 13.11, closes part of a "Known gap").**
+`Pto.tsx`'s "Balances" card now has an "Export ledger CSV" action, visible to
+Parent Admin/Co-Admin only (spec 13.11: "Nanny should not have export access
+in MVP"). Exports every `leave_ledger` row for the selected caregiver — event
+date, leave type (joined from `leave_policies`), event type, hours delta,
+running balance, and notes — using the same `downloadCsv` helper the existing
+timesheet/payment exports use.
+
+**Annual summary CSV export built (spec 13.11, closes the rest of that "Known
+gap").** `Pay.tsx` has a new "Annual summary" card (parent/co-admin only) with
+a year field and an export button. Produces one summary row for the selected
+caregiver and year: total actual/regular/overtime worked hours, PTO/sick/
+holiday/family-cancellation hours, guaranteed hours and guarantee adjustment
+hours (all summed from `timesheets`), gross pay due, gross amount actually
+paid, reimbursements, manual adjustments, and a semicolon-separated list of
+payment dates (all summed/collected from `payment_records`), plus PTO and sick
+balance as of Dec 31 of the selected year (computed directly from
+`leave_ledger`, not the live "today" balance `Pto.tsx` shows). A period is
+bucketed into the year its `period_start` falls in, matching how the rest of
+the app already treats pay periods as belonging to their start date.
+**Known limitation:** for years before the leave ledger existed for a given
+caregiver (i.e. before migration 0010's backfill or before the policy was
+created), the year-end balance will read as 0/empty rather than reflecting
+pre-ledger history — there's no historical ledger to sum. This only affects
+caregivers with leave history predating this app's use, not caregivers whose
+PTO has always been tracked here.
+
+**Biweekly recurring schedule UI built (spec 13.2, closes the rest of the
+"recurring schedule types" known gap).** The `biweekly` recurrence type has
+had full data-model and shift-generation support (`matchesRecurrence` in
+`src/lib/schedule.ts`) since the schedule-exceptions phase, but no form path
+ever created a `biweekly` template — only `weekly`, `monthly_by_date`,
+`monthly_by_weekday`, and `custom` got UI in the shift-creation modal redesign
+(2026-07-06, PR #41). `Schedule.tsx`'s "Add shift" modal now has an "Every
+other week" option alongside "Weekly," reusing the same multi-day-of-week
+picker. Because biweekly parity is anchored to the template's
+`effective_start_date` (`matchesRecurrence` computes `weeksSinceStart` from
+it), a new "First on-week starts" date field controls which week is the "on"
+week — weekly/monthly/custom templates don't need this since their recurrence
+doesn't depend on an anchor date. This closes out spec 13.2's five recurrence
+types (`weekly`, `biweekly`, `monthly_by_date`, `monthly_by_weekday`,
+`custom`) as all now buildable from the UI; only "manual one-off schedule" was
+already covered by the existing one-off `added_shift` exception path.
+
+### Catching up undocumented interim work (PRs #40–42, 2026-07-06)
+
+Three PRs landed on `main` between the last log entry and this session without
+a corresponding change-log write-up. Recorded here for continuity, no new
+decisions of note beyond what's in their commit messages:
+
+- **PR #40 — Caregiver profile editing and removal.** `More.tsx` gained a
+  "Caregiver profile" section to edit a caregiver's name/contact/start
+  date/employment status, and a remove-caregiver action (with a warning about
+  cascading history and a nudge toward marking inactive instead).
+- **PR #41 — Shift/caregiver UI redesign.** Fixed clipped date/time inputs at
+  larger text sizes across Schedule/Time/Pto/Pay/More by stacking field pairs
+  vertically instead of a 50/50 row. Added a `Modal` component and moved "Add
+  shift" into it with the recurrence picker (weekly multi-day, monthly by
+  date/weekday, one-time, custom) described above. Split caregiver settings
+  out of `More.tsx` into a new per-caregiver `CaregiverDetail.tsx` page.
+- **PR #42 — PTO settings moved into caregiver detail.** Annual PTO/sick
+  allowance editing moved from the PTO tab into `CaregiverDetail.tsx`;
+  `Pto.tsx` now shows balances/requests only. Added a Time/PTO segmented
+  toggle to both tabs since the PTO tab is no longer on the bottom dock.
+
+### Known gaps for next phase (not ambiguous, just not built yet)
+
+- **Per-key enforcement for the remaining permission matrix rows** (spec 11)
+  — approve timesheet / mark payment / approve PTO / export records are
+  co-admin-allowed by default with no restrict toggle; would need new RLS
+  policies + migration + UI, unlike the 7 keys already enforced.
+- **Reminder settings** (13.9) — only payment lead-time is configurable; no
+  per-type enable/disable, recipients, or quiet hours (recipients/quiet hours
+  deferred by decision, item 17 — no delivery channel to target yet).
+- **`weekly_summary` reminder / digest** (15.14) — needs its own design (what
+  it summarizes, cadence) before it's buildable; scope decided to be in-app
+  only (item 17) but content/timing still undefined.
+- **Full records export CSV/JSON** (13.11) — the export type list also
+  includes a household-wide "full records" dump; timesheets, payments, PTO
+  ledger, and annual summary now each export individually, but nothing
+  bundles everything into one combined export.
+
+---
+
 ## 2026-07-03 (batch 2) — Co-admin permission management UI (spec 10/11)
 
 **Household members / co-admin permissions UI built (spec 10/11, closes a

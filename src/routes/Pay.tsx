@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
 import { isValidCalendarDate } from '../lib/dates'
-import { calculateTimesheet } from '../lib/calc'
+import { calculateTimesheet, round2 } from '../lib/calc'
 import { downloadCsv } from '../lib/csv'
 import { catchUpPayPeriod, computeCurrentPayPeriod } from '../lib/payPeriod'
 import {
@@ -22,6 +22,8 @@ import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
 import type {
   CaregiverProfile,
+  LeaveLedgerEntry,
+  LeavePolicy,
   LeaveRequest,
   PaymentRecord,
   ScheduleException,
@@ -83,6 +85,9 @@ export function Pay() {
   const [nannyPeriodStart, setNannyPeriodStart] = useState('')
   const [nannyPeriodEnd, setNannyPeriodEnd] = useState('')
   const [nannySubmitting, setNannySubmitting] = useState(false)
+  // Annual summary export state
+  const [annualSummaryYear, setAnnualSummaryYear] = useState(() => String(new Date().getFullYear()))
+  const [annualSummaryExporting, setAnnualSummaryExporting] = useState(false)
 
   const activeCaregiver = isNanny ? caregiverProfile : caregivers.find((c) => c.id === caregiverId) ?? null
   const activeTimesheets = timesheets.filter((t) => !t.deleted_at)
@@ -694,6 +699,68 @@ export function Pay() {
     )
   }
 
+  // Spec 13.11 "Annual Summary" export. Scopes timesheets/payments by the
+  // calendar year of their period_start (a period spanning a year boundary
+  // lands in the year it started, same as everywhere else the app buckets by
+  // period). PTO/sick balance at year-end comes straight from the leave
+  // ledger as of Dec 31 of the selected year, not the live "today" balance.
+  async function exportAnnualSummary() {
+    if (!caregiverId || !activeCaregiver) return
+    setAnnualSummaryExporting(true)
+    setError(null)
+    try {
+      const year = annualSummaryYear
+      const yearTimesheets = activeTimesheets.filter((t) => t.period_start.slice(0, 4) === year)
+      const yearPayments = activePayments.filter((p) => p.period_start.slice(0, 4) === year)
+      const sum = (values: number[]) => round2(values.reduce((a, b) => a + b, 0))
+
+      const paymentDates = yearPayments
+        .filter((p) => p.paid_at)
+        .map((p) => (p.paid_at as string).slice(0, 10))
+        .sort()
+        .join('; ')
+
+      const [{ data: policyRows }, { data: ledgerRows }] = await Promise.all([
+        supabase.from('leave_policies').select('*').eq('caregiver_id', caregiverId).in('leave_type', ['pto', 'sick']),
+        supabase.from('leave_ledger').select('*').eq('caregiver_id', caregiverId).lte('event_date', `${year}-12-31`),
+      ])
+      const policies = (policyRows ?? []) as LeavePolicy[]
+      const ledger = (ledgerRows ?? []) as LeaveLedgerEntry[]
+      const balanceAtYearEnd = (leaveType: 'pto' | 'sick'): number | null => {
+        const policy = policies.find((p) => p.leave_type === leaveType)
+        if (!policy) return null
+        return sum(ledger.filter((e) => e.leave_policy_id === policy.id).map((e) => e.hours_delta))
+      }
+
+      downloadCsv(`annual-summary-${year}-${activeCaregiver.name}.csv`, [
+        {
+          year,
+          caregiver: activeCaregiver.name,
+          total_actual_hours_worked: sum(yearTimesheets.map((t) => t.actual_worked_hours)),
+          regular_worked_hours: sum(yearTimesheets.map((t) => t.regular_worked_hours)),
+          overtime_worked_hours: sum(yearTimesheets.map((t) => t.overtime_worked_hours)),
+          pto_hours_paid: sum(yearTimesheets.map((t) => t.paid_pto_hours)),
+          sick_hours_paid: sum(yearTimesheets.map((t) => t.paid_sick_hours)),
+          holiday_hours_paid: sum(yearTimesheets.map((t) => t.paid_holiday_hours)),
+          family_cancellation_hours: sum(yearTimesheets.map((t) => t.family_cancellation_hours)),
+          guaranteed_hours: sum(yearTimesheets.map((t) => t.guaranteed_hours)),
+          guarantee_adjustment_hours: sum(yearTimesheets.map((t) => t.guarantee_adjustment_hours)),
+          gross_pay_due: sum(yearPayments.map((p) => p.gross_pay_due)),
+          gross_amount_paid: sum(yearPayments.filter((p) => p.amount_paid != null).map((p) => p.amount_paid as number)),
+          reimbursements: sum(yearPayments.map((p) => p.reimbursements)),
+          manual_adjustments: sum(yearPayments.map((p) => p.manual_adjustments)),
+          payment_dates: paymentDates,
+          pto_balance_year_end: balanceAtYearEnd('pto') ?? '',
+          sick_balance_year_end: balanceAtYearEnd('sick') ?? '',
+        },
+      ])
+    } catch (err) {
+      setError(errorMessage(err, 'Could not export annual summary.'))
+    } finally {
+      setAnnualSummaryExporting(false)
+    }
+  }
+
   return (
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
@@ -923,6 +990,30 @@ export function Pay() {
               </Button>
             </div>
           </form>
+        </Card>
+      )}
+
+      {isParentOrCoAdmin && caregiverId && (
+        <Card title="Annual summary">
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <Field label="Year">
+                <input
+                  type="number"
+                  className={inputClass}
+                  value={annualSummaryYear}
+                  onChange={(e) => setAnnualSummaryYear(e.target.value)}
+                />
+              </Field>
+            </div>
+            <Button
+              variant="secondary"
+              onClick={exportAnnualSummary}
+              disabled={annualSummaryExporting}
+            >
+              {annualSummaryExporting ? 'Exporting…' : 'Export CSV'}
+            </Button>
+          </div>
         </Card>
       )}
 
