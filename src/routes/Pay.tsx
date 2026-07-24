@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { addDays, format } from 'date-fns'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -11,6 +11,7 @@ import { isValidCalendarDate } from '../lib/dates'
 import { calculateTimesheet, round2 } from '../lib/calc'
 import { downloadCsv } from '../lib/csv'
 import { buildDailyPayExportRows } from '../lib/payExport'
+import { parseTimesheetImport } from '../lib/timesheetImport'
 import { catchUpPayPeriod, computeCurrentPayPeriod } from '../lib/payPeriod'
 import {
   generateShiftsForRange,
@@ -90,6 +91,9 @@ export function Pay() {
   const [annualSummaryYear, setAnnualSummaryYear] = useState(() => String(new Date().getFullYear()))
   const [annualSummaryExporting, setAnnualSummaryExporting] = useState(false)
   const [detailExporting, setDetailExporting] = useState<'timesheets' | 'payments' | null>(null)
+  const [importingTimesheets, setImportingTimesheets] = useState(false)
+  const [importMessage, setImportMessage] = useState<string | null>(null)
+  const timesheetImportInput = useRef<HTMLInputElement>(null)
 
   const activeCaregiver = isNanny ? caregiverProfile : caregivers.find((c) => c.id === caregiverId) ?? null
   const activeTimesheets = timesheets.filter((t) => !t.deleted_at)
@@ -705,6 +709,51 @@ export function Pay() {
     }
   }
 
+  async function importTimesheets(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file || !caregiverId || !household) return
+    setImportingTimesheets(true)
+    setError(null)
+    setImportMessage(null)
+    try {
+      const imported = parseTimesheetImport(await file.text())
+      const existingPeriods = new Set(timesheets.map((timesheet) => `${timesheet.period_start}|${timesheet.period_end}`))
+      const duplicate = imported.find((timesheet) => existingPeriods.has(`${timesheet.period_start}|${timesheet.period_end}`))
+      if (duplicate) {
+        throw new Error(`A timesheet already exists for ${duplicate.period_start}–${duplicate.period_end}. No timesheets were imported.`)
+      }
+      const approvedStatuses = ['approved', 'payment_due', 'paid', 'locked']
+      const submittedStatuses = ['submitted', 'needs_correction']
+      const rows = imported.map((timesheet) => ({
+        ...timesheet,
+        caregiver_id: caregiverId,
+        submitted_at: submittedStatuses.includes(timesheet.status) ? new Date().toISOString() : null,
+        submitted_by: submittedStatuses.includes(timesheet.status) ? user?.id ?? null : null,
+        approved_at: approvedStatuses.includes(timesheet.status) ? new Date().toISOString() : null,
+        approved_by: approvedStatuses.includes(timesheet.status) ? user?.id ?? null : null,
+      }))
+      const { data: insertedTimesheets, error: insertError } = await supabase.from('timesheets').insert(rows).select('id')
+      if (insertError) throw insertError
+      if (insertedTimesheets?.[0]) {
+        await logAuditEvent({
+          householdId: household.id,
+          actorUserId: user?.id ?? '',
+          entityType: 'timesheet',
+          entityId: insertedTimesheets[0].id,
+          action: 'import',
+          after: { count: rows.length, periods: rows.map((row) => `${row.period_start}–${row.period_end}`) },
+        })
+      }
+      setImportMessage(`Imported ${rows.length} timesheet${rows.length === 1 ? '' : 's'}. Payment records are not created by an import.`)
+      await loadData(caregiverId)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not import timesheets.'))
+    } finally {
+      setImportingTimesheets(false)
+    }
+  }
+
   // Spec 13.11 "Annual Summary" export. Scopes timesheets/payments by the
   // calendar year of their period_start (a period spanning a year boundary
   // lands in the year it started, same as everywhere else the app buckets by
@@ -772,9 +821,15 @@ export function Pay() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">Pay</h1>
         {isParentOrCoAdmin && (
-          <Button variant="secondary" onClick={() => setShowForm((s) => !s)}>
-            {showForm ? 'Cancel' : '+ Generate timesheet'}
-          </Button>
+          <div className="flex gap-2">
+            <input ref={timesheetImportInput} type="file" accept=".csv,text/csv" className="hidden" onChange={importTimesheets} />
+            <Button variant="secondary" onClick={() => timesheetImportInput.current?.click()} disabled={importingTimesheets}>
+              {importingTimesheets ? 'Importing…' : 'Import timesheets'}
+            </Button>
+            <Button variant="secondary" onClick={() => setShowForm((s) => !s)}>
+              {showForm ? 'Cancel' : '+ Generate timesheet'}
+            </Button>
+          </div>
         )}
         {isNanny && (
           <Button variant="secondary" onClick={() => setShowNannyForm((s) => !s)}>
@@ -786,6 +841,7 @@ export function Pay() {
       {isParentOrCoAdmin && <CaregiverSelect caregivers={caregivers} value={caregiverId} onChange={setCaregiverId} />}
 
       {error && !showForm && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {importMessage && <p className="text-sm text-emerald-700 dark:text-emerald-300">{importMessage}</p>}
 
       {showForm && (
         <Card title="Generate timesheet from time entries">
