@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { addDays, format } from 'date-fns'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -10,6 +10,8 @@ import { errorMessage } from '../lib/errors'
 import { isValidCalendarDate } from '../lib/dates'
 import { calculateTimesheet, round2 } from '../lib/calc'
 import { downloadCsv } from '../lib/csv'
+import { buildDailyPayExportRows } from '../lib/payExport'
+import { parseTimesheetImport } from '../lib/timesheetImport'
 import { catchUpPayPeriod, computeCurrentPayPeriod } from '../lib/payPeriod'
 import {
   generateShiftsForRange,
@@ -88,6 +90,10 @@ export function Pay() {
   // Annual summary export state
   const [annualSummaryYear, setAnnualSummaryYear] = useState(() => String(new Date().getFullYear()))
   const [annualSummaryExporting, setAnnualSummaryExporting] = useState(false)
+  const [detailExporting, setDetailExporting] = useState<'timesheets' | 'payments' | null>(null)
+  const [importingTimesheets, setImportingTimesheets] = useState(false)
+  const [importMessage, setImportMessage] = useState<string | null>(null)
+  const timesheetImportInput = useRef<HTMLInputElement>(null)
 
   const activeCaregiver = isNanny ? caregiverProfile : caregivers.find((c) => c.id === caregiverId) ?? null
   const activeTimesheets = timesheets.filter((t) => !t.deleted_at)
@@ -670,33 +676,82 @@ export function Pay() {
     }
   }
 
-  function exportTimesheets() {
-    downloadCsv(
-      'timesheets.csv',
-      activeTimesheets.map((t) => ({
-        period_start: t.period_start,
-        period_end: t.period_end,
-        status: t.status,
-        actual_worked_hours: t.actual_worked_hours,
-        overtime_worked_hours: t.overtime_worked_hours,
-        gross_pay_due: t.gross_pay_due,
-      }))
-    )
+  async function exportDetailedRecords(
+    type: 'timesheets' | 'payments',
+    recordsToExport = type === 'timesheets' ? activeTimesheets : activePayments,
+    filename = `${type}-daily-detail.csv`
+  ) {
+    if (!caregiverId) return
+    const records = recordsToExport
+    if (records.length === 0) return
+    setDetailExporting(type)
+    setError(null)
+    try {
+      const periodStart = records.reduce((earliest, record) => record.period_start < earliest ? record.period_start : earliest, records[0].period_start)
+      const periodEnd = records.reduce((latest, record) => record.period_end > latest ? record.period_end : latest, records[0].period_end)
+      const [entriesResult, leaveResult] = await Promise.all([
+        supabase.from('time_entries').select('*').eq('caregiver_id', caregiverId).is('deleted_at', null).gte('date', periodStart).lte('date', periodEnd),
+        supabase.from('leave_requests').select('*').eq('caregiver_id', caregiverId).eq('status', 'approved').lte('start_date', periodEnd).gte('end_date', periodStart),
+      ])
+      if (entriesResult.error) throw entriesResult.error
+      if (leaveResult.error) throw leaveResult.error
+      const rows = buildDailyPayExportRows(
+        records,
+        (entriesResult.data ?? []) as TimeEntry[],
+        (leaveResult.data ?? []) as LeaveRequest[],
+        type === 'timesheets' ? 'timesheet' : 'payment'
+      )
+      downloadCsv(filename, rows)
+    } catch (err) {
+      setError(errorMessage(err, `Could not export ${type}.`))
+    } finally {
+      setDetailExporting(null)
+    }
   }
 
-  function exportPayments() {
-    downloadCsv(
-      'payments.csv',
-      activePayments.map((p) => ({
-        period_start: p.period_start,
-        period_end: p.period_end,
-        due_date: p.due_date,
-        status: p.status,
-        gross_pay_due: p.gross_pay_due,
-        amount_paid: p.amount_paid,
-        paid_at: p.paid_at,
+  async function importTimesheets(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file || !caregiverId || !household) return
+    setImportingTimesheets(true)
+    setError(null)
+    setImportMessage(null)
+    try {
+      const imported = parseTimesheetImport(await file.text())
+      const existingPeriods = new Set(timesheets.map((timesheet) => `${timesheet.period_start}|${timesheet.period_end}`))
+      const duplicate = imported.find((timesheet) => existingPeriods.has(`${timesheet.period_start}|${timesheet.period_end}`))
+      if (duplicate) {
+        throw new Error(`A timesheet already exists for ${duplicate.period_start}–${duplicate.period_end}. No timesheets were imported.`)
+      }
+      const approvedStatuses = ['approved', 'payment_due', 'paid', 'locked']
+      const submittedStatuses = ['submitted', 'needs_correction']
+      const rows = imported.map((timesheet) => ({
+        ...timesheet,
+        caregiver_id: caregiverId,
+        submitted_at: submittedStatuses.includes(timesheet.status) ? new Date().toISOString() : null,
+        submitted_by: submittedStatuses.includes(timesheet.status) ? user?.id ?? null : null,
+        approved_at: approvedStatuses.includes(timesheet.status) ? new Date().toISOString() : null,
+        approved_by: approvedStatuses.includes(timesheet.status) ? user?.id ?? null : null,
       }))
-    )
+      const { data: insertedTimesheets, error: insertError } = await supabase.from('timesheets').insert(rows).select('id')
+      if (insertError) throw insertError
+      if (insertedTimesheets?.[0]) {
+        await logAuditEvent({
+          householdId: household.id,
+          actorUserId: user?.id ?? '',
+          entityType: 'timesheet',
+          entityId: insertedTimesheets[0].id,
+          action: 'import',
+          after: { count: rows.length, periods: rows.map((row) => `${row.period_start}–${row.period_end}`) },
+        })
+      }
+      setImportMessage(`Imported ${rows.length} timesheet${rows.length === 1 ? '' : 's'}. Payment records are not created by an import.`)
+      await loadData(caregiverId)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not import timesheets.'))
+    } finally {
+      setImportingTimesheets(false)
+    }
   }
 
   // Spec 13.11 "Annual Summary" export. Scopes timesheets/payments by the
@@ -766,9 +821,15 @@ export function Pay() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">Pay</h1>
         {isParentOrCoAdmin && (
-          <Button variant="secondary" onClick={() => setShowForm((s) => !s)}>
-            {showForm ? 'Cancel' : '+ Generate timesheet'}
-          </Button>
+          <div className="flex gap-2">
+            <input ref={timesheetImportInput} type="file" accept=".csv,text/csv" className="hidden" onChange={importTimesheets} />
+            <Button variant="secondary" onClick={() => timesheetImportInput.current?.click()} disabled={importingTimesheets}>
+              {importingTimesheets ? 'Importing…' : 'Import timesheets'}
+            </Button>
+            <Button variant="secondary" onClick={() => setShowForm((s) => !s)}>
+              {showForm ? 'Cancel' : '+ Generate timesheet'}
+            </Button>
+          </div>
         )}
         {isNanny && (
           <Button variant="secondary" onClick={() => setShowNannyForm((s) => !s)}>
@@ -780,6 +841,7 @@ export function Pay() {
       {isParentOrCoAdmin && <CaregiverSelect caregivers={caregivers} value={caregiverId} onChange={setCaregiverId} />}
 
       {error && !showForm && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {importMessage && <p className="text-sm text-emerald-700 dark:text-emerald-300">{importMessage}</p>}
 
       {showForm && (
         <Card title="Generate timesheet from time entries">
@@ -1009,17 +1071,28 @@ export function Pay() {
             <Button
               variant="secondary"
               onClick={exportAnnualSummary}
-              disabled={annualSummaryExporting}
+              disabled={annualSummaryExporting || detailExporting !== null}
             >
-              {annualSummaryExporting ? 'Exporting…' : 'Export CSV'}
+              {annualSummaryExporting ? 'Exporting…' : 'Export totals CSV'}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => exportDetailedRecords(
+                'payments',
+                activePayments.filter((payment) => payment.period_start.slice(0, 4) === annualSummaryYear),
+                `annual-${annualSummaryYear}-daily-detail.csv`
+              )}
+              disabled={annualSummaryExporting || detailExporting !== null}
+            >
+              {detailExporting === 'payments' ? 'Exporting…' : 'Export daily detail'}
             </Button>
           </div>
         </Card>
       )}
 
       <Card title="Payments" action={isParentOrCoAdmin && activePayments.length > 0 && (
-        <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={exportPayments}>
-          Export CSV
+        <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={() => exportDetailedRecords('payments')} disabled={detailExporting !== null}>
+          {detailExporting === 'payments' ? 'Exporting…' : 'Export daily CSV'}
         </button>
       )}>
         {activePayments.length === 0 ? (
@@ -1085,8 +1158,8 @@ export function Pay() {
       </Card>
 
       <Card title="Timesheets" action={isParentOrCoAdmin && activeTimesheets.length > 0 && (
-        <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={exportTimesheets}>
-          Export CSV
+        <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={() => exportDetailedRecords('timesheets')} disabled={detailExporting !== null}>
+          {detailExporting === 'timesheets' ? 'Exporting…' : 'Export daily CSV'}
         </button>
       )}>
         {activeTimesheets.length === 0 ? (
