@@ -8,6 +8,67 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-24 — Full records export (spec 13.11), time-entry schedule pre-fill verified
+
+**Full records export built (spec 13.11, closes the last "known gap" export
+item; resolves Q&A item 18 — see below).** `Pay.tsx` has a new "Full records
+export" card (Parent Admin/Co-Admin only, matching spec 13.11's export
+permissions) with **Export JSON** and **Export CSV** buttons. Both bundle
+every record type for the selected caregiver — full history, not scoped to a
+period — into one download: `schedule_templates`, `schedule_shifts`,
+`schedule_exceptions`, `time_entries`, `timesheets`, `payments`,
+`leave_requests`, and `leave_ledger`, plus the caregiver profile itself. The
+spec doesn't define exact contents for this export type, so scope was chosen
+as "every caregiver-scoped operational record type that has its own DB
+table," which is a superset of what the individual timesheet/payment/PTO-
+ledger/annual-summary exports already cover. `reminders` and `audit_events`
+were left out — reminders are ephemeral computed state with no export
+precedent elsewhere in the app, and the audit log has no export UI of its own
+yet either, so including just it here would be inconsistent.
+
+JSON keeps records nested by type (`{ time_entries: [...], timesheets: [...],
+... }`) — the natural shape for "everything." CSV has no single shared column
+set across schedule templates, time entries, payments, etc., so each record
+becomes one row of `record_type, id, date, record_json` (a best-guess date-ish
+column plus the full record as a JSON string) rather than inventing a lossy
+common schema. Added a small `downloadBlob`/`downloadJson` helper alongside
+the existing `downloadCsv` in `src/lib/csv.ts` (refactored to share the blob-
+download logic) rather than duplicating it inline.
+
+**Time-entry pre-fill from schedule — verified already built, no change
+needed.** This session's task asked for time entries to default to the
+caregiver's scheduled hours (falling back to the current day). `Time.tsx`
+already does exactly this (added 2026-06-30, commit `c6a13c5`): the date field
+defaults to today, and an effect looks up the scheduled shift(s) for whatever
+date is selected and pre-fills start time, end time, and break minutes from
+it, falling back to a 9am–5pm default only when nothing is scheduled that
+day. Confirmed by reading `Time.tsx:34-124` — no gap found, so nothing was
+built here.
+
+### Q&A item 18 resolved — chose "full records export" as the next known-gap phase
+
+Of the three remaining known gaps (per-key permission enforcement for the rest
+of the role matrix, reminder settings + `weekly_summary` digest, full records
+export), this session built the **full records export**: it needed no design
+decision (unlike the other two, which are blocked on judgment calls — see
+`QUESTIONS_AND_CLARIFICATIONS.md` item 19 for the still-open one) and no
+schema/RLS changes, just new client-side export logic reusing existing
+read access. This was decided without a live chat round-trip since this run
+executed on a schedule with nobody watching; flagged in
+`QUESTIONS_AND_CLARIFICATIONS.md` for review rather than assumed final.
+
+### Known gaps for next phase (unchanged, still not built)
+
+- **Per-key enforcement for the remaining permission matrix rows** (spec 11)
+  — approve timesheet / mark payment / approve PTO / export records are
+  co-admin-allowed by default with no restrict toggle; needs new RLS
+  policies + a migration, not just UI.
+- **Reminder settings** (13.9) — per-type enable/disable + the
+  `weekly_summary` digest; blocked on the content/cadence design decision in
+  `QUESTIONS_AND_CLARIFICATIONS.md` item 19.
+
+---
+
 ## 2026-07-20 — PTO ledger + annual summary exports (spec 13.11), biweekly recurrence UI (spec 13.2)
 
 **PTO ledger CSV export built (spec 13.11, closes part of a "Known gap").**

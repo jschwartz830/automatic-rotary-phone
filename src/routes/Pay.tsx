@@ -9,7 +9,7 @@ import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
 import { isValidCalendarDate } from '../lib/dates'
 import { calculateTimesheet, round2 } from '../lib/calc'
-import { downloadCsv } from '../lib/csv'
+import { downloadCsv, downloadJson } from '../lib/csv'
 import { buildDailyPayExportRows } from '../lib/payExport'
 import { parseTimesheetImport } from '../lib/timesheetImport'
 import { catchUpPayPeriod, computeCurrentPayPeriod } from '../lib/payPeriod'
@@ -91,6 +91,7 @@ export function Pay() {
   const [annualSummaryYear, setAnnualSummaryYear] = useState(() => String(new Date().getFullYear()))
   const [annualSummaryExporting, setAnnualSummaryExporting] = useState(false)
   const [detailExporting, setDetailExporting] = useState<'timesheets' | 'payments' | null>(null)
+  const [fullExporting, setFullExporting] = useState<'json' | 'csv' | null>(null)
   const [importingTimesheets, setImportingTimesheets] = useState(false)
   const [importMessage, setImportMessage] = useState<string | null>(null)
   const timesheetImportInput = useRef<HTMLInputElement>(null)
@@ -816,6 +817,70 @@ export function Pay() {
     }
   }
 
+  // Spec 13.11 "Full records export CSV/JSON" — bundles every record type for
+  // the selected caregiver (full history, not scoped to a period) into one
+  // download instead of exporting timesheets/payments/PTO ledger separately.
+  // JSON keeps records nested by type; CSV flattens the same records into one
+  // sheet (record_type + id + a date-ish column + the full record as JSON)
+  // since the record shapes don't share a common column set.
+  async function exportFullRecords(fmt: 'json' | 'csv') {
+    if (!caregiverId || !activeCaregiver) return
+    setFullExporting(fmt)
+    setError(null)
+    try {
+      const [entriesRes, leaveRes, ledgerRes, exceptionsRes, templatesRes] = await Promise.all([
+        supabase.from('time_entries').select('*').eq('caregiver_id', caregiverId),
+        supabase.from('leave_requests').select('*').eq('caregiver_id', caregiverId),
+        supabase.from('leave_ledger').select('*').eq('caregiver_id', caregiverId),
+        supabase.from('schedule_exceptions').select('*').eq('caregiver_id', caregiverId),
+        supabase.from('schedule_templates').select('*').eq('caregiver_id', caregiverId),
+      ])
+      for (const res of [entriesRes, leaveRes, ledgerRes, exceptionsRes, templatesRes]) {
+        if (res.error) throw res.error
+      }
+      const scheduleTemplates = (templatesRes.data ?? []) as ScheduleTemplate[]
+      const shiftsRes = scheduleTemplates.length
+        ? await supabase.from('schedule_shifts').select('*').in('schedule_template_id', scheduleTemplates.map((t) => t.id))
+        : { data: [] as ScheduleShift[], error: null }
+      if (shiftsRes.error) throw shiftsRes.error
+
+      const bundle: Record<string, unknown> = {
+        exported_at: new Date().toISOString(),
+        caregiver: activeCaregiver,
+        schedule_templates: scheduleTemplates,
+        schedule_shifts: shiftsRes.data ?? [],
+        schedule_exceptions: exceptionsRes.data ?? [],
+        time_entries: entriesRes.data ?? [],
+        timesheets: activeTimesheets,
+        payments: activePayments,
+        leave_requests: leaveRes.data ?? [],
+        leave_ledger: ledgerRes.data ?? [],
+      }
+
+      if (fmt === 'json') {
+        downloadJson(`full-records-${activeCaregiver.name}.json`, bundle)
+      } else {
+        const rows: Record<string, unknown>[] = []
+        for (const [recordType, records] of Object.entries(bundle)) {
+          if (!Array.isArray(records)) continue
+          for (const record of records as Record<string, unknown>[]) {
+            rows.push({
+              record_type: recordType,
+              id: record.id ?? '',
+              date: record.date ?? record.event_date ?? record.period_start ?? record.effective_start_date ?? '',
+              record_json: JSON.stringify(record),
+            })
+          }
+        }
+        downloadCsv(`full-records-${activeCaregiver.name}.csv`, rows)
+      }
+    } catch (err) {
+      setError(errorMessage(err, 'Could not export full records.'))
+    } finally {
+      setFullExporting(null)
+    }
+  }
+
   return (
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
@@ -1085,6 +1150,31 @@ export function Pay() {
               disabled={annualSummaryExporting || detailExporting !== null}
             >
               {detailExporting === 'payments' ? 'Exporting…' : 'Export daily detail'}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {isParentOrCoAdmin && caregiverId && (
+        <Card title="Full records export">
+          <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+            Every record for {activeCaregiver?.name ?? 'this caregiver'} — schedule, time entries, timesheets,
+            payments, and PTO — bundled into one download.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => exportFullRecords('json')}
+              disabled={fullExporting !== null}
+            >
+              {fullExporting === 'json' ? 'Exporting…' : 'Export JSON'}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => exportFullRecords('csv')}
+              disabled={fullExporting !== null}
+            >
+              {fullExporting === 'csv' ? 'Exporting…' : 'Export CSV'}
             </Button>
           </div>
         </Card>

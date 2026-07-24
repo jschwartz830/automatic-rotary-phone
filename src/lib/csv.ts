@@ -13,9 +13,8 @@ export function toCsv(rows: Record<string, unknown>[]): string {
   return lines.join('\n')
 }
 
-export function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
-  const csv = toCsv(rows)
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+function downloadBlob(filename: string, content: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -24,6 +23,14 @@ export function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
   link.click()
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
+}
+
+export function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
+  downloadBlob(filename, toCsv(rows), 'text/csv;charset=utf-8;')
+}
+
+export function downloadJson(filename: string, data: unknown) {
+  downloadBlob(filename, JSON.stringify(data, null, 2), 'application/json')
 }
 
 /** Parses CSV files exported by this app, including quoted commas and newlines. */

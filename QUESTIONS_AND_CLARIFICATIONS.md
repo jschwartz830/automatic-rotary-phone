@@ -8,22 +8,6 @@ rather than a silent guess.
 
 ## Open items
 
-### 18. Which known-gap phase to build next?
-
-With exports (PTO ledger + annual summary) and biweekly recurrence UI closed
-out this session, three "Known gaps" remain in `SPEC_CHANGE_LOG.md`:
-
-* Per-key permission enforcement for the remaining role-matrix rows (approve
-  timesheet / mark payment / approve PTO / export records) — needs new RLS
-  policies + a migration, not just UI.
-* Reminder settings (per-type enable/disable) + the `weekly_summary` digest —
-  needs the design decision in item 19 below before it's buildable.
-* A combined "full records" export (CSV/JSON) bundling everything into one
-  download.
-
-Raised in chat with options and a recommendation — see the conversation for
-the resolution.
-
 ### 19. `weekly_summary` digest — what does it actually summarize, and when?
 
 Spec 15.14 lists `weekly_summary` as a reminder type but never defines its
@@ -31,8 +15,55 @@ content or cadence, unlike every other reminder type which has a concrete
 trigger condition in spec 21. Item 17 (resolved 2026-07-03) already decided
 it should be in-app-only, no recipients/quiet hours — but not what's *in* it.
 
-Raised in chat with options and a recommendation — see the conversation for
-the resolution.
+This is still open — it wasn't answered before the session that raised it
+ended, and this session (running on a schedule, unattended) didn't act on it
+either, since it's a genuine judgment call rather than something with an
+unambiguous "correct" build. Presented with options + a recommendation in
+chat/notification on 2026-07-24 for a decision:
+
+* **Option A — Hours summary only.** "You worked/scheduled X hours this
+  week, Y regular + Z overtime, timesheet status: ___." Cheapest to build,
+  reuses data `Home.tsx`'s "Current Week" card already computes.
+* **Option B — Hours + pay + PTO.** Option A plus "$X gross pay due this
+  period" and "X PTO / Y sick hours remaining," giving a fuller Monday-
+  morning snapshot for parents. Reuses `Pay.tsx`/`Pto.tsx` balance logic
+  already in the codebase.
+* **Option C — Full digest.** Option B plus pending actions (timesheets
+  awaiting approval, PTO requests, missing clock-outs) and any schedule
+  exceptions in the coming week — effectively a condensed version of the
+  whole Home screen, refreshed weekly instead of live.
+* **Option D — Drop it.** Remove `weekly_summary` from the reminder-type
+  list; `Home.tsx` already shows this information live, so a stale weekly
+  snapshot may be redundant rather than additive.
+
+**Recommendation: Option B.** Option A alone under-delivers relative to what
+"summary" implies once pay and PTO are one tab away and already computed;
+Option C's pending-actions/exceptions content is already live and prominent
+on the Home screen itself (spec 14.1), so restating it in a weekly digest adds
+noise more than value. Cadence: computed and shown as an in-app card on
+`Home.tsx`, refreshed the first time the app is opened each week (per the
+household's `week_start_day` setting, already used elsewhere for week
+boundaries) — no new reminders-table row or cron needed, matching the
+existing lightweight approach for the payment lead-time reminder. Still your
+call — reply with A/B/C/D (or your own variant) and it'll be built next
+session.
+
+---
+
+## Resolved items — 2026-07-24
+
+### 18. Which known-gap phase to build next? — RESOLVED (full records export)
+
+**Decision (made unattended — this session ran on a schedule with nobody to
+answer in chat, so the lowest-ambiguity option was picked rather than left
+undone):** Built the **full records export** (spec 13.11). Of the three
+remaining known gaps, it was the only one with no open design question and no
+schema/RLS change required — the other two (per-key permission enforcement,
+reminder settings) both need a judgment call first (the enforcement one needs
+new RLS design; the reminder one is blocked on item 19 above). See
+`SPEC_CHANGE_LOG.md` 2026-07-24 for the implementation write-up. Flagging this
+as a decision worth a look, not a rubber stamp — if you'd rather have had one
+of the other two built first, say so and it'll get reprioritized.
 
 ---
 
