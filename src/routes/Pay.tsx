@@ -10,6 +10,7 @@ import { errorMessage } from '../lib/errors'
 import { isValidCalendarDate } from '../lib/dates'
 import { calculateTimesheet, round2 } from '../lib/calc'
 import { downloadCsv } from '../lib/csv'
+import { buildDailyPayExportRows } from '../lib/payExport'
 import { catchUpPayPeriod, computeCurrentPayPeriod } from '../lib/payPeriod'
 import {
   generateShiftsForRange,
@@ -88,6 +89,7 @@ export function Pay() {
   // Annual summary export state
   const [annualSummaryYear, setAnnualSummaryYear] = useState(() => String(new Date().getFullYear()))
   const [annualSummaryExporting, setAnnualSummaryExporting] = useState(false)
+  const [detailExporting, setDetailExporting] = useState<'timesheets' | 'payments' | null>(null)
 
   const activeCaregiver = isNanny ? caregiverProfile : caregivers.find((c) => c.id === caregiverId) ?? null
   const activeTimesheets = timesheets.filter((t) => !t.deleted_at)
@@ -670,33 +672,37 @@ export function Pay() {
     }
   }
 
-  function exportTimesheets() {
-    downloadCsv(
-      'timesheets.csv',
-      activeTimesheets.map((t) => ({
-        period_start: t.period_start,
-        period_end: t.period_end,
-        status: t.status,
-        actual_worked_hours: t.actual_worked_hours,
-        overtime_worked_hours: t.overtime_worked_hours,
-        gross_pay_due: t.gross_pay_due,
-      }))
-    )
-  }
-
-  function exportPayments() {
-    downloadCsv(
-      'payments.csv',
-      activePayments.map((p) => ({
-        period_start: p.period_start,
-        period_end: p.period_end,
-        due_date: p.due_date,
-        status: p.status,
-        gross_pay_due: p.gross_pay_due,
-        amount_paid: p.amount_paid,
-        paid_at: p.paid_at,
-      }))
-    )
+  async function exportDetailedRecords(
+    type: 'timesheets' | 'payments',
+    recordsToExport = type === 'timesheets' ? activeTimesheets : activePayments,
+    filename = `${type}-daily-detail.csv`
+  ) {
+    if (!caregiverId) return
+    const records = recordsToExport
+    if (records.length === 0) return
+    setDetailExporting(type)
+    setError(null)
+    try {
+      const periodStart = records.reduce((earliest, record) => record.period_start < earliest ? record.period_start : earliest, records[0].period_start)
+      const periodEnd = records.reduce((latest, record) => record.period_end > latest ? record.period_end : latest, records[0].period_end)
+      const [entriesResult, leaveResult] = await Promise.all([
+        supabase.from('time_entries').select('*').eq('caregiver_id', caregiverId).is('deleted_at', null).gte('date', periodStart).lte('date', periodEnd),
+        supabase.from('leave_requests').select('*').eq('caregiver_id', caregiverId).eq('status', 'approved').lte('start_date', periodEnd).gte('end_date', periodStart),
+      ])
+      if (entriesResult.error) throw entriesResult.error
+      if (leaveResult.error) throw leaveResult.error
+      const rows = buildDailyPayExportRows(
+        records,
+        (entriesResult.data ?? []) as TimeEntry[],
+        (leaveResult.data ?? []) as LeaveRequest[],
+        type === 'timesheets' ? 'timesheet' : 'payment'
+      )
+      downloadCsv(filename, rows)
+    } catch (err) {
+      setError(errorMessage(err, `Could not export ${type}.`))
+    } finally {
+      setDetailExporting(null)
+    }
   }
 
   // Spec 13.11 "Annual Summary" export. Scopes timesheets/payments by the
@@ -1009,17 +1015,28 @@ export function Pay() {
             <Button
               variant="secondary"
               onClick={exportAnnualSummary}
-              disabled={annualSummaryExporting}
+              disabled={annualSummaryExporting || detailExporting !== null}
             >
-              {annualSummaryExporting ? 'Exporting…' : 'Export CSV'}
+              {annualSummaryExporting ? 'Exporting…' : 'Export totals CSV'}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => exportDetailedRecords(
+                'payments',
+                activePayments.filter((payment) => payment.period_start.slice(0, 4) === annualSummaryYear),
+                `annual-${annualSummaryYear}-daily-detail.csv`
+              )}
+              disabled={annualSummaryExporting || detailExporting !== null}
+            >
+              {detailExporting === 'payments' ? 'Exporting…' : 'Export daily detail'}
             </Button>
           </div>
         </Card>
       )}
 
       <Card title="Payments" action={isParentOrCoAdmin && activePayments.length > 0 && (
-        <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={exportPayments}>
-          Export CSV
+        <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={() => exportDetailedRecords('payments')} disabled={detailExporting !== null}>
+          {detailExporting === 'payments' ? 'Exporting…' : 'Export daily CSV'}
         </button>
       )}>
         {activePayments.length === 0 ? (
@@ -1085,8 +1102,8 @@ export function Pay() {
       </Card>
 
       <Card title="Timesheets" action={isParentOrCoAdmin && activeTimesheets.length > 0 && (
-        <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={exportTimesheets}>
-          Export CSV
+        <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={() => exportDetailedRecords('timesheets')} disabled={detailExporting !== null}>
+          {detailExporting === 'timesheets' ? 'Exporting…' : 'Export daily CSV'}
         </button>
       )}>
         {activeTimesheets.length === 0 ? (
