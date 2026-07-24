@@ -58,5 +58,9 @@ export function Field({ label, children }: { label: string; children: ReactNode 
   )
 }
 
+// text-base (16px), not text-sm (14px): iOS Safari and Chrome for Android
+// auto-zoom the page when a focused input's font-size is under 16px, which
+// is what made the time/date boxes appear to "grow past the screen edge" on
+// phones -- the input itself was fine, the whole viewport was zooming in.
 export const inputClass =
-  'w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:focus:border-gray-300 dark:focus:ring-gray-300'
+  'w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-base text-gray-900 placeholder:text-gray-400 transition-colors focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:focus:border-gray-300 dark:focus:ring-gray-300'
