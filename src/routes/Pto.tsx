@@ -67,6 +67,39 @@ export function Pto() {
     if (caregiverId) loadRequests(caregiverId)
   }, [caregiverId])
 
+  // Spec 13.7: every leave event that hits 'approved' must produce a
+  // leave_ledger row -- the balance display switches entirely to ledger-based
+  // math as soon as one exists for a policy (see Balances render below), so a
+  // request approved without a matching ledger entry silently vanishes from
+  // the total.
+  async function writeUsedLedgerEntry(request: {
+    caregiver_id: string
+    leave_type: LeaveType
+    start_date: string
+    hours_requested: number | null
+    id: string
+  }) {
+    if (!request.hours_requested) return
+    const policy = policies.find((p) => p.leave_type === request.leave_type)
+    if (!policy) return
+    const { data: ledgerRows } = await supabase
+      .from('leave_ledger')
+      .select('hours_delta')
+      .eq('caregiver_id', request.caregiver_id)
+      .eq('leave_policy_id', policy.id)
+    const currentBalance = (ledgerRows ?? []).reduce((sum: number, r: { hours_delta: number }) => sum + r.hours_delta, 0)
+    await supabase.from('leave_ledger').insert({
+      caregiver_id: request.caregiver_id,
+      leave_policy_id: policy.id,
+      event_date: request.start_date,
+      event_type: 'used',
+      hours_delta: -request.hours_requested,
+      balance_after: currentBalance - request.hours_requested,
+      related_leave_request_id: request.id,
+      created_by: user?.id ?? null,
+    })
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (!caregiverId || !household) return
@@ -124,6 +157,10 @@ export function Pto() {
         .single()
       if (insertError) throw insertError
 
+      if (request.status === 'approved') {
+        await writeUsedLedgerEntry(request)
+      }
+
       await logAuditEvent({
         householdId: household.id,
         actorUserId: user?.id ?? '',
@@ -149,28 +186,8 @@ export function Pto() {
       .update({ status, reviewed_by: user?.id ?? null, reviewed_at: new Date().toISOString() })
       .eq('id', request.id)
 
-    if (status === 'approved' && request.hours_requested) {
-      // Write a leave_ledger event so the balance is event-sourced per spec 13.7.
-      const policy = policies.find((p) => p.leave_type === request.leave_type)
-      if (policy) {
-        // Compute running balance from existing ledger
-        const { data: ledgerRows } = await supabase
-          .from('leave_ledger')
-          .select('hours_delta')
-          .eq('caregiver_id', request.caregiver_id)
-          .eq('leave_policy_id', policy.id)
-        const currentBalance = (ledgerRows ?? []).reduce((sum: number, r: { hours_delta: number }) => sum + r.hours_delta, 0)
-        await supabase.from('leave_ledger').insert({
-          caregiver_id: request.caregiver_id,
-          leave_policy_id: policy.id,
-          event_date: request.start_date,
-          event_type: 'used',
-          hours_delta: -request.hours_requested,
-          balance_after: currentBalance - request.hours_requested,
-          related_leave_request_id: request.id,
-          created_by: user?.id ?? null,
-        })
-      }
+    if (status === 'approved') {
+      await writeUsedLedgerEntry(request)
     }
 
     if (caregiverId) await loadRequests(caregiverId)
