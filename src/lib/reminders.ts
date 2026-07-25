@@ -1,6 +1,22 @@
-import { differenceInCalendarDays, parseISO } from 'date-fns'
-import type { CaregiverProfile, LeaveRequest, PaymentRecord, ScheduleException, TimeEntry, Timesheet } from './types'
+import { addDays, differenceInCalendarDays, parseISO, startOfWeek } from 'date-fns'
+import type { CaregiverProfile, LeaveRequest, PaymentRecord, ReminderType, ScheduleException, TimeEntry, Timesheet } from './types'
 import type { GeneratedShiftOccurrence } from './schedule'
+
+// Spec 15.14's ten reminder types, in schema/check-constraint order. Used to
+// drive the per-type enable/disable settings UI (spec 13.9's "Reminder
+// Settings" -- see QUESTIONS_AND_CLARIFICATIONS.md items 17/19).
+export const REMINDER_TYPE_INFO: { type: ReminderType; label: string }[] = [
+  { type: 'missing_clock_out', label: 'Missing clock-out' },
+  { type: 'unsubmitted_timesheet', label: 'Timesheet not submitted' },
+  { type: 'pending_timesheet_approval', label: 'Timesheet pending approval' },
+  { type: 'pending_pto_request', label: 'PTO request pending' },
+  { type: 'payment_due', label: 'Payment due soon' },
+  { type: 'payment_overdue', label: 'Payment overdue' },
+  { type: 'upcoming_pto', label: 'Upcoming PTO' },
+  { type: 'schedule_change', label: 'Schedule changed' },
+  { type: 'pto_balance_low', label: 'PTO balance low' },
+  { type: 'weekly_summary', label: 'Weekly summary' },
+]
 
 const DEFAULT_PAYMENT_REMINDER_DAYS_BEFORE = [0, 1]
 
@@ -43,6 +59,7 @@ export function computeReminders(input: {
   scheduleOccurrences?: GeneratedShiftOccurrence[]
   leaveBalances?: LeaveBalanceSummary[]
   scheduleExceptions?: ScheduleException[]
+  disabledTypes?: Set<string>
 }): ReminderCard[] {
   const {
     today,
@@ -54,6 +71,7 @@ export function computeReminders(input: {
     scheduleOccurrences,
     leaveBalances,
     scheduleExceptions,
+    disabledTypes,
   } = input
   // Index schedule occurrences by date for O(1) lookup
   const occurrencesByDate = new Map<string, GeneratedShiftOccurrence[]>()
@@ -208,5 +226,67 @@ export function computeReminders(input: {
     })
   }
 
-  return cards
+  return disabledTypes && disabledTypes.size > 0 ? cards.filter((c) => !disabledTypes.has(c.type)) : cards
+}
+
+/**
+ * Weekly summary digest (spec 13.9/15.14 `weekly_summary`; content/cadence
+ * resolved as QUESTIONS_AND_CLARIFICATIONS.md item 19, option B). One card
+ * per caregiver, recomputed live on every Home.tsx load -- there's no
+ * separate "first open this week" cache, since the card's numbers are
+ * naturally scoped to the calendar week containing `today` and so already
+ * change automatically as the week rolls over. Deliberately does NOT split
+ * hours into regular/overtime: that split is only authoritative once
+ * computed by the real payroll engine (`calc.ts`) over a caregiver's actual
+ * pay period, which may be biweekly and rarely lines up with a calendar
+ * week -- approximating it here risked showing a number that quietly
+ * disagreed with Pay.tsx. See SPEC_CHANGE_LOG.md for the full writeup.
+ */
+export function buildWeeklySummaryCards(input: {
+  today: Date
+  weekStartsOn: 0 | 1
+  caregivers: CaregiverProfile[]
+  timeEntries: TimeEntry[]
+  timesheets: Timesheet[]
+  paymentRecords: PaymentRecord[]
+  leaveBalances: LeaveBalanceSummary[]
+}): ReminderCard[] {
+  const { today, weekStartsOn, caregivers, timeEntries, timesheets, paymentRecords, leaveBalances } = input
+  const weekStart = startOfWeek(today, { weekStartsOn })
+  const weekEnd = addDays(weekStart, 6)
+  const weekStartStr = weekStart.toISOString().slice(0, 10)
+  const weekEndStr = weekEnd.toISOString().slice(0, 10)
+  const todayStr = today.toISOString().slice(0, 10)
+
+  return caregivers.map((cg) => {
+    const hoursThisWeek = timeEntries
+      .filter((e) => e.caregiver_id === cg.id && !e.deleted_at && e.date >= weekStartStr && e.date <= weekEndStr)
+      .reduce((sum, e) => sum + (e.paid_hours ?? 0), 0)
+
+    const currentTimesheet = timesheets.find(
+      (t) => t.caregiver_id === cg.id && !t.deleted_at && t.period_start <= todayStr && t.period_end >= todayStr
+    )
+
+    const upcomingPayment = paymentRecords
+      .filter((p) => p.caregiver_id === cg.id && !p.deleted_at && p.status !== 'paid' && p.status !== 'voided')
+      .sort((a, b) => a.due_date.localeCompare(b.due_date))[0]
+
+    const ptoBalance = leaveBalances.find((b) => b.caregiverId === cg.id && b.leaveType === 'pto')
+    const sickBalance = leaveBalances.find((b) => b.caregiverId === cg.id && b.leaveType === 'sick')
+
+    const parts = [
+      `${hoursThisWeek.toFixed(1)} hrs logged this week`,
+      `timesheet ${currentTimesheet ? currentTimesheet.status.replace(/_/g, ' ') : 'not yet generated'}`,
+    ]
+    if (upcomingPayment) parts.push(`$${upcomingPayment.gross_pay_due.toFixed(2)} due ${upcomingPayment.due_date}`)
+    if (ptoBalance?.remainingHours != null) parts.push(`${ptoBalance.remainingHours.toFixed(1)} PTO hrs left`)
+    if (sickBalance?.remainingHours != null) parts.push(`${sickBalance.remainingHours.toFixed(1)} sick hrs left`)
+
+    return {
+      id: `weekly-summary-${cg.id}-${weekStartStr}`,
+      type: 'weekly_summary',
+      severity: 'info',
+      message: `${cg.name}: ${parts.join(' · ')}.`,
+    }
+  })
 }

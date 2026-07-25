@@ -10,7 +10,8 @@ import { errorMessage } from '../lib/errors'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { StatusChip } from '../components/StatusChip'
 import { APP_VERSION, APP_VERSION_TITLE, forceRefreshApp } from '../lib/version'
-import type { HouseholdRole } from '../lib/types'
+import { REMINDER_TYPE_INFO } from '../lib/reminders'
+import type { HouseholdRole, ReminderSetting } from '../lib/types'
 
 // Co-admin permissions that the database actually enforces (via
 // can_manage_household_setting in the RLS policies / caregiver-profile trigger).
@@ -80,6 +81,9 @@ export function More() {
   const [householdSaving, setHouseholdSaving] = useState(false)
   const [householdSavedAt, setHouseholdSavedAt] = useState<number | null>(null)
   const [householdSaveError, setHouseholdSaveError] = useState<string | null>(null)
+  const [reminderSettings, setReminderSettings] = useState<ReminderSetting[]>([])
+  const [reminderSettingsError, setReminderSettingsError] = useState<string | null>(null)
+  const [savingReminderType, setSavingReminderType] = useState<string | null>(null)
 
   useEffect(() => {
     if (!household || !isParentOrCoAdmin) return
@@ -127,6 +131,61 @@ export function More() {
   useEffect(() => {
     if (isParentAdmin) loadMembers()
   }, [isParentAdmin, loadMembers])
+
+  const loadReminderSettings = useCallback(async () => {
+    if (!household || !user) return
+    setReminderSettingsError(null)
+    const { data, error } = await supabase
+      .from('reminders')
+      .select('*')
+      .eq('household_id', household.id)
+      .eq('recipient_user_id', user.id)
+    if (error) {
+      setReminderSettingsError(errorMessage(error, 'Could not load reminder settings.'))
+      return
+    }
+    setReminderSettings((data ?? []) as ReminderSetting[])
+  }, [household, user])
+
+  useEffect(() => {
+    if (isParentOrCoAdmin) loadReminderSettings()
+  }, [isParentOrCoAdmin, loadReminderSettings])
+
+  async function toggleReminderType(type: string, enabled: boolean) {
+    if (!household || !user) return
+    setSavingReminderType(type)
+    setReminderSettingsError(null)
+    try {
+      const existing = reminderSettings.find((s) => s.type === type)
+      let entityId = existing?.id
+      if (existing) {
+        const { error } = await supabase.from('reminders').update({ enabled }).eq('id', existing.id)
+        if (error) throw error
+      } else {
+        const { data, error } = await supabase
+          .from('reminders')
+          .insert({ household_id: household.id, recipient_user_id: user.id, type, enabled })
+          .select('id')
+          .single()
+        if (error) throw error
+        entityId = (data as { id: string }).id
+      }
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user.id,
+        entityType: 'reminder_setting',
+        entityId: entityId ?? '',
+        action: 'update',
+        before: { type, enabled: existing?.enabled ?? true },
+        after: { type, enabled },
+      })
+      await loadReminderSettings()
+    } catch (err) {
+      setReminderSettingsError(errorMessage(err, 'Could not update reminder settings.'))
+    } finally {
+      setSavingReminderType(null)
+    }
+  }
 
   async function toggleMemberPermission(member: MemberRow, key: string, allowed: boolean) {
     if (!household) return
@@ -360,6 +419,32 @@ export function More() {
             {householdSaveError && <p className="text-xs text-red-600 dark:text-red-400">{householdSaveError}</p>}
             {householdSavedAt && !householdSaveError && <p className="text-xs text-green-600 dark:text-green-400">Saved.</p>}
           </form>
+        </Card>
+      )}
+
+      {isParentOrCoAdmin && (
+        <Card title="Reminder settings">
+          <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
+            Choose which reminder cards show up on your Home screen. Applies to your own account only.
+          </p>
+          <div className="space-y-1.5">
+            {REMINDER_TYPE_INFO.map((rt) => {
+              const setting = reminderSettings.find((s) => s.type === rt.type)
+              const enabled = setting?.enabled ?? true
+              return (
+                <label key={rt.type} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    disabled={savingReminderType === rt.type}
+                    onChange={(e) => toggleReminderType(rt.type, e.target.checked)}
+                  />
+                  {rt.label}
+                </label>
+              )
+            })}
+          </div>
+          {reminderSettingsError && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{reminderSettingsError}</p>}
         </Card>
       )}
 

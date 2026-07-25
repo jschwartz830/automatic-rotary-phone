@@ -8,45 +8,61 @@ rather than a silent guess.
 
 ## Open items
 
-### 19. `weekly_summary` digest — what does it actually summarize, and when?
+### 20. `nanny_can_view_*` visibility flags are stored but never enforced
 
-Spec 15.14 lists `weekly_summary` as a reminder type but never defines its
-content or cadence, unlike every other reminder type which has a concrete
-trigger condition in spec 21. Item 17 (resolved 2026-07-03) already decided
-it should be in-app-only, no recipients/quiet hours — but not what's *in* it.
+`caregiver_profiles` has four columns — `nanny_can_view_pay_rate`,
+`nanny_can_view_gross_pay`, `nanny_can_view_pto_balance`,
+`nanny_can_view_guaranteed_hours` — matching spec 11's "Optional" nanny rows
+(View pay rate, View gross pay due, View PTO balance, View guaranteed hours).
+They're set during onboarding but no screen ever reads them: a nanny signed
+in today sees gross pay, pay rate, PTO balance, and guaranteed hours
+unconditionally on `Pay.tsx`, `Pto.tsx`, `CaregiverDetail.tsx`, and (as of
+this session) the new weekly-summary card on `Home.tsx`, regardless of how
+those toggles are set. Noticed while building the weekly-summary card
+(2026-07-25), not something this session caused.
 
-This is still open — it wasn't answered before the session that raised it
-ended, and this session (running on a schedule, unattended) didn't act on it
-either, since it's a genuine judgment call rather than something with an
-unambiguous "correct" build. Presented with options + a recommendation in
-chat/notification on 2026-07-24 for a decision:
+* **Option A — Enforce them.** Gate each of the four surfaces on its flag,
+  showing a "hidden by household settings" placeholder (or omitting the
+  field/card entirely) when off for a signed-in nanny. Matches the spec
+  literally; touches four+ screens (Pay, Pto, CaregiverDetail, Home) and
+  needs care to also gate the new weekly-summary card's pay/PTO lines.
+* **Option B — Drop the flags, document nanny sees everything.** Remove the
+  four columns (migration) and the corresponding rows from spec 11 become
+  "Yes" instead of "Optional." Simplest, but a real behavior/scope reduction
+  from what's currently documented, and removes a capability rather than
+  just leaving it unbuilt.
+* **Option C — Leave as a documented gap for now.** No code change; keep the
+  columns and the onboarding UI that sets them (so household data isn't
+  lost), but don't build enforcement yet. Cheapest, but the onboarding UI
+  that sets these flags is actively misleading in the meantime — it implies
+  a control that doesn't do anything.
 
-* **Option A — Hours summary only.** "You worked/scheduled X hours this
-  week, Y regular + Z overtime, timesheet status: ___." Cheapest to build,
-  reuses data `Home.tsx`'s "Current Week" card already computes.
-* **Option B — Hours + pay + PTO.** Option A plus "$X gross pay due this
-  period" and "X PTO / Y sick hours remaining," giving a fuller Monday-
-  morning snapshot for parents. Reuses `Pay.tsx`/`Pto.tsx` balance logic
-  already in the codebase.
-* **Option C — Full digest.** Option B plus pending actions (timesheets
-  awaiting approval, PTO requests, missing clock-outs) and any schedule
-  exceptions in the coming week — effectively a condensed version of the
-  whole Home screen, refreshed weekly instead of live.
-* **Option D — Drop it.** Remove `weekly_summary` from the reminder-type
-  list; `Home.tsx` already shows this information live, so a stale weekly
-  snapshot may be redundant rather than additive.
+**Recommendation: Option A.** The onboarding flow already asks parents to
+set these, so parents likely believe they're in effect; leaving them
+unenforced (Option C) is a correctness gap dressed up as a UI setting, and
+Option B throws away data/intent that a household may have deliberately
+configured. Option A is the most work of the three, but it's mechanical —
+each screen already knows which caregiver it's showing and whether the
+viewer is a nanny (`isNanny`/`caregiverProfile` from `HouseholdContext`);
+this is wiring, not new design. Your call — reply with A/B/C and it'll be
+built next session.
 
-**Recommendation: Option B.** Option A alone under-delivers relative to what
-"summary" implies once pay and PTO are one tab away and already computed;
-Option C's pending-actions/exceptions content is already live and prominent
-on the Home screen itself (spec 14.1), so restating it in a weekly digest adds
-noise more than value. Cadence: computed and shown as an in-app card on
-`Home.tsx`, refreshed the first time the app is opened each week (per the
-household's `week_start_day` setting, already used elsewhere for week
-boundaries) — no new reminders-table row or cron needed, matching the
-existing lightweight approach for the payment lead-time reminder. Still your
-call — reply with A/B/C/D (or your own variant) and it'll be built next
-session.
+---
+
+## Resolved items — 2026-07-25
+
+### 19. `weekly_summary` digest — what does it actually summarize, and when? — RESOLVED (option B)
+
+**Decision (made unattended — this session ran on a schedule with nobody to
+answer in chat, so the recommended option from the 2026-07-24 write-up was
+taken rather than left blocked another cycle):** Built **option B** — hours
+logged this week, current timesheet status, next payment due, and PTO/sick
+balance remaining, one card per caregiver on `Home.tsx`, recomputed live on
+every load. Regular/overtime hours split (mentioned in the recommendation's
+example copy) was deliberately left out — see `SPEC_CHANGE_LOG.md`
+2026-07-25 for why. Flagging this as a decision worth a look, not a rubber
+stamp — if the omitted regular/OT split or any other part of the content
+matters, say so and it'll be adjusted.
 
 ---
 

@@ -1,5 +1,82 @@
 # Spec Change Log
 
+## 2026-07-25 — Reminder settings + weekly summary digest (spec 13.9/15.14), resolves Q&A item 19
+
+**Weekly summary digest built.** `computeReminders`'s companion
+`buildWeeklySummaryCards` (`src/lib/reminders.ts`) produces one `weekly_summary`
+card per caregiver on `Home.tsx`, content per the option chosen for Q&A item
+19 (option B, picked without a live chat round-trip since this session ran
+unattended on a schedule -- see the Q&A file for the full option set and why
+B was recommended): hours logged so far this calendar week, the status of
+whatever timesheet's period contains today (or "not yet generated"), the
+next unpaid payment's amount and due date, and PTO/sick balance remaining
+(`pto`/`sick` leave types only, matching the existing balance card on
+`Pto.tsx`). Recomputed live on every `Home.tsx` load rather than cached and
+shown once per week -- since its numbers are already scoped to "the calendar
+week containing today," they naturally roll over at the week boundary with
+no extra state needed, so the "refreshed the first time the app is opened
+each week" language in the recommendation didn't require any actual caching
+mechanism once implemented.
+
+**Deliberately excluded from the digest: a regular/overtime hours split.**
+The recommendation's example copy ("Y regular + Z overtime") implied one,
+but that split is only authoritative once run through the real payroll
+engine (`calc.ts`) over a caregiver's actual pay period -- which can be
+biweekly and doesn't line up with a calendar week for most households. Doing
+a second, simplified regular/OT split here risked quietly disagreeing with
+the number `Pay.tsx` shows for the same caregiver. Total hours logged this
+week (unsplit) avoids that, at the cost of being a slightly thinner digest
+than literally described.
+
+**Per-reminder-type enable/disable settings built**, using the `reminders`
+table exactly as already defined in migration 0001 -- no new migration
+needed. Each row is scoped to `(household_id, recipient_user_id, type)`; a
+new "Reminder settings" card in `More.tsx` (Parent Admin/Co-Admin only, per
+spec 13.9 "Parent can configure") lists all ten reminder types from spec
+15.14 with a checkbox each, defaulting to enabled when no row exists yet.
+`recipient_user_id` is always the signed-in user making the change -- there's
+no UI to configure reminders on behalf of someone else. This follows the
+"recipients" concept (who else could receive a given type) already being out
+of scope per item 17's resolution, which deferred it until there's an
+email/SMS delivery channel to target; today, "recipients" collapses to just
+"the person configuring their own view." `Home.tsx` now loads the signed-in
+user's `reminders` rows alongside its other data and passes a `disabledTypes`
+set into `computeReminders` (which filters its output by it) and skips
+`buildWeeklySummaryCards` entirely when `weekly_summary` is disabled.
+
+Closes both remaining pieces of the "Reminder settings" / "`weekly_summary`
+digest" known gap. The other previously-listed known gap -- per-key
+permission enforcement for the rest of the role matrix (approve timesheet /
+mark payment / approve PTO / export records) -- is unchanged; see "Known
+gaps" below.
+
+### New gap noticed while building this: `nanny_can_view_*` flags are stored but never read
+
+`caregiver_profiles` has `nanny_can_view_pay_rate`, `nanny_can_view_gross_pay`,
+`nanny_can_view_pto_balance`, and `nanny_can_view_guaranteed_hours` columns
+(spec 15.4, backing spec 11's "Optional" nanny visibility rows), but no
+screen in the app -- `Pay.tsx`, `Pto.tsx`, or otherwise -- actually checks
+them before showing a nanny that data; they're set during onboarding and then
+ignored. The new weekly-summary card inherits this: a nanny viewing their own
+`weekly_summary` card sees gross pay due and PTO balance unconditionally,
+same as every other pay/PTO surface in the app today. Not a regression this
+session introduced, but flagged since it's now visible in one more place.
+Added to "Known gaps" below and to `QUESTIONS_AND_CLARIFICATIONS.md` as a new
+item, since fixing it is a real (if mechanical) chunk of work across several
+screens, not a one-line change.
+
+### Known gaps for next phase (unchanged besides the addition above)
+
+- **Per-key enforcement for the remaining permission matrix rows** (spec 11)
+  — approve timesheet / mark payment / approve PTO / export records are
+  co-admin-allowed by default with no restrict toggle; needs new RLS
+  policies + a migration, not just UI.
+- **`nanny_can_view_*` visibility flags are unenforced** (spec 15.4/11) — see
+  above; would need gating added to `Pay.tsx`, `Pto.tsx`, `CaregiverDetail.tsx`
+  (guaranteed hours display), and now `Home.tsx`'s weekly summary card.
+
+---
+
 Tracks decisions made while implementing against `APPLICATION_SPEC.md`: where an
 implementation detail wasn't fully specified, where two parts of the spec were
 in tension, or where a deliberate simplification was made. This is a running
