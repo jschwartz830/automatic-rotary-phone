@@ -382,3 +382,29 @@ export interface AuditEvent {
   after_json: Record<string, unknown> | null
   created_at: string
 }
+
+export type ReminderType =
+  | 'missing_clock_out'
+  | 'unsubmitted_timesheet'
+  | 'pending_timesheet_approval'
+  | 'pending_pto_request'
+  | 'payment_due'
+  | 'payment_overdue'
+  | 'upcoming_pto'
+  | 'schedule_change'
+  | 'pto_balance_low'
+  | 'weekly_summary'
+
+export interface ReminderSetting {
+  id: string
+  household_id: string
+  caregiver_id: string | null
+  type: ReminderType
+  recipient_user_id: string
+  enabled: boolean
+  channel: 'in_app' | 'email'
+  trigger_rule: Record<string, unknown>
+  last_sent_at: string | null
+  created_at: string
+  updated_at: string
+}
