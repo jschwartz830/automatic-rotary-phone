@@ -15,7 +15,10 @@ import type { HouseholdRole } from '../lib/types'
 // Co-admin permissions that the database actually enforces (via
 // can_manage_household_setting in the RLS policies / caregiver-profile trigger).
 // A co-admin has each one by default; permissions[key] === false revokes it.
-// Only these keys have a real server-side effect, so only these are exposed.
+// export_records is the one exception: exports only read rows a co-admin can
+// already SELECT and format them client-side, so there's no separate data
+// boundary for RLS to enforce -- it's gated client-side only (coadminAllowed
+// in HouseholdContext), not by the database. See QUESTIONS_AND_CLARIFICATIONS.md.
 const COADMIN_PERMISSIONS: { key: string; label: string }[] = [
   { key: 'edit_pay_rate', label: 'Edit pay rate & pay settings' },
   { key: 'edit_pto_policy', label: 'Edit PTO / leave policy' },
@@ -24,6 +27,10 @@ const COADMIN_PERMISSIONS: { key: string; label: string }[] = [
   { key: 'edit_household', label: 'Edit household settings' },
   { key: 'manage_users', label: 'Manage household members' },
   { key: 'view_audit_log', label: 'View audit log' },
+  { key: 'approve_timesheet', label: 'Approve timesheets / request corrections' },
+  { key: 'mark_payment_made', label: 'Mark payments made / void / correct' },
+  { key: 'approve_pto', label: 'Approve / reject PTO requests' },
+  { key: 'export_records', label: 'Export records' },
 ]
 
 interface MemberRow {

@@ -22,7 +22,8 @@ const BALANCE_TYPES: LeaveType[] = ['pto', 'sick']
 export function Pto() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { household, isNanny, isParentOrCoAdmin, caregiverProfile } = useHousehold()
+  const { household, isNanny, isParentOrCoAdmin, coadminAllowed, caregiverProfile } = useHousehold()
+  const canExport = isParentOrCoAdmin && coadminAllowed('export_records')
   const { caregivers } = useCaregivers(household?.id)
   const [caregiverId, setCaregiverId] = useState<string | null>(null)
   const [requests, setRequests] = useState<LeaveRequest[]>([])
@@ -242,7 +243,7 @@ export function Pto() {
         <Card
           title="Balances"
           action={
-            isParentOrCoAdmin &&
+            canExport &&
             ledgerEntries.length > 0 && (
               <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={exportLedger}>
                 Export ledger CSV

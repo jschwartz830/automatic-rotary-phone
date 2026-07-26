@@ -8,6 +8,52 @@ rather than a silent guess.
 
 ## Open items
 
+### 20. `export_records` enforced client-side only, not via RLS — is that the right call?
+
+This run (2026-07-26) built the last piece of the spec-11 permission matrix:
+`approve_timesheet`, `mark_payment_made`, and `approve_pto` are now real RLS
+keys (migration 0014), matching the seven keys from 2026-07-03. `export_records`
+was deliberately left out of that migration and instead gated purely
+client-side via a new `coadminAllowed()` helper (`HouseholdContext` →
+`Pay.tsx`/`Pto.tsx` export buttons).
+
+**Reasoning:** every export button just formats rows the co-admin can already
+`SELECT` into a CSV/JSON download. There's no *new* data exposed by exporting
+that RLS would need to block — a restricted co-admin could already read every
+row the export contains through the normal app screens, just not as a bundled
+file. Adding a fake RLS boundary here (e.g. a `can_export` check on the
+underlying `SELECT` policies) would either (a) do nothing, since the same
+data reads fine outside the export code path, or (b) break the co-admin's
+ordinary ability to view their own household's timesheets/payments/PTO
+ledger, which spec 11 explicitly keeps at "Yes" for co-admins regardless of
+the export restriction.
+
+This is a judgment call about what "restrict from exporting" is supposed to
+mean when the underlying view access is untouched — flagging it rather than
+assuming it's settled. Options if you'd rather it worked differently:
+
+* **Option A — Keep as-is (client-side gate only).** Matches the reasoning
+  above; a restricted co-admin can still see everything through the app, just
+  not click "Export CSV."
+* **Option B — Treat "restrict export" as "restrict payment/PTO/timesheet
+  export screens too."** Would mean pairing `export_records = false` with
+  also hiding (not just the export button but) the underlying data views for
+  that co-admin — a bigger behavior change than spec 11's matrix implies
+  (it lists "View gross pay due"/"View PTO balance" as separately
+  restrictable rows from "Export records," suggesting they're meant to be
+  independent).
+* **Option C — Drop `export_records` as a restrictable permission entirely**
+  since it can't be meaningfully enforced without also restricting view
+  access, and note in the spec that co-admin export ability always matches
+  their view ability.
+
+**Recommendation: Option A**, already built this way — it's the only one of
+the three that doesn't require inventing new restricted-view behavior the
+spec doesn't otherwise describe. Reply A/B/C (or your own variant) if you'd
+rather it work differently.
+
+---
+
 ### 19. `weekly_summary` digest — what does it actually summarize, and when?
 
 Spec 15.14 lists `weekly_summary` as a reminder type but never defines its
@@ -19,7 +65,7 @@ This is still open — it wasn't answered before the session that raised it
 ended, and this session (running on a schedule, unattended) didn't act on it
 either, since it's a genuine judgment call rather than something with an
 unambiguous "correct" build. Presented with options + a recommendation in
-chat/notification on 2026-07-24 for a decision:
+chat/notification on 2026-07-24, and again on 2026-07-26, for a decision:
 
 * **Option A — Hours summary only.** "You worked/scheduled X hours this
   week, Y regular + Z overtime, timesheet status: ___." Cheapest to build,

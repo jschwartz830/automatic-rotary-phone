@@ -8,6 +8,80 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-26 — Per-key permission enforcement for approve/mark-paid/PTO-approve/export (spec 10/11)
+
+**Closes the last "known gap" from the permission matrix (spec 11).** Migration
+`0014_approve_and_payment_permission_keys.sql` adds three new
+`coadmin_permission_allowed` keys enforced server-side, the same pattern as
+the seven keys from 2026-07-03 (`edit_pay_rate`, `edit_pto_policy`, etc.):
+
+- **`approve_timesheet`** — gates `timesheets` rows landing in
+  `approved`/`needs_correction`/`payment_due`/`paid`/`locked` (both the
+  parent-generate-timesheet insert and any update that moves a row into one
+  of those statuses; rows staying in `draft`/`submitted` — nanny submission,
+  in-progress parent edits — don't need it). Also gates the accompanying
+  `payment_records` insert (creating the payment record *is* the second half
+  of "approve timesheet" in this app's flow), alongside `mark_payment_made`
+  (see below) since a payment-correction record is also legitimately created
+  outside the approval flow.
+- **`mark_payment_made`** — gates `payment_records` updates: mark paid/
+  partially paid, void, and marking the original record `corrected` during a
+  correction.
+- **`approve_pto`** — gates `leave_requests` rows landing in `approved` (both
+  the parent "record leave" insert path in `Pto.tsx`, which creates a
+  pre-approved request directly, and the review/approve/reject update on an
+  existing `requested` row) or `rejected`. Also loosened `leave_ledger` insert
+  to require *either* `approve_pto` or `edit_pto_policy`, since ledger rows
+  come from both an approval (`used` events) and an allowance change
+  (`opening_balance`/`manual_adjustment` events).
+
+`More.tsx`'s `COADMIN_PERMISSIONS` list now shows all three as toggles in the
+"Household members" card, following the existing pattern of no client-side
+gating of the *editing* co-admin's own UI (a restricted co-admin still sees
+the approve/reject buttons and gets the resulting RLS error surfaced through
+the existing `errorMessage()` helper — same as the pre-existing `edit_schedule`/
+`edit_pto_policy` keys, which never had bespoke friendly error messages
+either). Server enforcement was the actual gap; the UI already showed these
+actions to every parent/co-admin.
+
+**`export_records` — deliberately *not* given a real RLS key.** Export
+buttons only reformat rows the co-admin can already `SELECT` (timesheets,
+payments, PTO ledger, full-records bundle) into a client-side download —
+there's no additional data a restricted co-admin would gain by exporting that
+they couldn't already read row-by-row in the app. Enforcing it at the
+database layer would be security theater: a restricted co-admin could
+reconstruct the same CSV/JSON by hand from data RLS already lets them read.
+So `export_records` is gated **client-side only**, via a new
+`coadminAllowed(key)` helper added to `HouseholdContext` (mirrors
+`coadmin_permission_allowed()` in the DB for the one key that has no DB-side
+counterpart) — it hides the four export surfaces in `Pay.tsx` (annual
+summary, full records, per-tab daily-CSV buttons) and the one in `Pto.tsx`
+(ledger CSV) when the current co-admin has been restricted. This is
+recorded as a conscious exception to "RLS is the enforcement boundary, not
+UI hiding" (spec 18/19), not an oversight — flagged in
+`QUESTIONS_AND_CLARIFICATIONS.md` for a second look since it's a judgment
+call about what counts as a real security boundary.
+
+This closes the permission-matrix gap noted in every "Known gaps" section
+since 2026-07-03; all role-matrix rows listed as co-admin-optionally-
+restrictable (spec 11) now have either a real RLS key or a documented
+client-side equivalent.
+
+**Time-entry schedule pre-fill — re-verified, still no change needed.** This
+run's task again asked for time entries to default to the caregiver's
+scheduled hours (falling back to the current day). Re-read `Time.tsx:34-124`:
+unchanged since 2026-07-24 — the date field defaults to today and an effect
+pre-fills start/end/break from the scheduled shift for whatever date is
+selected, falling back to 9am–5pm only when nothing is scheduled. No gap.
+
+### Known gaps for next phase (unchanged, still not built)
+
+- **Reminder settings** (13.9) — per-type enable/disable + the
+  `weekly_summary` digest; blocked on the content/cadence design decision in
+  `QUESTIONS_AND_CLARIFICATIONS.md` item 19, presented again this run.
+
+---
+
 ## 2026-07-24 — Full records export (spec 13.11), time-entry schedule pre-fill verified
 
 **Full records export built (spec 13.11, closes the last "known gap" export

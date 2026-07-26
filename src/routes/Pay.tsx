@@ -57,7 +57,8 @@ function computeDueDate(periodEnd: string, caregiver: CaregiverProfile): string 
 export function Pay() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { household, isNanny, isParentOrCoAdmin, caregiverProfile } = useHousehold()
+  const { household, isNanny, isParentOrCoAdmin, coadminAllowed, caregiverProfile } = useHousehold()
+  const canExport = isParentOrCoAdmin && coadminAllowed('export_records')
   const { caregivers } = useCaregivers(household?.id)
   const [caregiverId, setCaregiverId] = useState<string | null>(null)
   const [timesheets, setTimesheets] = useState<Timesheet[]>([])
@@ -1120,7 +1121,7 @@ export function Pay() {
         </Card>
       )}
 
-      {isParentOrCoAdmin && caregiverId && (
+      {canExport && caregiverId && (
         <Card title="Annual summary">
           <div className="flex items-end gap-2">
             <div className="flex-1">
@@ -1155,7 +1156,7 @@ export function Pay() {
         </Card>
       )}
 
-      {isParentOrCoAdmin && caregiverId && (
+      {canExport && caregiverId && (
         <Card title="Full records export">
           <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
             Every record for {activeCaregiver?.name ?? 'this caregiver'} — schedule, time entries, timesheets,
@@ -1180,7 +1181,7 @@ export function Pay() {
         </Card>
       )}
 
-      <Card title="Payments" action={isParentOrCoAdmin && activePayments.length > 0 && (
+      <Card title="Payments" action={canExport && activePayments.length > 0 && (
         <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={() => exportDetailedRecords('payments')} disabled={detailExporting !== null}>
           {detailExporting === 'payments' ? 'Exporting…' : 'Export daily CSV'}
         </button>
@@ -1247,7 +1248,7 @@ export function Pay() {
         )}
       </Card>
 
-      <Card title="Timesheets" action={isParentOrCoAdmin && activeTimesheets.length > 0 && (
+      <Card title="Timesheets" action={canExport && activeTimesheets.length > 0 && (
         <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={() => exportDetailedRecords('timesheets')} disabled={detailExporting !== null}>
           {detailExporting === 'timesheets' ? 'Exporting…' : 'Export daily CSV'}
         </button>
