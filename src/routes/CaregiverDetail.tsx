@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { useCaregivers } from '../lib/useCaregivers'
@@ -25,7 +25,7 @@ export function CaregiverDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { household, isParentAdmin } = useHousehold()
+  const { household, isParentAdmin, isNanny } = useHousehold()
   const { caregivers, refresh } = useCaregivers(household?.id)
   const caregiver = caregivers.find((c) => c.id === id) ?? null
   const { policies, refresh: refreshPolicies } = useLeavePolicies(id ?? null)
@@ -277,6 +277,16 @@ export function CaregiverDetail() {
       setRemovingCaregiver(false)
     }
   }
+
+  // Spec 11: nanny cannot access settings for pay rate, PTO policy, or
+  // guaranteed hours -- this whole page is that settings surface (pay rate,
+  // guaranteed-hours basis, PTO/sick allowances), not just individual
+  // fields, so it's blocked outright rather than field-by-field. RLS already
+  // rejects a nanny's writes here; this closes the read/UI side too, which
+  // covers spec 15.4's nanny_can_view_pay_rate and
+  // nanny_can_view_guaranteed_hours flags (see QUESTIONS_AND_CLARIFICATIONS.md
+  // item 20) since this was the only screen displaying either value.
+  if (isNanny) return <Navigate to="/" replace />
 
   if (!caregiver) {
     return (

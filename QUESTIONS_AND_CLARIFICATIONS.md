@@ -8,90 +8,41 @@ rather than a silent guess.
 
 ## Open items
 
-### 21. `export_records` enforced client-side only, not via RLS — is that the right call?
-
-This run (2026-07-26) built the last piece of the spec-11 permission matrix:
-`approve_timesheet`, `mark_payment_made`, and `approve_pto` are now real RLS
-keys (migration 0014), matching the seven keys from 2026-07-03. `export_records`
-was deliberately left out of that migration and instead gated purely
-client-side via a new `coadminAllowed()` helper (`HouseholdContext` →
-`Pay.tsx`/`Pto.tsx` export buttons).
-
-**Reasoning:** every export button just formats rows the co-admin can already
-`SELECT` into a CSV/JSON download. There's no *new* data exposed by exporting
-that RLS would need to block — a restricted co-admin could already read every
-row the export contains through the normal app screens, just not as a bundled
-file. Adding a fake RLS boundary here (e.g. a `can_export` check on the
-underlying `SELECT` policies) would either (a) do nothing, since the same
-data reads fine outside the export code path, or (b) break the co-admin's
-ordinary ability to view their own household's timesheets/payments/PTO
-ledger, which spec 11 explicitly keeps at "Yes" for co-admins regardless of
-the export restriction.
-
-This is a judgment call about what "restrict from exporting" is supposed to
-mean when the underlying view access is untouched — flagging it rather than
-assuming it's settled. Options if you'd rather it worked differently:
-
-* **Option A — Keep as-is (client-side gate only).** Matches the reasoning
-  above; a restricted co-admin can still see everything through the app, just
-  not click "Export CSV."
-* **Option B — Treat "restrict export" as "restrict payment/PTO/timesheet
-  export screens too."** Would mean pairing `export_records = false` with
-  also hiding (not just the export button but) the underlying data views for
-  that co-admin — a bigger behavior change than spec 11's matrix implies
-  (it lists "View gross pay due"/"View PTO balance" as separately
-  restrictable rows from "Export records," suggesting they're meant to be
-  independent).
-* **Option C — Drop `export_records` as a restrictable permission entirely**
-  since it can't be meaningfully enforced without also restricting view
-  access, and note in the spec that co-admin export ability always matches
-  their view ability.
-
-**Recommendation: Option A**, already built this way — it's the only one of
-the three that doesn't require inventing new restricted-view behavior the
-spec doesn't otherwise describe. Reply A/B/C (or your own variant) if you'd
-rather it work differently.
+None currently — both items open as of 2026-07-26 were resolved in chat the
+same day. See "Resolved items — 2026-07-26 (part 2)" below.
 
 ---
 
-### 20. `nanny_can_view_*` visibility flags are stored but never enforced
+## Resolved items — 2026-07-26 (part 2)
 
-`caregiver_profiles` has four columns — `nanny_can_view_pay_rate`,
-`nanny_can_view_gross_pay`, `nanny_can_view_pto_balance`,
-`nanny_can_view_guaranteed_hours` — matching spec 11's "Optional" nanny rows
-(View pay rate, View gross pay due, View PTO balance, View guaranteed hours).
-They're set during onboarding but no screen ever reads them: a nanny signed
-in today sees gross pay, pay rate, PTO balance, and guaranteed hours
-unconditionally on `Pay.tsx`, `Pto.tsx`, `CaregiverDetail.tsx`, and (as of
-this session) the new weekly-summary card on `Home.tsx`, regardless of how
-those toggles are set. Noticed while building the weekly-summary card
-(2026-07-25), not something this session caused.
+### 21. `export_records` enforced client-side only, not via RLS — RESOLVED (option A)
 
-* **Option A — Enforce them.** Gate each of the four surfaces on its flag,
-  showing a "hidden by household settings" placeholder (or omitting the
-  field/card entirely) when off for a signed-in nanny. Matches the spec
-  literally; touches four+ screens (Pay, Pto, CaregiverDetail, Home) and
-  needs care to also gate the new weekly-summary card's pay/PTO lines.
-* **Option B — Drop the flags, document nanny sees everything.** Remove the
-  four columns (migration) and the corresponding rows from spec 11 become
-  "Yes" instead of "Optional." Simplest, but a real behavior/scope reduction
-  from what's currently documented, and removes a capability rather than
-  just leaving it unbuilt.
-* **Option C — Leave as a documented gap for now.** No code change; keep the
-  columns and the onboarding UI that sets them (so household data isn't
-  lost), but don't build enforcement yet. Cheapest, but the onboarding UI
-  that sets these flags is actively misleading in the meantime — it implies
-  a control that doesn't do anything.
+**Decision (chosen in chat):** Keep as built — the client-side-only gate via
+`coadminAllowed('export_records')` is the final answer, not a placeholder.
+No code change. See `SPEC_CHANGE_LOG.md` 2026-07-26 for the original
+reasoning (exports don't expose any data beyond what the co-admin can
+already `SELECT`, so a database-level restriction would either do nothing
+or break their ordinary view access).
 
-**Recommendation: Option A.** The onboarding flow already asks parents to
-set these, so parents likely believe they're in effect; leaving them
-unenforced (Option C) is a correctness gap dressed up as a UI setting, and
-Option B throws away data/intent that a household may have deliberately
-configured. Option A is the most work of the three, but it's mechanical —
-each screen already knows which caregiver it's showing and whether the
-viewer is a nanny (`isNanny`/`caregiverProfile` from `HouseholdContext`);
-this is wiring, not new design. Your call — reply with A/B/C and it'll be
-built next session.
+### 20. `nanny_can_view_*` visibility flags are stored but never enforced — RESOLVED (option A)
+
+**Decision (chosen in chat):** Enforce them. Delivered:
+
+- `CaregiverDetail.tsx` now blocks nanny access entirely (`<Navigate to="/"
+  replace />`) — it was the only screen showing pay rate or the
+  guaranteed-hours settings, and had no role gate at all before this.
+- `Pay.tsx`'s Payments/Timesheets cards hide `gross_pay_due` for a nanny
+  whose caregiver has `nanny_can_view_gross_pay = false`.
+- `Pto.tsx`'s Balances card shows "Balance hidden by household settings."
+  instead of the PTO/sick numbers when `nanny_can_view_pto_balance = false`.
+- `Home.tsx`'s weekly-summary card (`buildWeeklySummaryCards`) omits the
+  gross-pay and PTO/sick lines under the same flags for the nanny viewing
+  their own card.
+
+Guaranteed-hours *totals* were not touched beyond the `CaregiverDetail.tsx`
+block, because no screen displays that number to anyone yet, parent or
+nanny — see `SPEC_CHANGE_LOG.md` 2026-07-26 (part 2) for detail and the new
+"guaranteed-hours line item" known gap this surfaced.
 
 ---
 

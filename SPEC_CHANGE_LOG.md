@@ -1,5 +1,73 @@
 # Spec Change Log
 
+Tracks decisions made while implementing against `APPLICATION_SPEC.md`: where an
+implementation detail wasn't fully specified, where two parts of the spec were
+in tension, or where a deliberate simplification was made. This is a running
+log, newest entries on top. See `QUESTIONS_AND_CLARIFICATIONS.md` for open
+items that need your decision rather than ones already resolved.
+
+---
+
+## 2026-07-26 (part 2) — Enforce `nanny_can_view_*` visibility flags (spec 11/15.4), resolves Q&A item 20
+
+**Nanny visibility flags now enforced**, closing the gap flagged in the
+2026-07-25 entry below and resolved as Q&A item 20 **option A** (enforce
+them) in chat.
+
+- **`nanny_can_view_pay_rate` and `nanny_can_view_guaranteed_hours`** — the
+  only screen that ever displayed either value was `CaregiverDetail.tsx`
+  (the pay-rate field and guaranteed-hours-basis settings), and it had no
+  role gate at all: a nanny navigating directly to `/caregiver/:id` could see
+  the full parent settings page (RLS already blocked their writes, but
+  reads/UI were wide open). Rather than mask individual fields on what is
+  fundamentally a parent-settings page, `CaregiverDetail.tsx` now redirects a
+  nanny to `/` outright (`<Navigate to="/" replace />`, matching the existing
+  `AuditLog.tsx` pattern) — this is also just correct per spec 11 ("Nanny
+  cannot access settings for pay, PTO policy, guaranteed hours")
+  independent of the specific flags. This was the only surface displaying
+  either value, so blocking it fully resolves both flags.
+- **`nanny_can_view_gross_pay`** — `Pay.tsx`'s Payments and Timesheets list
+  cards showed `gross_pay_due` unconditionally to any viewer, nanny
+  included. A new `showGrossPay` (`!isNanny ||
+  activeCaregiver?.nanny_can_view_gross_pay !== false`) hides the dollar
+  amount (replaced with "amount hidden" on the payments row; simply omitted
+  on the timesheets row, where hours worked stays visible) when off.
+  Parent/co-admin views are never gated by this flag — it only restricts the
+  nanny's own view.
+- **`nanny_can_view_pto_balance`** — `Pto.tsx`'s "Balances" card showed
+  PTO/sick balances unconditionally. Same pattern: a `showPtoBalance` flag
+  replaces the balance bars with a "Balance hidden by household settings."
+  message for a restricted nanny.
+- **Weekly summary card (`Home.tsx`, added 2026-07-25)** —
+  `buildWeeklySummaryCards` now takes a `viewerIsNanny` flag and omits the
+  gross-pay-due and PTO/sick-remaining parts of a caregiver's summary line
+  when that caregiver's own flags say not to show them to their nanny. A
+  parent/co-admin viewing the same card always sees the full summary.
+
+**Not touched: guaranteed-hours *totals* (13.6's guarantee-adjustment line
+item).** Beyond the settings page just blocked above, no screen in the app
+currently renders a caregiver's computed guaranteed-hours or
+guarantee-adjustment number anywhere — not to the nanny, not to the parent
+either. There's nothing to gate yet for that half of
+`nanny_can_view_guaranteed_hours` beyond the settings-page fix, since the
+number itself isn't displayed anywhere. Flagged here rather than silently
+assumed handled; building that display (spec 13.6's timesheet line item) is
+its own known gap, independent of this visibility-flag work.
+
+**Q&A item 21 (`export_records` enforcement) resolved as option A — no code
+change.** Chosen in chat: keep the client-side-only gate built 2026-07-26
+(see below), since it was already built that way and no alternative was
+requested.
+
+### Known gaps for next phase (unchanged)
+
+- **Guaranteed-hours line item on timesheets/payments** (spec 13.6) —
+  `guaranteed_hours`/`guarantee_adjustment_hours` are computed and stored on
+  every timesheet/payment record but never rendered as a line item anywhere
+  in the UI, for either role.
+
+---
+
 ## 2026-07-25 — Reminder settings + weekly summary digest (spec 13.9/15.14), resolves Q&A item 19
 
 **Weekly summary digest built.** `computeReminders`'s companion
@@ -74,14 +142,6 @@ screens, not a one-line change.
 - **`nanny_can_view_*` visibility flags are unenforced** (spec 15.4/11) — see
   above; would need gating added to `Pay.tsx`, `Pto.tsx`, `CaregiverDetail.tsx`
   (guaranteed hours display), and now `Home.tsx`'s weekly summary card.
-
----
-
-Tracks decisions made while implementing against `APPLICATION_SPEC.md`: where an
-implementation detail wasn't fully specified, where two parts of the spec were
-in tension, or where a deliberate simplification was made. This is a running
-log, newest entries on top. See `QUESTIONS_AND_CLARIFICATIONS.md` for open
-items that need your decision rather than ones already resolved.
 
 ---
 

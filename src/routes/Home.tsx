@@ -236,6 +236,7 @@ export function Home() {
             timesheets: activeTimesheets,
             paymentRecords: activePayments,
             leaveBalances,
+            viewerIsNanny: isNanny,
           })
         )
       }

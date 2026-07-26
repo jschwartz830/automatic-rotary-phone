@@ -38,6 +38,9 @@ export function Pto() {
   const { policies } = useLeavePolicies(caregiverId)
 
   const activeCaregiver = isNanny ? caregiverProfile : caregivers.find((c) => c.id === caregiverId) ?? null
+  // Spec 11/15.4: nanny_can_view_pto_balance only restricts the nanny's own
+  // view -- a parent/co-admin always sees it regardless of the flag.
+  const showPtoBalance = !isNanny || activeCaregiver?.nanny_can_view_pto_balance !== false
 
   useEffect(() => {
     if (isNanny && caregiverProfile) {
@@ -251,6 +254,9 @@ export function Pto() {
             )
           }
         >
+          {!showPtoBalance ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">Balance hidden by household settings.</p>
+          ) : (
           <div className="space-y-3">
             {BALANCE_TYPES.map((type) => {
               const policy: LeaveBalancePolicy = policies.find((p) => p.leave_type === type) ?? {
@@ -287,6 +293,7 @@ export function Pto() {
               )
             })}
           </div>
+          )}
         </Card>
       )}
 

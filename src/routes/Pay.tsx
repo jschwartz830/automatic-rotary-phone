@@ -98,6 +98,9 @@ export function Pay() {
   const timesheetImportInput = useRef<HTMLInputElement>(null)
 
   const activeCaregiver = isNanny ? caregiverProfile : caregivers.find((c) => c.id === caregiverId) ?? null
+  // Spec 11/15.4: nanny_can_view_gross_pay only restricts the nanny's own
+  // view -- a parent/co-admin always sees it regardless of the flag.
+  const showGrossPay = !isNanny || activeCaregiver?.nanny_can_view_gross_pay !== false
   const activeTimesheets = timesheets.filter((t) => !t.deleted_at)
   const trashedTimesheets = timesheets.filter((t) => t.deleted_at)
   const activePayments = payments.filter((p) => !p.deleted_at)
@@ -1196,7 +1199,9 @@ export function Pay() {
                   <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                     {p.period_start} – {p.period_end}
                   </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Due {p.due_date} · ${p.gross_pay_due.toFixed(2)}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Due {p.due_date}{showGrossPay ? ` · $${p.gross_pay_due.toFixed(2)}` : ' · amount hidden'}
+                  </p>
                   {p.parent_note && (
                     <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">{p.parent_note}</p>
                   )}
@@ -1264,7 +1269,8 @@ export function Pay() {
                     {t.period_start} – {t.period_end}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {t.actual_worked_hours.toFixed(2)} hrs worked · ${t.gross_pay_due.toFixed(2)}
+                    {t.actual_worked_hours.toFixed(2)} hrs worked
+                    {showGrossPay ? ` · $${t.gross_pay_due.toFixed(2)}` : ''}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
