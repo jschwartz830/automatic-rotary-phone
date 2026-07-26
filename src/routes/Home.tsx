@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { differenceInCalendarDays, parseISO, subDays } from 'date-fns'
+import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { useCaregivers } from '../lib/useCaregivers'
 import { supabase } from '../lib/supabase'
-import { computeReminders, type LeaveBalanceSummary, type ReminderCard } from '../lib/reminders'
+import { buildWeeklySummaryCards, computeReminders, type LeaveBalanceSummary, type ReminderCard } from '../lib/reminders'
 import { computeLeaveBalance, computeLeaveBalanceFromLedger } from '../lib/leave'
 import { generateShiftsForRange } from '../lib/schedule'
 import { Card } from '../components/Card'
@@ -13,6 +14,7 @@ import type {
   LeavePolicy,
   LeaveRequest,
   PaymentRecord,
+  ReminderSetting,
   ScheduleException,
   ScheduleShift,
   ScheduleTemplate,
@@ -48,6 +50,7 @@ const REMINDER_ROUTES: Record<string, string> = {
   payment_due: '/pay',
   pto_balance_low: '/pto',
   schedule_change: '/calendar',
+  weekly_summary: '/pay',
 }
 
 function buildDashboardCards(input: {
@@ -109,6 +112,7 @@ function buildDashboardCards(input: {
 }
 
 export function Home() {
+  const { user } = useAuth()
   const { household, isNanny, caregiverProfile } = useHousehold()
   const { caregivers } = useCaregivers(household?.id)
   const [reminders, setReminders] = useState<ReminderCard[]>([])
@@ -147,6 +151,7 @@ export function Home() {
         leavePolicyRows,
         leaveLedgerRows,
         scheduleExceptionRows,
+        reminderSettingRows,
       ] = await Promise.all([
         supabase.from('time_entries').select('*').in('caregiver_id', caregiverIds),
         supabase.from('timesheets').select('*').in('caregiver_id', caregiverIds),
@@ -161,6 +166,9 @@ export function Home() {
           .in('caregiver_id', caregiverIds)
           .eq('status', 'approved')
           .gte('date', rangeEnd),
+        user
+          ? supabase.from('reminders').select('*').eq('household_id', household?.id ?? '').eq('recipient_user_id', user.id)
+          : Promise.resolve({ data: [] as ReminderSetting[] }),
       ])
       if (cancelled) return
       const allTimesheets = (timesheets.data ?? []) as Timesheet[]
@@ -173,6 +181,9 @@ export function Home() {
       const leavePolicies = (leavePolicyRows.data ?? []) as LeavePolicy[]
       const leaveLedger = (leaveLedgerRows.data ?? []) as LeaveLedgerEntry[]
       const scheduleExceptions = (scheduleExceptionRows.data ?? []) as ScheduleException[]
+      const reminderSettings = (reminderSettingRows.data ?? []) as ReminderSetting[]
+      const disabledTypes = new Set(reminderSettings.filter((s) => !s.enabled).map((s) => s.type))
+      const scopedCaregivers = caregivers.filter((c) => caregiverIds.includes(c.id))
 
       const leaveBalances: LeaveBalanceSummary[] = leavePolicies
         .filter((p) => p.annual_allowance_hours != null)
@@ -213,7 +224,21 @@ export function Home() {
         scheduleOccurrences,
         leaveBalances,
         scheduleExceptions,
+        disabledTypes,
       })
+      if (!disabledTypes.has('weekly_summary')) {
+        cards.push(
+          ...buildWeeklySummaryCards({
+            today,
+            weekStartsOn: household?.week_start_day === 'monday' ? 1 : 0,
+            caregivers: scopedCaregivers,
+            timeEntries: allTimeEntries,
+            timesheets: activeTimesheets,
+            paymentRecords: activePayments,
+            leaveBalances,
+          })
+        )
+      }
       cards.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
       setReminders(cards)
       setDashboardCards(buildDashboardCards({ timeEntries: allTimeEntries, timesheets: activeTimesheets, leaveRequests: allLeaveRequests, paymentRecords: activePayments }))
@@ -223,7 +248,7 @@ export function Home() {
     return () => {
       cancelled = true
     }
-  }, [caregivers, isNanny, caregiverProfile])
+  }, [caregivers, isNanny, caregiverProfile, household, user])
 
   return (
     <div className="space-y-4 p-4">
