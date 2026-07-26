@@ -12,6 +12,11 @@ interface HouseholdContextValue {
   isParentAdmin: boolean
   isParentOrCoAdmin: boolean
   isNanny: boolean
+  // True unless the current user is a parent_co_admin explicitly restricted
+  // from this permission key (household_users.permissions[key] === false).
+  // Parent admins are never restricted. Mirrors coadmin_permission_allowed()
+  // in the DB (migration 0002) for keys the UI wants to gate client-side.
+  coadminAllowed: (key: string) => boolean
   refresh: () => Promise<void>
   setActiveHouseholdId: (id: string) => void
 }
@@ -91,6 +96,8 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
     isParentAdmin: membership?.role === 'parent_admin',
     isParentOrCoAdmin: membership?.role === 'parent_admin' || membership?.role === 'parent_co_admin',
     isNanny: membership?.role === 'nanny',
+    coadminAllowed: (key) =>
+      membership?.role !== 'parent_co_admin' || membership.permissions?.[key] !== false,
     refresh,
     setActiveHouseholdId,
   }

@@ -57,7 +57,8 @@ function computeDueDate(periodEnd: string, caregiver: CaregiverProfile): string 
 export function Pay() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { household, isNanny, isParentOrCoAdmin, caregiverProfile } = useHousehold()
+  const { household, isNanny, isParentOrCoAdmin, coadminAllowed, caregiverProfile } = useHousehold()
+  const canExport = isParentOrCoAdmin && coadminAllowed('export_records')
   const { caregivers } = useCaregivers(household?.id)
   const [caregiverId, setCaregiverId] = useState<string | null>(null)
   const [timesheets, setTimesheets] = useState<Timesheet[]>([])
@@ -97,6 +98,9 @@ export function Pay() {
   const timesheetImportInput = useRef<HTMLInputElement>(null)
 
   const activeCaregiver = isNanny ? caregiverProfile : caregivers.find((c) => c.id === caregiverId) ?? null
+  // Spec 11/15.4: nanny_can_view_gross_pay only restricts the nanny's own
+  // view -- a parent/co-admin always sees it regardless of the flag.
+  const showGrossPay = !isNanny || activeCaregiver?.nanny_can_view_gross_pay !== false
   const activeTimesheets = timesheets.filter((t) => !t.deleted_at)
   const trashedTimesheets = timesheets.filter((t) => t.deleted_at)
   const activePayments = payments.filter((p) => !p.deleted_at)
@@ -1120,7 +1124,7 @@ export function Pay() {
         </Card>
       )}
 
-      {isParentOrCoAdmin && caregiverId && (
+      {canExport && caregiverId && (
         <Card title="Annual summary">
           <div className="flex items-end gap-2">
             <div className="flex-1">
@@ -1155,7 +1159,7 @@ export function Pay() {
         </Card>
       )}
 
-      {isParentOrCoAdmin && caregiverId && (
+      {canExport && caregiverId && (
         <Card title="Full records export">
           <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
             Every record for {activeCaregiver?.name ?? 'this caregiver'} — schedule, time entries, timesheets,
@@ -1180,7 +1184,7 @@ export function Pay() {
         </Card>
       )}
 
-      <Card title="Payments" action={isParentOrCoAdmin && activePayments.length > 0 && (
+      <Card title="Payments" action={canExport && activePayments.length > 0 && (
         <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={() => exportDetailedRecords('payments')} disabled={detailExporting !== null}>
           {detailExporting === 'payments' ? 'Exporting…' : 'Export daily CSV'}
         </button>
@@ -1195,7 +1199,9 @@ export function Pay() {
                   <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                     {p.period_start} – {p.period_end}
                   </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Due {p.due_date} · ${p.gross_pay_due.toFixed(2)}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Due {p.due_date}{showGrossPay ? ` · $${p.gross_pay_due.toFixed(2)}` : ' · amount hidden'}
+                  </p>
                   {p.parent_note && (
                     <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">{p.parent_note}</p>
                   )}
@@ -1247,7 +1253,7 @@ export function Pay() {
         )}
       </Card>
 
-      <Card title="Timesheets" action={isParentOrCoAdmin && activeTimesheets.length > 0 && (
+      <Card title="Timesheets" action={canExport && activeTimesheets.length > 0 && (
         <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={() => exportDetailedRecords('timesheets')} disabled={detailExporting !== null}>
           {detailExporting === 'timesheets' ? 'Exporting…' : 'Export daily CSV'}
         </button>
@@ -1263,7 +1269,8 @@ export function Pay() {
                     {t.period_start} – {t.period_end}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {t.actual_worked_hours.toFixed(2)} hrs worked · ${t.gross_pay_due.toFixed(2)}
+                    {t.actual_worked_hours.toFixed(2)} hrs worked
+                    {showGrossPay ? ` · $${t.gross_pay_due.toFixed(2)}` : ''}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">

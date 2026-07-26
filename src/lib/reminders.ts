@@ -250,8 +250,15 @@ export function buildWeeklySummaryCards(input: {
   timesheets: Timesheet[]
   paymentRecords: PaymentRecord[]
   leaveBalances: LeaveBalanceSummary[]
+  // True when the signed-in viewer is the nanny looking at their own summary
+  // card -- gates the gross-pay/PTO lines on the caregiver's own
+  // nanny_can_view_* flags (spec 11/15.4). A parent/co-admin viewing the
+  // same caregiver's card always sees everything; the flags only restrict
+  // what the caregiver themselves sees.
+  viewerIsNanny?: boolean
 }): ReminderCard[] {
-  const { today, weekStartsOn, caregivers, timeEntries, timesheets, paymentRecords, leaveBalances } = input
+  const { today, weekStartsOn, caregivers, timeEntries, timesheets, paymentRecords, leaveBalances, viewerIsNanny } =
+    input
   const weekStart = startOfWeek(today, { weekStartsOn })
   const weekEnd = addDays(weekStart, 6)
   const weekStartStr = weekStart.toISOString().slice(0, 10)
@@ -274,13 +281,16 @@ export function buildWeeklySummaryCards(input: {
     const ptoBalance = leaveBalances.find((b) => b.caregiverId === cg.id && b.leaveType === 'pto')
     const sickBalance = leaveBalances.find((b) => b.caregiverId === cg.id && b.leaveType === 'sick')
 
+    const showGrossPay = !viewerIsNanny || cg.nanny_can_view_gross_pay
+    const showPtoBalance = !viewerIsNanny || cg.nanny_can_view_pto_balance
+
     const parts = [
       `${hoursThisWeek.toFixed(1)} hrs logged this week`,
       `timesheet ${currentTimesheet ? currentTimesheet.status.replace(/_/g, ' ') : 'not yet generated'}`,
     ]
-    if (upcomingPayment) parts.push(`$${upcomingPayment.gross_pay_due.toFixed(2)} due ${upcomingPayment.due_date}`)
-    if (ptoBalance?.remainingHours != null) parts.push(`${ptoBalance.remainingHours.toFixed(1)} PTO hrs left`)
-    if (sickBalance?.remainingHours != null) parts.push(`${sickBalance.remainingHours.toFixed(1)} sick hrs left`)
+    if (upcomingPayment && showGrossPay) parts.push(`$${upcomingPayment.gross_pay_due.toFixed(2)} due ${upcomingPayment.due_date}`)
+    if (ptoBalance?.remainingHours != null && showPtoBalance) parts.push(`${ptoBalance.remainingHours.toFixed(1)} PTO hrs left`)
+    if (sickBalance?.remainingHours != null && showPtoBalance) parts.push(`${sickBalance.remainingHours.toFixed(1)} sick hrs left`)
 
     return {
       id: `weekly-summary-${cg.id}-${weekStartStr}`,

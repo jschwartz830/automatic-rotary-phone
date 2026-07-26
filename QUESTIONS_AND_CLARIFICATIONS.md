@@ -8,44 +8,41 @@ rather than a silent guess.
 
 ## Open items
 
-### 20. `nanny_can_view_*` visibility flags are stored but never enforced
+None currently — both items open as of 2026-07-26 were resolved in chat the
+same day. See "Resolved items — 2026-07-26 (part 2)" below.
 
-`caregiver_profiles` has four columns — `nanny_can_view_pay_rate`,
-`nanny_can_view_gross_pay`, `nanny_can_view_pto_balance`,
-`nanny_can_view_guaranteed_hours` — matching spec 11's "Optional" nanny rows
-(View pay rate, View gross pay due, View PTO balance, View guaranteed hours).
-They're set during onboarding but no screen ever reads them: a nanny signed
-in today sees gross pay, pay rate, PTO balance, and guaranteed hours
-unconditionally on `Pay.tsx`, `Pto.tsx`, `CaregiverDetail.tsx`, and (as of
-this session) the new weekly-summary card on `Home.tsx`, regardless of how
-those toggles are set. Noticed while building the weekly-summary card
-(2026-07-25), not something this session caused.
+---
 
-* **Option A — Enforce them.** Gate each of the four surfaces on its flag,
-  showing a "hidden by household settings" placeholder (or omitting the
-  field/card entirely) when off for a signed-in nanny. Matches the spec
-  literally; touches four+ screens (Pay, Pto, CaregiverDetail, Home) and
-  needs care to also gate the new weekly-summary card's pay/PTO lines.
-* **Option B — Drop the flags, document nanny sees everything.** Remove the
-  four columns (migration) and the corresponding rows from spec 11 become
-  "Yes" instead of "Optional." Simplest, but a real behavior/scope reduction
-  from what's currently documented, and removes a capability rather than
-  just leaving it unbuilt.
-* **Option C — Leave as a documented gap for now.** No code change; keep the
-  columns and the onboarding UI that sets them (so household data isn't
-  lost), but don't build enforcement yet. Cheapest, but the onboarding UI
-  that sets these flags is actively misleading in the meantime — it implies
-  a control that doesn't do anything.
+## Resolved items — 2026-07-26 (part 2)
 
-**Recommendation: Option A.** The onboarding flow already asks parents to
-set these, so parents likely believe they're in effect; leaving them
-unenforced (Option C) is a correctness gap dressed up as a UI setting, and
-Option B throws away data/intent that a household may have deliberately
-configured. Option A is the most work of the three, but it's mechanical —
-each screen already knows which caregiver it's showing and whether the
-viewer is a nanny (`isNanny`/`caregiverProfile` from `HouseholdContext`);
-this is wiring, not new design. Your call — reply with A/B/C and it'll be
-built next session.
+### 21. `export_records` enforced client-side only, not via RLS — RESOLVED (option A)
+
+**Decision (chosen in chat):** Keep as built — the client-side-only gate via
+`coadminAllowed('export_records')` is the final answer, not a placeholder.
+No code change. See `SPEC_CHANGE_LOG.md` 2026-07-26 for the original
+reasoning (exports don't expose any data beyond what the co-admin can
+already `SELECT`, so a database-level restriction would either do nothing
+or break their ordinary view access).
+
+### 20. `nanny_can_view_*` visibility flags are stored but never enforced — RESOLVED (option A)
+
+**Decision (chosen in chat):** Enforce them. Delivered:
+
+- `CaregiverDetail.tsx` now blocks nanny access entirely (`<Navigate to="/"
+  replace />`) — it was the only screen showing pay rate or the
+  guaranteed-hours settings, and had no role gate at all before this.
+- `Pay.tsx`'s Payments/Timesheets cards hide `gross_pay_due` for a nanny
+  whose caregiver has `nanny_can_view_gross_pay = false`.
+- `Pto.tsx`'s Balances card shows "Balance hidden by household settings."
+  instead of the PTO/sick numbers when `nanny_can_view_pto_balance = false`.
+- `Home.tsx`'s weekly-summary card (`buildWeeklySummaryCards`) omits the
+  gross-pay and PTO/sick lines under the same flags for the nanny viewing
+  their own card.
+
+Guaranteed-hours *totals* were not touched beyond the `CaregiverDetail.tsx`
+block, because no screen displays that number to anyone yet, parent or
+nanny — see `SPEC_CHANGE_LOG.md` 2026-07-26 (part 2) for detail and the new
+"guaranteed-hours line item" known gap this surfaced.
 
 ---
 
