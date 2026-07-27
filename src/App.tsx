@@ -10,7 +10,7 @@ import { Home } from './routes/Home'
 import { Schedule } from './routes/Schedule'
 import { Time } from './routes/Time'
 import { Pay } from './routes/Pay'
-import { Pto } from './routes/Pto'
+import { PTO } from './routes/PTO'
 import { More } from './routes/More'
 import { CaregiverDetail } from './routes/CaregiverDetail'
 import { AuditLog } from './routes/AuditLog'
@@ -69,7 +69,7 @@ function AppRoutes() {
         <Route path="time" element={<Time />} />
         <Route path="calendar" element={<Schedule />} />
         <Route path="pay" element={<Pay />} />
-        <Route path="pto" element={<Pto />} />
+        <Route path="pto" element={<PTO />} />
         <Route path="more" element={<More />} />
         <Route path="caregiver/:id" element={<CaregiverDetail />} />
         <Route path="audit-log" element={<AuditLog />} />

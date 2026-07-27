@@ -26,7 +26,7 @@ import type {
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 // Leave-type exceptions (pto/sick/unpaid_time_off) are handled entirely
-// through leave_requests/leave_ledger (see Pto.tsx) so balances stay in one
+// through leave_requests/leave_ledger (see PTO.tsx) so balances stay in one
 // place. These are the exception types this screen manages directly.
 const EXCEPTION_TYPES: ExceptionType[] = [
   'added_shift',

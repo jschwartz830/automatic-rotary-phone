@@ -1,6 +1,20 @@
-import type { LeaveLedgerEntry, LeavePolicy, LeaveRequest } from './types'
+import type { LeaveLedgerEntry, LeavePolicy, LeaveRequest, LeaveType } from './types'
 
 export type LeaveBalancePolicy = Pick<LeavePolicy, 'leave_type' | 'reset_month' | 'reset_day' | 'annual_allowance_hours'>
+
+// 'pto' renders as the acronym everywhere it's shown to a user; the rest are
+// title-cased. Centralized so the PTO screen, caregiver settings, and
+// anywhere else a leave type is displayed can't drift back out of sync.
+const LEAVE_TYPE_LABELS: Record<LeaveType, string> = {
+  pto: 'PTO',
+  sick: 'Sick',
+  unpaid: 'Unpaid',
+  holiday: 'Holiday',
+  other_paid: 'Other Paid',
+}
+export function formatLeaveType(type: LeaveType): string {
+  return LEAVE_TYPE_LABELS[type] ?? type
+}
 
 export interface LeaveBalance {
   allowanceHours: number | null

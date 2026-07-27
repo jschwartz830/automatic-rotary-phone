@@ -295,6 +295,8 @@ export interface LeaveRequest {
   requested_by: string | null
   reviewed_by: string | null
   reviewed_at: string | null
+  archived_at: string | null
+  archived_by: string | null
   created_at: string
   updated_at: string
 }
