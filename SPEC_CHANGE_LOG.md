@@ -8,6 +8,55 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-27 — Guaranteed-hours line item on timesheets/payments (spec 13.6), closes the last tracked known gap
+
+**Guaranteed-hours breakdown now rendered (spec 13.6 "Timesheet Display for
+Guaranteed Hours").** `guaranteed_hours` and `guarantee_adjustment_hours` were
+computed and stored on every `timesheets`/`payment_records` row since the
+calc engine was built, but no screen ever displayed either number — flagged
+as the last open "known gap" in the 2026-07-26 (part 2) entry. `Pay.tsx`'s
+Timesheets and Payments cards are now tappable: tapping a row expands an
+inline breakdown grid (actual worked, regular, overtime, paid PTO/sick/
+holiday, family cancellation, guaranteed hours, guarantee adjustment, payable
+regular/overtime — the fields spec 13.6's example table and 13.5's timesheet
+footer both list) instead of adding a bespoke calendar/detail page, since the
+data already lives on the row being tapped.
+
+**Gating follows the existing `nanny_can_view_guaranteed_hours` flag (spec
+11/15.4), not a blanket hide.** Only the "Guaranteed hours" and "Guarantee
+adjustment" rows are omitted from the breakdown when a nanny's caregiver has
+that flag off — every other row (worked/PTO/sick/holiday/family-cancellation/
+payable hours) is spec'd as ordinary timesheet content, not gated by that
+flag, so hiding the whole breakdown would have been an over-restriction.
+Gross pay in the row header still follows the existing `showGrossPay`/
+`nanny_can_view_gross_pay` gate, unchanged. `activeCaregiver` (used to read
+both flags) already resolved correctly for both roles before this change.
+
+**Time-entry schedule pre-fill — re-verified once more, still no change
+needed.** This run's task again asked for time entries to default to the
+caregiver's scheduled hours (falling back to the current day); `Time.tsx`
+already does this (see 2026-06-30 and every re-check since). No gap.
+
+**Housekeeping: prior branch had already merged as PR #49.** This session's
+designated branch (`claude/practical-ramanujan-93an5c`) was found already
+merged into `main` (its HEAD was exactly `main`'s merge commit for PR #49),
+so per the standing instruction for that situation, the branch was reset to
+restart from latest `main` before this phase's work rather than stacking new
+commits on already-merged history. No functional change from this, just
+noted for continuity of the branch/PR history in this log.
+
+### Known gaps for next phase
+
+None currently tracked. Every gap listed across prior "Known gaps" sections
+(recurring schedule types, co-admin permission UI, per-key permission
+enforcement, `nanny_can_view_*` enforcement, reminder settings + weekly
+summary, additional exports, schedule exceptions UI, time-entry validation,
+and now this guaranteed-hours display) has been closed. Future phases should
+come from a fresh pass over `APPLICATION_SPEC.md` against the current app,
+or from user-directed feature requests.
+
+---
+
 ## 2026-07-26 (part 2) — Enforce `nanny_can_view_*` visibility flags (spec 11/15.4), resolves Q&A item 20
 
 **Nanny visibility flags now enforced**, closing the gap flagged in the

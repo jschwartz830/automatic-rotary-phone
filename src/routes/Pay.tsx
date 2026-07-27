@@ -35,6 +35,62 @@ import type {
   Timesheet,
 } from '../lib/types'
 
+// Spec 13.6 "Timesheet Display for Guaranteed Hours" / 13.8 "Payment Record
+// Fields" -- shows the full worked/leave/guarantee hour breakdown that both a
+// timesheet and its payment record already store but previously rendered
+// nowhere in the UI. `showGuaranteedHours` hides just the guaranteed-hours
+// and guarantee-adjustment rows for a nanny whose caregiver has
+// nanny_can_view_guaranteed_hours = false (spec 11/15.4); every other row is
+// always shown, since only those two fields are gated by that flag.
+function HourRow({ label, hours }: { label: string; hours: number }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-gray-500 dark:text-gray-400">{label}</span>
+      <span className="font-medium text-gray-900 dark:text-gray-100">{hours.toFixed(2)}</span>
+    </div>
+  )
+}
+
+function HoursBreakdown({
+  record,
+  showGuaranteedHours,
+}: {
+  record: {
+    actual_worked_hours: number
+    regular_worked_hours: number
+    overtime_worked_hours: number
+    paid_pto_hours: number
+    paid_sick_hours: number
+    paid_holiday_hours: number
+    family_cancellation_hours: number
+    guaranteed_hours: number
+    guarantee_adjustment_hours: number
+    payable_regular_hours: number
+    payable_overtime_hours: number
+  }
+  showGuaranteedHours: boolean
+}) {
+  return (
+    <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg bg-gray-50 p-3 text-xs dark:bg-gray-800/60">
+      <HourRow label="Actual worked" hours={record.actual_worked_hours} />
+      <HourRow label="Regular" hours={record.regular_worked_hours} />
+      <HourRow label="Overtime" hours={record.overtime_worked_hours} />
+      <HourRow label="Paid PTO" hours={record.paid_pto_hours} />
+      <HourRow label="Paid sick" hours={record.paid_sick_hours} />
+      <HourRow label="Paid holiday" hours={record.paid_holiday_hours} />
+      <HourRow label="Family cancellation" hours={record.family_cancellation_hours} />
+      {showGuaranteedHours && (
+        <>
+          <HourRow label="Guaranteed hours" hours={record.guaranteed_hours} />
+          <HourRow label="Guarantee adjustment" hours={record.guarantee_adjustment_hours} />
+        </>
+      )}
+      <HourRow label="Payable regular" hours={record.payable_regular_hours} />
+      <HourRow label="Payable overtime" hours={record.payable_overtime_hours} />
+    </div>
+  )
+}
+
 function timesheetErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && (err as { code?: string }).code === '23505') {
     return 'A timesheet for this exact date range already exists (it may be in Archived below). Adjust the dates instead of regenerating the same period.'
@@ -97,10 +153,14 @@ export function Pay() {
   const [importMessage, setImportMessage] = useState<string | null>(null)
   const timesheetImportInput = useRef<HTMLInputElement>(null)
 
+  const [expandedTimesheetId, setExpandedTimesheetId] = useState<string | null>(null)
+  const [expandedPaymentId, setExpandedPaymentId] = useState<string | null>(null)
+
   const activeCaregiver = isNanny ? caregiverProfile : caregivers.find((c) => c.id === caregiverId) ?? null
-  // Spec 11/15.4: nanny_can_view_gross_pay only restricts the nanny's own
-  // view -- a parent/co-admin always sees it regardless of the flag.
+  // Spec 11/15.4: nanny_can_view_gross_pay/nanny_can_view_guaranteed_hours only
+  // restrict the nanny's own view -- a parent/co-admin always sees both.
   const showGrossPay = !isNanny || activeCaregiver?.nanny_can_view_gross_pay !== false
+  const showGuaranteedHours = !isNanny || activeCaregiver?.nanny_can_view_guaranteed_hours !== false
   const activeTimesheets = timesheets.filter((t) => !t.deleted_at)
   const trashedTimesheets = timesheets.filter((t) => t.deleted_at)
   const activePayments = payments.filter((p) => !p.deleted_at)
@@ -1194,8 +1254,13 @@ export function Pay() {
         ) : (
           <div className="space-y-2">
             {activePayments.map((p) => (
-              <div key={p.id} className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0 dark:border-gray-700">
-                <div>
+              <div key={p.id} className="border-b border-gray-100 pb-2 last:border-0 dark:border-gray-700">
+                <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 text-left"
+                  onClick={() => setExpandedPaymentId((id) => (id === p.id ? null : p.id))}
+                >
                   <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                     {p.period_start} – {p.period_end}
                   </p>
@@ -1205,7 +1270,7 @@ export function Pay() {
                   {p.parent_note && (
                     <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">{p.parent_note}</p>
                   )}
-                </div>
+                </button>
                 <div className="flex flex-col items-end gap-1 shrink-0">
                   <StatusChip status={p.status} />
                   <div className="flex items-center gap-2">
@@ -1247,6 +1312,10 @@ export function Pay() {
                       )}
                   </div>
                 </div>
+                </div>
+                {expandedPaymentId === p.id && (
+                  <HoursBreakdown record={p} showGuaranteedHours={showGuaranteedHours} />
+                )}
               </div>
             ))}
           </div>
@@ -1263,24 +1332,33 @@ export function Pay() {
         ) : (
           <div className="space-y-2">
             {activeTimesheets.map((t) => (
-              <div key={t.id} className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0 dark:border-gray-700">
-                <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                    {t.period_start} – {t.period_end}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {t.actual_worked_hours.toFixed(2)} hrs worked
-                    {showGrossPay ? ` · $${t.gross_pay_due.toFixed(2)}` : ''}
-                  </p>
+              <div key={t.id} className="border-b border-gray-100 pb-2 last:border-0 dark:border-gray-700">
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => setExpandedTimesheetId((id) => (id === t.id ? null : t.id))}
+                  >
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {t.period_start} – {t.period_end}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {t.actual_worked_hours.toFixed(2)} hrs worked
+                      {showGrossPay ? ` · $${t.gross_pay_due.toFixed(2)}` : ''}
+                    </p>
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <StatusChip status={t.status} />
+                    {isParentOrCoAdmin && t.status !== 'paid' && t.status !== 'locked' && (
+                      <button className="text-xs text-red-600 underline dark:text-red-400" onClick={() => archiveTimesheet(t)}>
+                        Archive
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <StatusChip status={t.status} />
-                  {isParentOrCoAdmin && t.status !== 'paid' && t.status !== 'locked' && (
-                    <button className="text-xs text-red-600 underline dark:text-red-400" onClick={() => archiveTimesheet(t)}>
-                      Archive
-                    </button>
-                  )}
-                </div>
+                {expandedTimesheetId === t.id && (
+                  <HoursBreakdown record={t} showGuaranteedHours={showGuaranteedHours} />
+                )}
               </div>
             ))}
           </div>
