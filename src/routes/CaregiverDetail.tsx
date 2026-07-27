@@ -8,6 +8,7 @@ import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
 import { Card, Button, Field, inputClass } from '../components/Card'
 import { useLeavePolicies } from '../lib/useLeavePolicies'
+import { formatLeaveType } from '../lib/leave'
 import type { CaregiverProfile, GuaranteedHoursBasis, LeaveType, PayFrequency, PaydayRule, PayPeriodAnchor } from '../lib/types'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -591,7 +592,7 @@ export function CaregiverDetail() {
       <Card title="PTO settings">
         <div className="space-y-4">
           {BALANCE_TYPES.map((type) => (
-            <Field key={type} label={`Annual ${type} hours allowed`}>
+            <Field key={type} label={`Annual ${formatLeaveType(type)} hours allowed`}>
               <div className="flex items-center gap-2">
                 <input
                   type="number"
