@@ -35,3 +35,14 @@ html.dark,
 html.dark body {
   background-color: #111827;
 }
+
+/* iOS Safari gives <input type="date"> / <input type="time"> an intrinsic
+   minimum width that ignores CSS width/max-width, so on narrow phone
+   screens they overflow their container instead of shrinking to fit.
+   -webkit-min-logical-width overrides that WebKit-internal minimum. */
+input[type='date'],
+input[type='time'] {
+  min-width: 0;
+  max-width: 100%;
+  -webkit-min-logical-width: 0%;
+}

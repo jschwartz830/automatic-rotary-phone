@@ -506,7 +506,7 @@ export function Time() {
             <Field label="Date">
               <input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} required />
             </Field>
-            <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
               <Field label="Start">
                 <input type="time" className={inputClass} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
               </Field>
@@ -581,7 +581,7 @@ export function Time() {
                         onChange={(e) => setEditDate(e.target.value)}
                       />
                     </Field>
-                    <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
                       <Field label="Start">
                         <input
                           type="time"
