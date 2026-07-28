@@ -20,7 +20,7 @@ import {
   shiftHours,
   sumExceptionHoursByType,
 } from '../lib/schedule'
-import { Card, Button, Field, inputClass } from '../components/Card'
+import { Card, Button, Field, inputClass, dateInputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
 import type {
@@ -959,7 +959,7 @@ export function Pay() {
               <Field label="Period start">
                 <input
                   type="date"
-                  className={inputClass}
+                  className={dateInputClass}
                   value={periodStart}
                   onChange={(e) => setPeriodStart(e.target.value)}
                   required
@@ -968,7 +968,7 @@ export function Pay() {
               <Field label="Period end">
                 <input
                   type="date"
-                  className={inputClass}
+                  className={dateInputClass}
                   value={periodEnd}
                   onChange={(e) => setPeriodEnd(e.target.value)}
                   required
@@ -1033,7 +1033,7 @@ export function Pay() {
               <Field label="Period start">
                 <input
                   type="date"
-                  className={inputClass}
+                  className={dateInputClass}
                   value={nannyPeriodStart}
                   onChange={(e) => setNannyPeriodStart(e.target.value)}
                   required
@@ -1042,7 +1042,7 @@ export function Pay() {
               <Field label="Period end">
                 <input
                   type="date"
-                  className={inputClass}
+                  className={dateInputClass}
                   value={nannyPeriodEnd}
                   onChange={(e) => setNannyPeriodEnd(e.target.value)}
                   required

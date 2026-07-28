@@ -6,7 +6,7 @@ import { useCaregivers } from '../lib/useCaregivers'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
-import { Card, Button, Field, inputClass } from '../components/Card'
+import { Card, Button, Field, inputClass, dateInputClass } from '../components/Card'
 import { useLeavePolicies } from '../lib/useLeavePolicies'
 import { formatLeaveType } from '../lib/leave'
 import type { CaregiverProfile, GuaranteedHoursBasis, LeaveType, PayFrequency, PaydayRule, PayPeriodAnchor } from '../lib/types'
@@ -336,7 +336,7 @@ export function CaregiverDetail() {
           <Field label="Start date (optional)">
             <input
               type="date"
-              className={inputClass}
+              className={dateInputClass}
               value={profileStartDate}
               onChange={(e) => setProfileStartDate(e.target.value)}
             />
