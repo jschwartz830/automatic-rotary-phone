@@ -1,5 +1,5 @@
 import { addDays, differenceInCalendarWeeks, format, getDate, getDay, parseISO } from 'date-fns'
-import type { ExceptionType, ScheduleException, ScheduleShift, ScheduleTemplate } from './types'
+import type { CaregiverProfile, ExceptionType, ScheduleException, ScheduleShift, ScheduleTemplate } from './types'
 
 export interface GeneratedShiftOccurrence {
   date: string // yyyy-MM-dd
@@ -181,4 +181,31 @@ export function scheduleExceptionHoursDelta(
     }
   }
   return delta
+}
+
+/**
+ * Guaranteed-hours base for a period (spec 16.3), shared between the
+ * pay-period calculation (Pay.tsx) and the live "this week" estimate shown on
+ * the Home dashboard. `occurrences`/`exceptions` should already be scoped to
+ * whatever period the caller is computing the guarantee for.
+ */
+export function computeGuaranteedHoursBase(
+  caregiver: CaregiverProfile,
+  occurrences: GeneratedShiftOccurrence[],
+  exceptions: ScheduleException[],
+  shiftsById: Record<string, ScheduleShift>
+): number {
+  if (!caregiver.guaranteed_hours_enabled) return 0
+  if (caregiver.guaranteed_hours_basis === 'linked_to_schedule') {
+    // Sum shift hours from active recurring schedule where
+    // counts_toward_guaranteed_hours = true, then apply the net effect of
+    // any one-off exceptions explicitly marked as counting toward the
+    // guarantee (spec 13.6 "Schedule-Linked Guarantee").
+    const base = occurrences
+      .filter((o) => o.shift.counts_toward_guaranteed_hours)
+      .reduce((sum, o) => sum + shiftHours(o.shift), 0)
+    const exceptionDelta = scheduleExceptionHoursDelta(exceptions, shiftsById, { onlyGuaranteed: true })
+    return Math.max(base + exceptionDelta, 0)
+  }
+  return caregiver.fixed_weekly_guaranteed_hours ?? caregiver.fixed_pay_period_guaranteed_hours ?? 0
 }
