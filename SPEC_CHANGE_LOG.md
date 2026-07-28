@@ -8,6 +8,83 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-28 — Home screen "Today" and "This Week" cards (spec 14.1/14.2), fresh spec-vs-app audit
+
+**Fresh pass over `APPLICATION_SPEC.md` against the current app**, as invited
+by the 2026-07-27 entry below ("no known gaps currently tracked... future
+phases should come from a fresh pass"). Confirmed all previously-resolved
+decisions are still correctly implemented (all 10 reminder types wired up,
+all 6 export types present, time-entry schedule pre-fill still working, data
+model matches spec 15 field-for-field on every table spot-checked, status
+chip set matches spec 22). One real gap found and closed this session; one
+already-known deliberate simplification (calendar month/day view) was
+reconsidered but left as-is pending a decision — see
+`QUESTIONS_AND_CLARIFICATIONS.md`.
+
+**Home screen now has "Today" and "This Week" cards (spec 14.1/14.2),
+closing a gap that had no prior write-up.** `Home.tsx` previously rendered
+only a generic 2x2 stat-tile grid (Time/Schedule/PTO/Pay, each just a nav
+shortcut) plus the reminder feed -- there was no surface anywhere showing
+"is the caregiver clocked in right now," which spec 22 calls out as the
+single thing a parent should see immediately, and no "Current Week" card at
+all despite `StatusChip.tsx` already having unused `scheduled`/`clocked_in`/
+`missing_clock_out` color variants defined for exactly this purpose.
+
+- **"Today" card** -- one row per caregiver (just the caregiver's own row for
+  a nanny), showing either "Clocked in since HH:MM" (green `clocked_in`
+  chip, or amber `missing_clock_out` if the reminders engine has already
+  flagged that same entry -- reused via entry ID rather than re-deriving the
+  schedule-aware grace-period logic a second time), "Scheduled H:MM AM–H:MM
+  PM" (blue `scheduled` chip) if a shift exists today but no active
+  clock-in, or "No shift scheduled today" with no chip.
+- **"This Week" card** -- one row per caregiver: scheduled hours (recurring
+  shifts + net exception delta for the calendar week), actual hours logged,
+  guaranteed hours, and a status chip for the timesheet whose period
+  contains today (or none, if not yet generated). Guaranteed hours is
+  intentionally omitted when `guaranteed_hours_basis = 'fixed_pay_period'`
+  (a biweekly fixed guarantee shown as "this week's number" would overstate
+  it -- there's no way to prorate a period guarantee onto a single week
+  without inventing a rule the spec doesn't specify), and respects
+  `nanny_can_view_guaranteed_hours` for a nanny viewer, same gating as the
+  timesheet/payment breakdown added 2026-07-27.
+- **Deliberately excluded: "estimated payable hours."** Spec 14.1 lists it as
+  a Current Week field, but a real payable-hours number needs PTO/sick/
+  holiday/family-cancellation hours and the overtime split, which are only
+  authoritative once run through `calc.ts` over the caregiver's actual pay
+  period (frequently biweekly, rarely aligned to a calendar week) -- the
+  same reasoning that already kept a regular/OT split out of the
+  `weekly_summary` digest (2026-07-25 entry). A second approximation here
+  risked quietly disagreeing with Pay.tsx's number for the same caregiver.
+- **Refactor:** `computeGuaranteedHoursBase` moved from a local function in
+  `Pay.tsx` to an exported helper in `lib/schedule.ts` so Home.tsx's weekly
+  estimate and Pay.tsx's authoritative per-period calc share one
+  implementation instead of two copies that could drift.
+- Home's data load now fetches schedule shifts/exceptions across the full
+  current calendar week (previously just the trailing 2 days, sized only for
+  the missing-clock-out reminder) -- widened to `min(week start, today - 2
+  days)` through the week's end so both the existing reminders and the new
+  cards share one fetch.
+
+**Not built this session, flagged for a decision instead:** whether to
+build a real month view for the Calendar (spec 13.10/14.4, still week-grid
+only per Q&A item 8) and whether to take the Home screen further toward
+spec 14.1/14.2's literal 5-card/primary-button layout beyond what shipped
+above. Both re-opened as new Questions & Clarifications items rather than
+decided unilaterally, since this session's instructions asked for open items
+to be surfaced for a decision rather than picked silently.
+
+**Time-entry schedule pre-fill -- re-verified once more, still no change
+needed.** `Time.tsx:48` defaults the date field to today;
+`Time.tsx:111-121`'s effect pre-fills start/end/break from the scheduled
+occurrence for whatever date is selected. Unchanged since 2026-06-30.
+
+### Known gaps for next phase
+
+None beyond the two items above awaiting a decision in
+`QUESTIONS_AND_CLARIFICATIONS.md`.
+
+---
+
 ## 2026-07-27 — Guaranteed-hours line item on timesheets/payments (spec 13.6), closes the last tracked known gap
 
 **Guaranteed-hours breakdown now rendered (spec 13.6 "Timesheet Display for

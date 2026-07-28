@@ -8,8 +8,72 @@ rather than a silent guess.
 
 ## Open items
 
-None currently — both items open as of 2026-07-26 were resolved in chat the
-same day. See "Resolved items — 2026-07-26 (part 2)" below.
+### 22. Calendar: build a real month view, or keep the week-grid-only simplification (spec 13.10/14.4)?
+
+Spec 13.10 opens with "Calendar should be central to the app" and asks for
+month/week/day views, filter chips (schedule/worked time/PTO-sick/payments/
+alerts), and day-detail actions (approve PTO, edit time entry, view payment
+impact, add note). `Schedule.tsx` has shipped only the week grid since Q&A
+item 8 (resolved 2026-07-01, batch 2) as a deliberate "keep it simpler"
+choice — no month view, no filter chips, no payment-due/-made markers, no
+timesheet-approval-status markers on the grid, and day-detail is currently
+just "add a schedule exception," not the fuller action set spec 13.10 lists.
+That resolution note explicitly left the door open: *"If month/day views
+turn out to matter in practice, that's still open work, not a documentation
+gap."* Re-surfaced by this session's fresh spec pass rather than decided
+unilaterally, per this run's instructions.
+
+- **Option A — leave as-is.** The week grid plus Home's reminder feed, Pay's
+  payment list, and PTO's leave list already surface most of the same
+  underlying data, just not on one calendar surface. Zero new work.
+- **Option B — lightweight month view.** A read-only month heat-strip
+  showing which days have a shift / PTO / payment due-or-made, tapping a day
+  jumps to the existing week-grid day-detail (no new inline actions). Medium
+  effort, biggest visibility win relative to cost.
+- **Option C — full spec-literal build.** Month/week/day view toggle, the
+  five filter chips, and the full day-detail action set (approve PTO / edit
+  time entry / view payment impact / add note inline from the calendar).
+  Matches spec 13.10 closely but is the multi-day effort item 8 originally
+  declined.
+
+**Recommendation: B.** It gets most of spec 13.10's stated value (seeing the
+shape of a month at a glance) without the cost of rebuilding day-detail
+actions that already exist elsewhere in the app (Schedule.tsx, Pay.tsx,
+PTO.tsx). Reply with A/B/C (or your own variant) and it'll be built next
+session.
+
+### 23. Home screen: go further toward spec 14.1/14.2's literal card/button layout, or is the increment already shipped enough (spec 14.1/14.2)?
+
+This session shipped a "Today" (clock status per caregiver) and "This Week"
+(scheduled/actual/guaranteed hours + timesheet status) card on `Home.tsx` —
+see `SPEC_CHANGE_LOG.md` 2026-07-28 for detail. That closes the biggest gap
+spec 22's UX priorities called out ("is the nanny clocked in?" wasn't
+answerable without navigating away before this). Not yet built: distinct
+"Pending Actions" and "PTO" cards (the reminder feed and the PTO stat tile
+functionally cover the same ground today, just not as spec's named
+sections), and named primary action buttons (Review Timesheet, Mark Payment
+Made, Add Schedule Exception, Approve PTO, Edit Schedule for parents; the
+nanny screen already has its 4 primary actions reachable one tap away via
+the bottom dock, just not as buttons on Home itself).
+
+- **Option A — stop here.** Today/This-Week cards plus the existing reminder
+  feed (which already functions as "pending actions") is enough; adding
+  literal primary-action buttons to Home would mostly duplicate navigation
+  that the bottom tab bar already provides.
+- **Option B — add primary action buttons only.** Keep the current card
+  structure, add a small row of shortcut buttons (the ones spec 14.1/14.2
+  name) above or below the reminder feed for one-tap access to the most
+  common next step, without restructuring the rest of Home.
+- **Option C — full rebuild into spec's 5 named cards.** Split today's
+  generic Time/Schedule/PTO/Pay tile grid into the spec's named
+  Today/Current-Week/Pending-Actions/Payment/PTO sections exactly, folding
+  the reminder feed's content into "Pending Actions" instead of a separate
+  list.
+
+**Recommendation: A for now** — re-evaluate C only if, after using the
+shipped Today/This-Week cards for a while, the current tile grid + reminder
+feed still feels like it's missing something specific. Building further
+without that signal risks polishing a screen nobody's flagged as lacking.
 
 ---
 

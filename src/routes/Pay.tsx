@@ -14,6 +14,7 @@ import { buildDailyPayExportRows } from '../lib/payExport'
 import { parseTimesheetImport } from '../lib/timesheetImport'
 import { catchUpPayPeriod, computeCurrentPayPeriod } from '../lib/payPeriod'
 import {
+  computeGuaranteedHoursBase,
   generateShiftsForRange,
   scheduleExceptionHoursDelta,
   shiftHours,
@@ -264,27 +265,6 @@ export function Pay() {
     const exceptions = (exceptionRows ?? []) as ScheduleException[]
 
     return { occurrences, exceptions, shiftsById }
-  }
-
-  function computeGuaranteedHoursBase(
-    caregiver: CaregiverProfile,
-    occurrences: ReturnType<typeof generateShiftsForRange>,
-    exceptions: ScheduleException[],
-    shiftsById: Record<string, ScheduleShift>
-  ): number {
-    if (!caregiver.guaranteed_hours_enabled) return 0
-    if (caregiver.guaranteed_hours_basis === 'linked_to_schedule') {
-      // Sum shift hours from active recurring schedule where
-      // counts_toward_guaranteed_hours = true, then apply the net effect of
-      // any one-off exceptions explicitly marked as counting toward the
-      // guarantee (spec 13.6 "Schedule-Linked Guarantee").
-      const base = occurrences
-        .filter((o) => o.shift.counts_toward_guaranteed_hours)
-        .reduce((sum, o) => sum + shiftHours(o.shift), 0)
-      const exceptionDelta = scheduleExceptionHoursDelta(exceptions, shiftsById, { onlyGuaranteed: true })
-      return Math.max(base + exceptionDelta, 0)
-    }
-    return caregiver.fixed_weekly_guaranteed_hours ?? caregiver.fixed_pay_period_guaranteed_hours ?? 0
   }
 
   async function doGenerate(timeEntries: TimeEntry[]) {
