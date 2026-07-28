@@ -12,7 +12,7 @@ import { isValidCalendarDate } from '../lib/dates'
 import { generateShiftsForRange, shiftHours } from '../lib/schedule'
 import { validateTimeEntry, type ActingRole } from '../lib/timeValidation'
 import { formatDateTime, formatEntryTimeRange } from '../lib/time'
-import { Card, Button, Field, inputClass } from '../components/Card'
+import { Card, Button, Field, inputClass, dateInputClass, timeInputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
 import type { ScheduleShift, ScheduleTemplate, TimeEntry, TimeEntryMethod } from '../lib/types'
@@ -504,14 +504,14 @@ export function Time() {
         <Card title="Manual time entry">
           <form onSubmit={handleAddEntry} className="space-y-3">
             <Field label="Date">
-              <input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} required />
+              <input type="date" className={dateInputClass} value={date} onChange={(e) => setDate(e.target.value)} required />
             </Field>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="flex gap-3">
               <Field label="Start">
-                <input type="time" className={inputClass} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+                <input type="time" className={timeInputClass} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
               </Field>
               <Field label="End">
-                <input type="time" className={inputClass} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+                <input type="time" className={timeInputClass} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
               </Field>
             </div>
             <Field label="Unpaid break (minutes)">
@@ -576,16 +576,16 @@ export function Time() {
                     <Field label="Date">
                       <input
                         type="date"
-                        className={inputClass}
+                        className={dateInputClass}
                         value={editDate}
                         onChange={(e) => setEditDate(e.target.value)}
                       />
                     </Field>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="flex gap-3">
                       <Field label="Start">
                         <input
                           type="time"
-                          className={inputClass}
+                          className={timeInputClass}
                           value={editStart}
                           onChange={(e) => setEditStart(e.target.value)}
                         />
@@ -593,7 +593,7 @@ export function Time() {
                       <Field label="End">
                         <input
                           type="time"
-                          className={inputClass}
+                          className={timeInputClass}
                           value={editEnd}
                           onChange={(e) => setEditEnd(e.target.value)}
                         />

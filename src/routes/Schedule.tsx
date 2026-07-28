@@ -9,7 +9,7 @@ import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
 import { exceptionHours, generateShiftsForRange, scheduleExceptionHoursDelta, shiftHours } from '../lib/schedule'
 import { formatEntryTimeRange, formatTimeOfDay } from '../lib/time'
-import { Card, Button, Field, inputClass } from '../components/Card'
+import { Card, Button, Field, inputClass, dateInputClass, timeInputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { Modal } from '../components/Modal'
 import { StatusChip } from '../components/StatusChip'
@@ -773,10 +773,10 @@ export function Schedule() {
                             {EXCEPTION_TYPES_WITH_TIME_RANGE.includes(exceptionType) && (
                               <div className="space-y-2">
                                 <Field label="New start">
-                                  <input type="time" className={inputClass} value={exceptionStart} onChange={(e) => setExceptionStart(e.target.value)} />
+                                  <input type="time" className={timeInputClass} value={exceptionStart} onChange={(e) => setExceptionStart(e.target.value)} />
                                 </Field>
                                 <Field label="New end">
-                                  <input type="time" className={inputClass} value={exceptionEnd} onChange={(e) => setExceptionEnd(e.target.value)} />
+                                  <input type="time" className={timeInputClass} value={exceptionEnd} onChange={(e) => setExceptionEnd(e.target.value)} />
                                 </Field>
                               </div>
                             )}
@@ -920,7 +920,7 @@ export function Schedule() {
               <Field label="First on-week starts">
                 <input
                   type="date"
-                  className={inputClass}
+                  className={dateInputClass}
                   value={biweeklyAnchorDate}
                   onChange={(e) => setBiweeklyAnchorDate(e.target.value)}
                 />
@@ -984,7 +984,7 @@ export function Schedule() {
 
             {recurrenceChoice === 'once' && (
               <Field label="Date">
-                <input type="date" className={inputClass} value={onceDate} onChange={(e) => setOnceDate(e.target.value)} />
+                <input type="date" className={dateInputClass} value={onceDate} onChange={(e) => setOnceDate(e.target.value)} />
               </Field>
             )}
 
@@ -1011,10 +1011,10 @@ export function Schedule() {
             )}
 
             <Field label="Start time">
-              <input type="time" className={inputClass} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+              <input type="time" className={timeInputClass} value={startTime} onChange={(e) => setStartTime(e.target.value)} />
             </Field>
             <Field label="End time">
-              <input type="time" className={inputClass} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+              <input type="time" className={timeInputClass} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
             </Field>
             <Field label="Unpaid break (minutes)">
               <input

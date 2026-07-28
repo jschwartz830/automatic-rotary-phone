@@ -11,7 +11,7 @@ import { isValidCalendarDate } from '../lib/dates'
 import { useLeavePolicies } from '../lib/useLeavePolicies'
 import { computeLeaveBalance, computeLeaveBalanceFromLedger, formatLeaveType, type LeaveBalancePolicy } from '../lib/leave'
 import { downloadCsv } from '../lib/csv'
-import { Card, Button, Field, inputClass } from '../components/Card'
+import { Card, Button, Field, inputClass, dateInputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
 import type { LeaveLedgerEntry, LeaveRequest, LeaveType } from '../lib/types'
@@ -500,14 +500,14 @@ export function PTO() {
               <Field label="Start date">
                 <input
                   type="date"
-                  className={inputClass}
+                  className={dateInputClass}
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
                   required
                 />
               </Field>
               <Field label="End date">
-                <input type="date" className={inputClass} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                <input type="date" className={dateInputClass} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </Field>
             </div>
             <Field label="Hours">

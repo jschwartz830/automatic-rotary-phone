@@ -64,3 +64,10 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 // phones -- the input itself was fine, the whole viewport was zooming in.
 export const inputClass =
   'w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-base text-gray-900 placeholder:text-gray-400 transition-colors focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:focus:border-gray-300 dark:focus:ring-gray-300'
+
+// Native date/time pickers only need enough room for their own text (e.g.
+// "Jul 28, 2026" or "4:30 PM"), so unlike inputClass these don't stretch to
+// fill the row -- that left them looking oversized with a lot of dead space
+// inside the box.
+export const dateInputClass = inputClass.replace('w-full', 'w-44')
+export const timeInputClass = inputClass.replace('w-full', 'w-32')
