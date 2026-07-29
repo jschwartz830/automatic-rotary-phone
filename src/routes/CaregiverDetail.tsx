@@ -9,11 +9,33 @@ import { errorMessage } from '../lib/errors'
 import { Card, Button, Field, inputClass, dateInputClass } from '../components/Card'
 import { useLeavePolicies } from '../lib/useLeavePolicies'
 import { formatLeaveType } from '../lib/leave'
-import type { CaregiverProfile, GuaranteedHoursBasis, LeaveType, PayFrequency, PaydayRule, PayPeriodAnchor } from '../lib/types'
+import { formatPaymentMethod } from '../lib/payPeriod'
+import type {
+  CaregiverPrivateNote,
+  CaregiverProfile,
+  GuaranteedHoursBasis,
+  LeaveType,
+  PayFrequency,
+  PaydayRule,
+  PaymentMethodLabel,
+  PayPeriodAnchor,
+} from '../lib/types'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const PAY_FREQUENCIES: PayFrequency[] = ['weekly', 'biweekly', 'semi_monthly', 'monthly']
 const PAYDAY_RULES: PaydayRule[] = ['same_day_each_week', 'days_after_period_end', 'manual']
+const PAYMENT_METHODS: PaymentMethodLabel[] = ['zelle', 'venmo', 'check', 'bank_transfer', 'payroll_provider', 'cash', 'other']
+// Spec 11/15.4: the flags a nanny's own visibility into pay/PTO/guarantee
+// data is gated by. Toggled instantly (like More.tsx's co-admin permission
+// checkboxes) rather than bundled into the Pay settings submit, since they're
+// their own concern (visibility, not the underlying value).
+const NANNY_VISIBILITY_FLAGS: { key: keyof CaregiverProfile; label: string }[] = [
+  { key: 'nanny_can_view_pay_rate', label: 'Hourly pay rate' },
+  { key: 'nanny_can_view_gross_pay', label: 'Gross pay due / paid amounts' },
+  { key: 'nanny_can_view_pto_balance', label: 'PTO / sick balance' },
+  { key: 'nanny_can_view_guaranteed_hours', label: 'Guaranteed hours / guarantee adjustment' },
+  { key: 'nanny_can_view_payment_method', label: 'Payment method label' },
+]
 const REMINDER_OPTIONS = [
   { value: 0, label: 'Same day' },
   { value: 1, label: '1 day before' },
@@ -47,9 +69,15 @@ export function CaregiverDetail() {
   const [rate, setRate] = useState('')
   const [overtimeThreshold, setOvertimeThreshold] = useState('40')
   const [overtimeMultiplier, setOvertimeMultiplier] = useState('1.5')
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodLabel | ''>('')
   const [guaranteedEnabled, setGuaranteedEnabled] = useState(false)
   const [guaranteedBasis, setGuaranteedBasis] = useState<GuaranteedHoursBasis>('linked_to_schedule')
   const [guaranteedHours, setGuaranteedHours] = useState('')
+  const [unpaidReducesGuarantee, setUnpaidReducesGuarantee] = useState(true)
+  const [familyCancellationCounts, setFamilyCancellationCounts] = useState(true)
+  const [ptoCounts, setPtoCounts] = useState(true)
+  const [sickCounts, setSickCounts] = useState(true)
+  const [holidayCounts, setHolidayCounts] = useState(true)
   const [payFrequency, setPayFrequency] = useState<PayFrequency>('weekly')
   const [payPeriodAnchor, setPayPeriodAnchor] = useState<PayPeriodAnchor>('start_day')
   const [payPeriodStartDay, setPayPeriodStartDay] = useState('1')
@@ -65,6 +93,38 @@ export function CaregiverDetail() {
   const [confirmRemoveCaregiver, setConfirmRemoveCaregiver] = useState(false)
   const [removingCaregiver, setRemovingCaregiver] = useState(false)
   const [removeCaregiverError, setRemoveCaregiverError] = useState<string | null>(null)
+
+  // Nanny visibility flags (spec 11/15.4) -- instant-toggle, like More.tsx's
+  // co-admin permission checkboxes, since each is its own independent switch
+  // rather than part of the Pay settings submit.
+  const [savingVisibilityKey, setSavingVisibilityKey] = useState<string | null>(null)
+  const [visibilityError, setVisibilityError] = useState<string | null>(null)
+
+  // Private notes (spec 15.4 "notes_private" / 18 "employer-only notes") --
+  // stored in caregiver_private_notes, a separate table (not a column) so RLS
+  // can fully exclude the nanny role; see migration 0001's comment on that
+  // table. Never had a read/write UI until now.
+  const [privateNote, setPrivateNote] = useState('')
+  const [privateNoteSaving, setPrivateNoteSaving] = useState(false)
+  const [privateNoteSavedAt, setPrivateNoteSavedAt] = useState<number | null>(null)
+  const [privateNoteError, setPrivateNoteError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!caregiver) return
+    let cancelled = false
+    async function loadPrivateNote() {
+      const { data } = await supabase
+        .from('caregiver_private_notes')
+        .select('notes')
+        .eq('caregiver_id', caregiver!.id)
+        .maybeSingle()
+      if (!cancelled) setPrivateNote((data as Pick<CaregiverPrivateNote, 'notes'> | null)?.notes ?? '')
+    }
+    loadPrivateNote()
+    return () => {
+      cancelled = true
+    }
+  }, [caregiver])
 
   useEffect(() => {
     if (!caregiver) return
@@ -84,9 +144,15 @@ export function CaregiverDetail() {
     setRate(caregiver.default_hourly_rate?.toString() ?? '')
     setOvertimeThreshold(caregiver.overtime_threshold_hours.toString())
     setOvertimeMultiplier(caregiver.overtime_multiplier.toString())
+    setPaymentMethod(caregiver.payment_method_label ?? '')
     setGuaranteedEnabled(caregiver.guaranteed_hours_enabled)
     setGuaranteedBasis(caregiver.guaranteed_hours_basis ?? 'linked_to_schedule')
     setGuaranteedHours(caregiver.fixed_weekly_guaranteed_hours?.toString() ?? '')
+    setUnpaidReducesGuarantee(caregiver.unpaid_time_off_reduces_guarantee)
+    setFamilyCancellationCounts(caregiver.family_cancellation_counts_toward_guarantee)
+    setPtoCounts(caregiver.pto_counts_toward_guarantee)
+    setSickCounts(caregiver.sick_counts_toward_guarantee)
+    setHolidayCounts(caregiver.holiday_counts_toward_guarantee)
     setPayFrequency(caregiver.pay_frequency)
     setPayPeriodAnchor(caregiver.pay_period_anchor)
     setPayPeriodStartDay(caregiver.pay_period_start_day.toString())
@@ -215,6 +281,7 @@ export function CaregiverDetail() {
         default_hourly_rate: rate ? Number(rate) : null,
         overtime_threshold_hours: Number(overtimeThreshold) || 40,
         overtime_multiplier: Number(overtimeMultiplier) || 1.5,
+        payment_method_label: paymentMethod || null,
         guaranteed_hours_enabled: guaranteedEnabled,
         guaranteed_hours_basis: guaranteedEnabled ? guaranteedBasis : 'linked_to_schedule',
         fixed_weekly_guaranteed_hours:
@@ -225,6 +292,11 @@ export function CaregiverDetail() {
           guaranteedEnabled && guaranteedBasis === 'fixed_pay_period' && guaranteedHours
             ? Number(guaranteedHours)
             : null,
+        unpaid_time_off_reduces_guarantee: unpaidReducesGuarantee,
+        family_cancellation_counts_toward_guarantee: familyCancellationCounts,
+        pto_counts_toward_guarantee: ptoCounts,
+        sick_counts_toward_guarantee: sickCounts,
+        holiday_counts_toward_guarantee: holidayCounts,
         pay_frequency: payFrequency,
         pay_period_anchor: payPeriodAnchor,
         pay_period_start_day: Number(payPeriodStartDay) || 0,
@@ -251,6 +323,61 @@ export function CaregiverDetail() {
       setSaveError(errorMessage(err, 'Could not save pay settings.'))
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function toggleVisibilityFlag(key: keyof CaregiverProfile, value: boolean) {
+    if (!caregiver || !household) return
+    setSavingVisibilityKey(key)
+    setVisibilityError(null)
+    try {
+      const { error } = await supabase
+        .from('caregiver_profiles')
+        .update({ [key]: value })
+        .eq('id', caregiver.id)
+      if (error) throw error
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'caregiver_profile',
+        entityId: caregiver.id,
+        action: 'update',
+        before: { [key]: caregiver[key] },
+        after: { [key]: value },
+      })
+      await refresh()
+    } catch (err) {
+      setVisibilityError(errorMessage(err, 'Could not update visibility setting.'))
+    } finally {
+      setSavingVisibilityKey(null)
+    }
+  }
+
+  async function handleSavePrivateNote(e: FormEvent) {
+    e.preventDefault()
+    if (!caregiver || !household) return
+    setPrivateNoteSaving(true)
+    setPrivateNoteError(null)
+    try {
+      const { error } = await supabase.from('caregiver_private_notes').upsert({
+        caregiver_id: caregiver.id,
+        notes: privateNote || null,
+        updated_by: user?.id ?? null,
+        updated_at: new Date().toISOString(),
+      })
+      if (error) throw error
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'caregiver_profile',
+        entityId: caregiver.id,
+        action: 'update_private_note',
+      })
+      setPrivateNoteSavedAt(Date.now())
+    } catch (err) {
+      setPrivateNoteError(errorMessage(err, 'Could not save private note.'))
+    } finally {
+      setPrivateNoteSaving(false)
     }
   }
 
@@ -402,6 +529,27 @@ export function CaregiverDetail() {
         )}
       </Card>
 
+      <Card title="Private notes">
+        <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+          Visible to parents/co-admins only -- never shown to the nanny (spec 15.4/18).
+        </p>
+        <form onSubmit={handleSavePrivateNote} className="space-y-3">
+          <textarea
+            className={`${inputClass} min-h-[80px]`}
+            value={privateNote}
+            onChange={(e) => setPrivateNote(e.target.value)}
+            placeholder="Notes only you and other parents/co-admins can see…"
+          />
+          <Button type="submit" className="w-full" disabled={privateNoteSaving}>
+            {privateNoteSaving ? 'Saving…' : 'Save private note'}
+          </Button>
+          {privateNoteError && <p className="text-xs text-red-600 dark:text-red-400">{privateNoteError}</p>}
+          {privateNoteSavedAt && !privateNoteError && (
+            <p className="text-xs text-green-600 dark:text-green-400">Saved.</p>
+          )}
+        </form>
+      </Card>
+
       <Card title="Pay settings">
         <form onSubmit={handleSave} className="space-y-3">
           <Field label="Hourly rate">
@@ -437,6 +585,20 @@ export function CaregiverDetail() {
               </Field>
             </div>
           </div>
+          <Field label="Payment method (optional)">
+            <select
+              className={inputClass}
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value as PaymentMethodLabel | '')}
+            >
+              <option value="">Not set</option>
+              {PAYMENT_METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {formatPaymentMethod(m)}
+                </option>
+              ))}
+            </select>
+          </Field>
           <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <input
               type="checkbox"
@@ -474,6 +636,43 @@ export function CaregiverDetail() {
                   Guaranteed hours will be calculated from the nanny's active recurring schedule — the sum of shift hours where "counts toward guaranteed hours" is enabled.
                 </p>
               )}
+              <div className="space-y-1.5 rounded-lg bg-gray-50 p-3 dark:bg-gray-800/60">
+                <p className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                  What counts toward meeting the guarantee (spec 13.6)
+                </p>
+                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={familyCancellationCounts}
+                    onChange={(e) => setFamilyCancellationCounts(e.target.checked)}
+                  />
+                  Family cancellations count toward guarantee
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <input type="checkbox" checked={ptoCounts} onChange={(e) => setPtoCounts(e.target.checked)} />
+                  PTO counts toward guarantee
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <input type="checkbox" checked={sickCounts} onChange={(e) => setSickCounts(e.target.checked)} />
+                  Sick time counts toward guarantee
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <input type="checkbox" checked={holidayCounts} onChange={(e) => setHolidayCounts(e.target.checked)} />
+                  Holidays count toward guarantee
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={unpaidReducesGuarantee}
+                    onChange={(e) => setUnpaidReducesGuarantee(e.target.checked)}
+                  />
+                  Nanny-requested unpaid time off reduces the guarantee
+                </label>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  A category left unchecked is still paid as its own leave type — it just isn't counted when figuring
+                  out how many extra "guarantee" hours are owed on top of what was actually worked/paid.
+                </p>
+              </div>
             </>
           )}
           <div className="flex gap-3">
@@ -587,6 +786,27 @@ export function CaregiverDetail() {
           {saveError && <p className="text-xs text-red-600 dark:text-red-400">{saveError}</p>}
           {savedAt && !saveError && <p className="text-xs text-green-600 dark:text-green-400">Saved.</p>}
         </form>
+      </Card>
+
+      <Card title="Nanny visibility">
+        <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+          What {caregiver.name} can see about their own pay/PTO/guarantee data (spec 11/15.4). Unchecking hides that
+          value on their Pay/PTO/Home screens; it doesn't change the underlying setting.
+        </p>
+        <div className="space-y-2">
+          {NANNY_VISIBILITY_FLAGS.map((flag) => (
+            <label key={flag.key} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                type="checkbox"
+                checked={(caregiver[flag.key] as boolean) !== false}
+                disabled={savingVisibilityKey === flag.key}
+                onChange={(e) => toggleVisibilityFlag(flag.key, e.target.checked)}
+              />
+              {flag.label}
+            </label>
+          ))}
+        </div>
+        {visibilityError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{visibilityError}</p>}
       </Card>
 
       <Card title="PTO settings">

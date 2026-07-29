@@ -12,7 +12,7 @@ import { calculateTimesheet, round2 } from '../lib/calc'
 import { downloadCsv, downloadJson } from '../lib/csv'
 import { buildDailyPayExportRows } from '../lib/payExport'
 import { parseTimesheetImport } from '../lib/timesheetImport'
-import { catchUpPayPeriod, computeCurrentPayPeriod } from '../lib/payPeriod'
+import { catchUpPayPeriod, computeCurrentPayPeriod, formatPaymentMethod } from '../lib/payPeriod'
 import {
   computeGuaranteedHoursBase,
   generateShiftsForRange,
@@ -123,6 +123,12 @@ export function Pay() {
   const [showForm, setShowForm] = useState(false)
   const [periodStart, setPeriodStart] = useState('')
   const [periodEnd, setPeriodEnd] = useState('')
+  // Spec 13.8 "Payment Record Fields" / 14.6 "Add adjustment" -- reimbursements
+  // and manual adjustments were always hardcoded to 0 in doGenerate even
+  // though calc.ts's gross-pay formula already adds them in; this is the
+  // first place either becomes settable.
+  const [reimbursements, setReimbursements] = useState('0')
+  const [manualAdjustments, setManualAdjustments] = useState('0')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showArchive, setShowArchive] = useState(false)
@@ -162,6 +168,7 @@ export function Pay() {
   // restrict the nanny's own view -- a parent/co-admin always sees both.
   const showGrossPay = !isNanny || activeCaregiver?.nanny_can_view_gross_pay !== false
   const showGuaranteedHours = !isNanny || activeCaregiver?.nanny_can_view_guaranteed_hours !== false
+  const showPaymentMethod = !isNanny || activeCaregiver?.nanny_can_view_payment_method !== false
   const activeTimesheets = timesheets.filter((t) => !t.deleted_at)
   const trashedTimesheets = timesheets.filter((t) => t.deleted_at)
   const activePayments = payments.filter((p) => !p.deleted_at)
@@ -304,6 +311,9 @@ export function Pay() {
         sumExceptionHoursByType(exceptions, shiftsById, 'weather_emergency', { requireAffectsPay: true })
       : 0
 
+    const reimbursementsAmount = round2(Number(reimbursements) || 0)
+    const manualAdjustmentsAmount = round2(Number(manualAdjustments) || 0)
+
     const result = calculateTimesheet({
       actualWorkedHours,
       paidPtoHours: sumLeave('pto'),
@@ -313,11 +323,14 @@ export function Pay() {
       unpaidTimeOffHours: sumLeave('unpaid'),
       guaranteedHoursBase,
       unpaidTimeOffReducesGuarantee: activeCaregiver.unpaid_time_off_reduces_guarantee,
+      ptoCountsTowardGuarantee: activeCaregiver.pto_counts_toward_guarantee,
+      sickCountsTowardGuarantee: activeCaregiver.sick_counts_toward_guarantee,
+      holidayCountsTowardGuarantee: activeCaregiver.holiday_counts_toward_guarantee,
       overtimeThresholdHours: activeCaregiver.overtime_threshold_hours,
       overtimeMultiplier: activeCaregiver.overtime_multiplier,
       hourlyRate: activeCaregiver.default_hourly_rate ?? 0,
-      reimbursements: 0,
-      manualAdjustments: 0,
+      reimbursements: reimbursementsAmount,
+      manualAdjustments: manualAdjustmentsAmount,
     })
 
     const { data: timesheet, error: tsError } = await supabase
@@ -344,6 +357,8 @@ export function Pay() {
         payable_overtime_hours: result.payableOvertimeHours,
         hourly_rate: activeCaregiver.default_hourly_rate,
         overtime_rate: result.overtimeRate,
+        reimbursements: reimbursementsAmount,
+        manual_adjustments: manualAdjustmentsAmount,
         gross_pay_due: result.grossPayDue,
       })
       .select()
@@ -381,11 +396,20 @@ export function Pay() {
       family_cancellation_hours: cancellationHours,
       hourly_rate: activeCaregiver.default_hourly_rate,
       overtime_rate: result.overtimeRate,
+      reimbursements: reimbursementsAmount,
+      manual_adjustments: manualAdjustmentsAmount,
+      // Spec 13.8 "Payment method label" -- carries the caregiver's
+      // configured default method onto the record; editable per-record isn't
+      // built (no screen sets it after generation), matching how hourly_rate
+      // is also just copied at generation time rather than re-editable.
+      payment_method_label: activeCaregiver.payment_method_label,
       gross_pay_due: result.grossPayDue,
     })
     if (payError) throw payError
 
     setShowForm(false)
+    setReimbursements('0')
+    setManualAdjustments('0')
     setPendingUnapproved([])
     await loadData(caregiverId)
   }
@@ -627,6 +651,7 @@ export function Pay() {
         gross_pay_due: correctedAmount,
         reimbursements: correctingPayment.reimbursements,
         manual_adjustments: correctingPayment.manual_adjustments,
+        payment_method_label: correctingPayment.payment_method_label,
         parent_note: `Correction of payment from ${correctingPayment.paid_at?.slice(0, 10) ?? correctingPayment.period_end}. Original: $${correctingPayment.gross_pay_due.toFixed(2)}. ${correctionNote}`,
       })
       if (insertError) throw insertError
@@ -982,6 +1007,30 @@ export function Pay() {
             >
               Catch up since last period{lastPeriodEnd ? ` (${lastPeriodEnd})` : ''}
             </button>
+            <div className="flex gap-3">
+              <div className="min-w-0 flex-1">
+                <Field label="Reimbursements ($, optional)">
+                  <input
+                    type="number"
+                    step="0.01"
+                    className={inputClass}
+                    value={reimbursements}
+                    onChange={(e) => setReimbursements(e.target.value)}
+                  />
+                </Field>
+              </div>
+              <div className="min-w-0 flex-1">
+                <Field label="Manual adjustment ($, optional)">
+                  <input
+                    type="number"
+                    step="0.01"
+                    className={inputClass}
+                    value={manualAdjustments}
+                    onChange={(e) => setManualAdjustments(e.target.value)}
+                  />
+                </Field>
+              </div>
+            </div>
             {activeCaregiver?.family_cancellation_counts_toward_guarantee && (
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Family cancellation and weather/emergency hours are pulled automatically from approved schedule
@@ -1246,6 +1295,7 @@ export function Pay() {
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     Due {p.due_date}{showGrossPay ? ` · $${p.gross_pay_due.toFixed(2)}` : ' · amount hidden'}
+                    {showPaymentMethod && formatPaymentMethod(p.payment_method_label) ? ` · ${formatPaymentMethod(p.payment_method_label)}` : ''}
                   </p>
                   {p.parent_note && (
                     <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">{p.parent_note}</p>

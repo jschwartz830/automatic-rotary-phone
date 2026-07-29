@@ -8,6 +8,202 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-29 — Guaranteed-hours policy settings, nanny visibility settings, payment method label, reimbursements/manual adjustments, private notes, schedule-shift linking (fresh line-by-line spec audit)
+
+**Fresh line-by-line pass over `APPLICATION_SPEC.md` against current `src/`
+and `supabase/`**, per this session's instructions to look past the
+2026-07-28 entry's "no known gaps" and re-verify areas not explicitly
+re-checked in several recent entries. Method: cross-referenced every table in
+spec section 15 field-by-field against `src/lib/types.ts` and the
+migrations, then grepped every resulting field name across `src` (excluding
+`types.ts`) to find columns that are typed but never read or written
+anywhere. This surfaced several real gaps that prior audits' spot-checks
+("data model matches spec 15 field-for-field," 2026-07-28) hadn't caught
+because the fields *exist* and match the spec's type/default — they're just
+never wired into any calc or UI. Six unambiguous gaps closed this session;
+three larger, judgment-call gaps opened as new Questions & Clarifications
+items (24-26) rather than built.
+
+**1. PTO/sick/holiday "counts toward guaranteed hours" now actually gates
+the guarantee calc (spec 13.6, 16.4).** Spec 16.4 states outright: "Whether
+each leave/family cancellation category counts should depend on policy
+settings." `family_cancellation_counts_toward_guarantee` already worked this
+way (`Pay.tsx`, zeroing `cancellationHours` when off, since 2026-07-02), but
+`caregiver_profiles.pto_counts_toward_guarantee`/`sick_counts_toward_guarantee`/
+`holiday_counts_toward_guarantee` were typed columns the calc engine never
+read (confirmed via the grep sweep above) — `calculateTimesheet` always
+summed `paidPtoHours + paidSickHours + paidHolidayHours` unconditionally
+into `actual_paid_hours`, regardless of the flags. `src/lib/calc.ts:14-27`
+adds `ptoCountsTowardGuarantee`/`sickCountsTowardGuarantee`/
+`holidayCountsTowardGuarantee` to `TimesheetCalcInput`; `calc.ts:75-79` gates
+each category's contribution to `actualPaidHours` (the number that offsets
+how much guarantee top-up is owed) on its flag, while leaving
+`payableRegularHours`'s unconditional inclusion of the same hours untouched
+— a category excluded from the guarantee calc is still fully paid as its own
+leave line, it just stops offsetting the guarantee shortfall. `Pay.tsx`'s
+`doGenerate` (~line 313-324) now passes all three flags from
+`activeCaregiver`.
+
+**2. All five guaranteed-hours policy toggles now have settings UI for the
+first time (spec 13.6).** Beyond the three above, `unpaid_time_off_reduces_guarantee`
+and `family_cancellation_counts_toward_guarantee` were already *read* by the
+calc engine but had **no UI anywhere** to change them away from their DB
+defaults — confirmed by grepping for each field name being *assigned* (not
+just read) anywhere in `src`; there were zero hits for any of the five.
+`CaregiverDetail.tsx`'s "Pay settings" card now has a "What counts toward
+meeting the guarantee" checkbox group (rendered inside the existing
+`guaranteedEnabled` block) for all five flags, wired into `handleSave`'s
+update payload. All five are already covered by the `edit_guaranteed_hours_policy`
+RLS restriction trigger (migration `0002_rls.sql`'s
+`enforce_caregiver_profile_restrictions`, which already checked
+`unpaid_time_off_reduces_guarantee`/`family_cancellation_counts_toward_guarantee`/
+`pto_counts_toward_guarantee`/`sick_counts_toward_guarantee`/
+`holiday_counts_toward_guarantee` — the trigger was ahead of the UI), so no
+RLS change was needed.
+
+**3. Nanny visibility flags (`nanny_can_view_*`) are now actually settable
+(spec 11/15.4).** The 2026-07-26 (part 2) session enforced these four flags
+(gating what a nanny sees), but the same grep sweep found **none of them
+were ever assigned anywhere except the DB column default** — there was no
+settings surface at all, so a household could never turn any of them off (or
+back on) after the row was created. `CaregiverDetail.tsx` has a new "Nanny
+visibility" card (`toggleVisibilityFlag`, ~line 329) with one instant-toggle
+checkbox per flag (`NANNY_VISIBILITY_FLAGS`, ~line 26-38), following the same
+"toggle immediately + audit log" pattern as `More.tsx`'s co-admin permission
+checkboxes rather than a buffered form, since each flag is independent.
+
+**4. Payment method label + its nanny-visibility flag (spec 13.8).**
+`caregiver_profiles.payment_method_label` and `payment_records.payment_method_label`
+have existed since migration 0001 (with a check constraint and RLS coverage
+under the `edit_pay_rate` restriction group) but were **never set or
+displayed anywhere** — the only reference in `src` was reading it back out
+in the full-records export. Spec 13.8 lists both "Payment method label" and
+"Whether nanny can view payment method label" as Pay Settings, the latter of
+which had no backing column at all. Closed both:
+  - Migration `0016_nanny_can_view_payment_method.sql` adds
+    `caregiver_profiles.nanny_can_view_payment_method boolean not null
+    default true` (defaults true like `nanny_can_view_gross_pay`/
+    `nanny_can_view_pto_balance`/`nanny_can_view_guaranteed_hours` — only
+    `nanny_can_view_pay_rate` defaults false, since a payment-method label
+    like "Zelle" isn't as sensitive as the raw dollar rate). Added to
+    `NANNY_VISIBILITY_FLAGS` above.
+  - `CaregiverDetail.tsx`'s Pay settings form gained a "Payment method"
+    select (the 7 spec'd values + "Not set"), saved through the existing
+    `edit_pay_rate`-gated update.
+  - `Pay.tsx`'s `doGenerate` now copies `activeCaregiver.payment_method_label`
+    onto every new `payment_records` row (and the correction-insert path
+    carries it forward from the original, `Pay.tsx` ~line 654), and the
+    Payments list row now shows it (gated by `showPaymentMethod`, `Pay.tsx:171`)
+    next to the due date/amount. A shared `formatPaymentMethod` helper
+    (`src/lib/payPeriod.ts`) replaces what would otherwise be a second
+    display-label map, so `CaregiverDetail.tsx`'s select and `Pay.tsx`'s row
+    can't drift out of sync on wording.
+
+**5. Reimbursements and manual adjustments are now actually settable (spec
+13.8, 14.6 "Add adjustment", 16.8).** `calc.ts`'s gross-pay formula has
+always added `reimbursements + manualAdjustments` in (16.8's literal
+formula), and both are real columns on `timesheets`/`payment_records` — but
+`Pay.tsx`'s `doGenerate` hardcoded both to `0` at every call site, so neither
+could ever be nonzero except by copying an already-nonzero value forward
+during a payment correction (impossible to bootstrap — there was no path to
+create the first nonzero value). `Pay.tsx`'s "Generate timesheet" form now
+has two optional dollar inputs (~line 1006-1029) feeding `reimbursementsAmount`/
+`manualAdjustmentsAmount` (~line 314) into `calculateTimesheet` and both
+inserts. **Not built:** a standalone "Add adjustment" action on an
+already-generated, not-yet-paid payment record (spec 14.6 lists it as its
+own Pay Screen action, separate from generation time) — a parent who
+discovers a reimbursement is owed after generating can still add it by
+archiving and regenerating the timesheet (which cascades to its payment
+record per the existing archive behavior), so this isn't a hard blocker, but
+a direct "edit this due payment's adjustments" action wasn't added; flagged
+here rather than assumed equivalent, though not judged ambiguous enough to
+need its own Q&A item (it's a smaller, clearly-scoped follow-on to what
+shipped here).
+
+**6. `time_entries.schedule_shift_id` now populated (spec 15.8).** This
+column has existed since migration 0001 as an explicit "Scheduled shift ID,
+optional" field, but nothing in `src` ever wrote to it — confirmed via the
+same grep sweep. `Time.tsx`'s existing schedule pre-fill effect (unchanged
+logic, just now also captures the matched shift's id, `Time.tsx:58,111-125`)
+threads it through to both the manual-entry insert (`Time.tsx:163`) and
+clock-in (`Time.tsx:213-218`, which now also looks up today's scheduled
+shift, something it never did before). The link is by date/occurrence match,
+not by whether the logged times exactly equal the scheduled times — an
+entry stays linked to "the shift scheduled for this date" even if the
+nanny/parent edits the pre-filled hours, consistent with how the rest of the
+app already treats manual edits as expected/normal (spec 13.4's validation
+warnings, not blocks).
+
+**7. Caregiver private notes now have a read/write UI (spec 15.4
+`notes_private` / 18 "employer-only notes").** The dedicated
+`caregiver_private_notes` table (a separate table rather than a column,
+specifically so RLS can exclude the nanny role entirely — see its comment in
+migration 0001) and its `CaregiverPrivateNote` TS type have existed with full
+RLS since the beginning, but no screen ever read or wrote a row. Added a
+"Private notes" card to `CaregiverDetail.tsx` (~line 532, parent/co-admin
+only since the whole page already blocks nanny access) with a textarea
+upserting the existing table — no migration needed, RLS was already correct.
+
+### New Questions & Clarifications items opened (not built, by design)
+
+Three larger areas turned up in the same audit that genuinely need a
+decision rather than a silent pick — see `QUESTIONS_AND_CLARIFICATIONS.md`
+for full option sets:
+
+- **Item 24 — leave-policy accrual automation and per-policy settings**
+  (`per_hour_worked`/`per_pay_period`/`monthly` accrual, balance/carryover
+  caps, reset dates, and `leave_policies.counts_toward_guarantee`/
+  `visible_to_nanny`, which appear to duplicate the caregiver-level flags
+  item 1-3 above just wired up). Blocked on both a serverless-trigger design
+  question (no cron for "monthly" accrual) and resolving the apparent
+  two-settings-one-concept redundancy.
+- **Item 25 — timesheet reject/request-correction workflow doesn't exist**
+  at all (spec 11/13.5/14.3/17): the nanny's "submit" and the parent's
+  "generate" are two disconnected flows, so there's no way to actually
+  approve or send back a submitted timesheet with a correction note today.
+  Fixing it properly means deciding whether to merge the two flows, which
+  touches the core pay-approval data path.
+- **Item 26 — payment record attachment/photo** (spec 13.8): the column has
+  existed since migration 0001, but the app has zero Supabase Storage
+  integration to build on; recommended to skip unless a household actually
+  asks for it.
+
+### Time-entry schedule pre-fill — re-verified with actual scenario testing, one small addition, no bugs found
+
+Per this session's explicit instruction to exercise (not just re-read)
+`Time.tsx`'s pre-fill effect: traced both the caregiver-switch case and the
+overnight-shift case by hand.
+- **Switching caregivers (parent view):** `CaregiverSelect` changes
+  `caregiverId` → the `loadSchedule` effect (`Time.tsx:103-105`) re-fetches
+  that caregiver's `schedule_templates`/`schedule_shifts` → since the
+  pre-fill effect (`Time.tsx:111-125`) depends on `templates`/
+  `shiftsByTemplate`, it re-runs automatically once the new caregiver's
+  schedule loads and re-derives start/end/break for the already-selected
+  date. Confirmed correct — no stale pre-fill from the previous caregiver.
+- **Overnight shift (e.g. a shift scheduled 22:00-06:00):** the effect sets
+  `startTime`/`endTime` directly from the shift's stored `start_time`/
+  `end_time` with no duration math of its own; `hoursBetween` (`calc.ts:106`)
+  already adds 24h when `end < start`, so the paid-hours preview and the
+  saved `paid_hours` come out correct. Confirmed correct.
+- **Multiple shifts scheduled the same day (e.g. a split shift):** the
+  effect only pre-fills from `occurrences[0]`, silently ignoring any other
+  shift scheduled for the same date. This is an inherent limitation of a
+  single start/end/break form (there's nowhere to put a second shift's
+  hours), not a bug in the pre-fill logic itself, and the spec's manual-entry
+  field list (13.4) doesn't call for multi-segment entries either — not
+  treated as a gap.
+- **Missing link:** while tracing this, found `schedule_shift_id` (spec
+  15.8) was computed as part of the pre-fill (the matched shift was right
+  there) but never saved — closed as gap #6 above, since it's a direct,
+  low-risk extension of code this verification pass was already reading
+  closely.
+
+No bug found in the core pre-fill/default-to-today behavior itself; the one
+change made (`schedule_shift_id` linking) is additive and doesn't alter any
+existing pre-fill value.
+
+---
+
 ## 2026-07-28 — Home screen "Today" and "This Week" cards (spec 14.1/14.2), fresh spec-vs-app audit
 
 **Fresh pass over `APPLICATION_SPEC.md` against the current app**, as invited

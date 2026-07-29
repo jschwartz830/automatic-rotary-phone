@@ -67,6 +67,7 @@ export interface CaregiverProfile {
   nanny_can_view_gross_pay: boolean
   nanny_can_view_pto_balance: boolean
   nanny_can_view_guaranteed_hours: boolean
+  nanny_can_view_payment_method: boolean
   guaranteed_hours_enabled: boolean
   guaranteed_hours_basis: GuaranteedHoursBasis
   fixed_weekly_guaranteed_hours: number | null
