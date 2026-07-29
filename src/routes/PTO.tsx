@@ -14,6 +14,8 @@ import { downloadCsv } from '../lib/csv'
 import { Card, Button, Field, inputClass, dateInputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
+import { SwipeRow } from '../components/SwipeRow'
+import { Modal } from '../components/Modal'
 import type { LeaveLedgerEntry, LeaveRequest, LeaveType } from '../lib/types'
 
 const LEAVE_TYPES: LeaveType[] = ['pto', 'sick', 'unpaid', 'holiday', 'other_paid']
@@ -37,7 +39,7 @@ export function PTO() {
   const [error, setError] = useState<string | null>(null)
   const [isRetroactive, setIsRetroactive] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [detailId, setDetailId] = useState<string | null>(null)
   const [archivingId, setArchivingId] = useState<string | null>(null)
   const { policies } = useLeavePolicies(caregiverId)
 
@@ -45,6 +47,10 @@ export function PTO() {
   // Spec 11/15.4: nanny_can_view_pto_balance only restricts the nanny's own
   // view -- a parent/co-admin always sees it regardless of the flag.
   const showPtoBalance = !isNanny || activeCaregiver?.nanny_can_view_pto_balance !== false
+  // Archiving an approved request reverses its ledger hours (see
+  // archiveRequest), so the request-based balance fallback has to drop
+  // archived rows too or the two ways of computing a balance disagree.
+  const unarchivedRequests = requests.filter((r) => !r.archived_at)
 
   useEffect(() => {
     if (isNanny && caregiverProfile) {
@@ -74,97 +80,81 @@ export function PTO() {
   useEffect(() => {
     if (caregiverId) loadRequests(caregiverId)
     setShowForm(false)
-    cancelEdit()
+    closeDetail()
   }, [caregiverId])
+
+  /** Current balance for one policy, read fresh so appended rows stack correctly. */
+  async function policyBalance(forCaregiverId: string, leavePolicyId: string): Promise<number> {
+    const { data } = await supabase
+      .from('leave_ledger')
+      .select('hours_delta')
+      .eq('caregiver_id', forCaregiverId)
+      .eq('leave_policy_id', leavePolicyId)
+    return (data ?? []).reduce((sum: number, r: { hours_delta: number }) => sum + r.hours_delta, 0)
+  }
 
   // Spec 13.7: every leave event that hits 'approved' must produce a
   // leave_ledger row -- the balance display switches entirely to ledger-based
   // math as soon as one exists for a policy (see Balances render below), so a
   // request approved without a matching ledger entry silently vanishes from
   // the total.
-  async function writeUsedLedgerEntry(request: {
-    caregiver_id: string
-    leave_type: LeaveType
-    start_date: string
-    hours_requested: number | null
-    id: string
-  }) {
-    if (!request.hours_requested) return
-    const policy = policies.find((p) => p.leave_type === request.leave_type)
+  async function applyUsedLedger(
+    request: { caregiver_id: string; id: string },
+    leave: { leave_type: LeaveType; start_date: string; hours_requested: number | null },
+    eventType: 'used' | 'correction',
+    notes: string | null = null
+  ) {
+    if (!leave.hours_requested) return
+    const policy = policies.find((p) => p.leave_type === leave.leave_type)
     if (!policy) return
-    const { data: ledgerRows } = await supabase
-      .from('leave_ledger')
-      .select('hours_delta')
-      .eq('caregiver_id', request.caregiver_id)
-      .eq('leave_policy_id', policy.id)
-    const currentBalance = (ledgerRows ?? []).reduce((sum: number, r: { hours_delta: number }) => sum + r.hours_delta, 0)
+    const currentBalance = await policyBalance(request.caregiver_id, policy.id)
     await supabase.from('leave_ledger').insert({
       caregiver_id: request.caregiver_id,
       leave_policy_id: policy.id,
-      event_date: request.start_date,
-      event_type: 'used',
-      hours_delta: -request.hours_requested,
-      balance_after: currentBalance - request.hours_requested,
+      event_date: leave.start_date,
+      event_type: eventType,
+      hours_delta: -leave.hours_requested,
+      balance_after: currentBalance - leave.hours_requested,
       related_leave_request_id: request.id,
       created_by: user?.id ?? null,
+      notes,
     })
   }
 
-  // Ledger rows are append-only (see leave_ledger RLS), so editing an
-  // already-approved request's hours/type/date can't just mutate the
-  // original 'used' row -- it reverses it and writes a fresh 'correction',
-  // both event types the schema already reserves for exactly this.
-  async function adjustLedgerForEdit(
-    original: LeaveRequest,
-    updated: { leave_type: LeaveType; start_date: string; hours_requested: number | null }
-  ) {
-    const { data: relatedRows } = await supabase
+  // Ledger rows are append-only (see leave_ledger RLS), so undoing a request's
+  // effect on the balance -- because it was edited, archived, or restored --
+  // can't mutate the original 'used' row. Instead we net out everything the
+  // request has already contributed per policy and post a single balancing
+  // 'reversal'. Netting (rather than reversing each 'used' row) is what makes
+  // this safe to call repeatedly: a request edited twice, or edited and then
+  // archived, ends up at exactly zero either way.
+  async function zeroOutLedgerForRequest(request: LeaveRequest, notes: string) {
+    const { data } = await supabase
       .from('leave_ledger')
       .select('*')
-      .eq('related_leave_request_id', original.id)
-      .eq('event_type', 'used')
-    const related = (relatedRows ?? []) as LeaveLedgerEntry[]
+      .eq('related_leave_request_id', request.id)
+    const rows = (data ?? []) as LeaveLedgerEntry[]
 
-    for (const entry of related) {
-      const { data: ledgerRows } = await supabase
-        .from('leave_ledger')
-        .select('hours_delta')
-        .eq('caregiver_id', original.caregiver_id)
-        .eq('leave_policy_id', entry.leave_policy_id)
-      const currentBalance = (ledgerRows ?? []).reduce((sum: number, r: { hours_delta: number }) => sum + r.hours_delta, 0)
-      await supabase.from('leave_ledger').insert({
-        caregiver_id: original.caregiver_id,
-        leave_policy_id: entry.leave_policy_id,
-        event_date: format(new Date(), 'yyyy-MM-dd'),
-        event_type: 'reversal',
-        hours_delta: -entry.hours_delta,
-        balance_after: currentBalance - entry.hours_delta,
-        related_leave_request_id: original.id,
-        created_by: user?.id ?? null,
-        notes: 'Reversal for edited PTO entry',
-      })
+    const netByPolicy = new Map<string, number>()
+    for (const row of rows) {
+      netByPolicy.set(row.leave_policy_id, (netByPolicy.get(row.leave_policy_id) ?? 0) + row.hours_delta)
     }
 
-    if (!updated.hours_requested) return
-    const newPolicy = policies.find((p) => p.leave_type === updated.leave_type)
-    if (!newPolicy) return
-    const { data: ledgerRows } = await supabase
-      .from('leave_ledger')
-      .select('hours_delta')
-      .eq('caregiver_id', original.caregiver_id)
-      .eq('leave_policy_id', newPolicy.id)
-    const currentBalance = (ledgerRows ?? []).reduce((sum: number, r: { hours_delta: number }) => sum + r.hours_delta, 0)
-    await supabase.from('leave_ledger').insert({
-      caregiver_id: original.caregiver_id,
-      leave_policy_id: newPolicy.id,
-      event_date: updated.start_date,
-      event_type: 'correction',
-      hours_delta: -updated.hours_requested,
-      balance_after: currentBalance - updated.hours_requested,
-      related_leave_request_id: original.id,
-      created_by: user?.id ?? null,
-      notes: 'Corrected PTO entry',
-    })
+    for (const [leavePolicyId, net] of netByPolicy) {
+      if (Math.abs(net) < 0.005) continue
+      const currentBalance = await policyBalance(request.caregiver_id, leavePolicyId)
+      await supabase.from('leave_ledger').insert({
+        caregiver_id: request.caregiver_id,
+        leave_policy_id: leavePolicyId,
+        event_date: format(new Date(), 'yyyy-MM-dd'),
+        event_type: 'reversal',
+        hours_delta: -net,
+        balance_after: currentBalance - net,
+        related_leave_request_id: request.id,
+        created_by: user?.id ?? null,
+        notes,
+      })
+    }
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -198,7 +188,7 @@ export function PTO() {
       const balance =
         policyLedger.length > 0
           ? computeLeaveBalanceFromLedger(balancePolicy, policyLedger)
-          : computeLeaveBalance(balancePolicy, requests)
+          : computeLeaveBalance(balancePolicy, unarchivedRequests)
       const available = balance.allowanceHours != null ? balance.allowanceHours - balance.usedHours : Infinity
       if (Number(hours) > available) {
         setError(
@@ -229,7 +219,7 @@ export function PTO() {
       if (insertError) throw insertError
 
       if (request.status === 'approved') {
-        await writeUsedLedgerEntry(request)
+        await applyUsedLedger(request, request, 'used')
       }
 
       await logAuditEvent({
@@ -253,21 +243,41 @@ export function PTO() {
   }
 
   async function reviewRequest(request: LeaveRequest, status: 'approved' | 'rejected') {
-    await supabase
-      .from('leave_requests')
-      .update({ status, reviewed_by: user?.id ?? null, reviewed_at: new Date().toISOString() })
-      .eq('id', request.id)
+    setError(null)
+    try {
+      const { error: updateError } = await supabase
+        .from('leave_requests')
+        .update({ status, reviewed_by: user?.id ?? null, reviewed_at: new Date().toISOString() })
+        .eq('id', request.id)
+      if (updateError) throw updateError
 
-    if (status === 'approved') {
-      await writeUsedLedgerEntry(request)
+      if (status === 'approved') {
+        await applyUsedLedger(request, request, 'used')
+      } else {
+        // A request that was approved and is now rejected must give its hours
+        // back; a no-op for one that was never approved.
+        await zeroOutLedgerForRequest(request, 'Reversal for rejected leave')
+      }
+
+      await logAuditEvent({
+        householdId: household?.id ?? '',
+        actorUserId: user?.id ?? '',
+        entityType: 'leave_request',
+        entityId: request.id,
+        action: status === 'approved' ? 'approve' : 'reject',
+        before: { status: request.status },
+        after: { status },
+      })
+
+      if (caregiverId) await loadRequests(caregiverId)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not update request.'))
     }
-
-    if (caregiverId) await loadRequests(caregiverId)
   }
 
-  function startEdit(request: LeaveRequest) {
+  function openDetail(request: LeaveRequest) {
     setShowForm(false)
-    setEditingId(request.id)
+    setDetailId(request.id)
     setLeaveType(request.leave_type)
     setStartDate(request.start_date)
     setEndDate(request.end_date)
@@ -275,8 +285,8 @@ export function PTO() {
     setError(null)
   }
 
-  function cancelEdit() {
-    setEditingId(null)
+  function closeDetail() {
+    setDetailId(null)
     setLeaveType('pto')
     setStartDate('')
     setEndDate('')
@@ -286,8 +296,8 @@ export function PTO() {
 
   async function handleEditSubmit(e: FormEvent) {
     e.preventDefault()
-    const original = requests.find((r) => r.id === editingId)
-    if (!editingId || !original || !caregiverId || !household) return
+    const original = requests.find((r) => r.id === detailId)
+    if (!detailId || !original || !caregiverId || !household) return
     if (!isValidCalendarDate(startDate) || (endDate && !isValidCalendarDate(endDate))) {
       setError('That date does not exist. Please pick a valid date.')
       return
@@ -305,18 +315,27 @@ export function PTO() {
           end_date: endDate || startDate,
           hours_requested: newHours,
         })
-        .eq('id', editingId)
+        .eq('id', detailId)
       if (updateError) throw updateError
 
-      if (original.status === 'approved') {
-        await adjustLedgerForEdit(original, { leave_type: leaveType, start_date: startDate, hours_requested: newHours })
+      // An archived request contributes nothing to the balance, so editing one
+      // must not re-apply its hours -- only a live approved request gets its
+      // ledger effect rewritten.
+      if (original.status === 'approved' && !original.archived_at) {
+        await zeroOutLedgerForRequest(original, 'Reversal for edited PTO entry')
+        await applyUsedLedger(
+          original,
+          { leave_type: leaveType, start_date: startDate, hours_requested: newHours },
+          'correction',
+          'Corrected PTO entry'
+        )
       }
 
       await logAuditEvent({
         householdId: household.id,
         actorUserId: user?.id ?? '',
         entityType: 'leave_request',
-        entityId: editingId,
+        entityId: detailId,
         action: 'update',
         before: {
           leaveType: original.leave_type,
@@ -327,7 +346,7 @@ export function PTO() {
         after: { leaveType, startDate, endDate, hours: newHours },
       })
 
-      cancelEdit()
+      closeDetail()
       await loadRequests(caregiverId)
     } catch (err) {
       setError(errorMessage(err, 'Could not save changes.'))
@@ -336,22 +355,38 @@ export function PTO() {
     }
   }
 
+  // Archiving is reversible and works from any status -- including 'approved',
+  // which is the whole point: a parent who recorded leave that never happened
+  // needs it gone. Archiving an approved request also hands its hours back
+  // (and unarchiving takes them again), so the balance always matches what's
+  // actually on the list.
   async function archiveRequest(request: LeaveRequest) {
     if (!household) return
     setArchivingId(request.id)
+    setError(null)
     try {
-      await supabase
+      const { error: archiveError } = await supabase
         .from('leave_requests')
         .update({ archived_at: new Date().toISOString(), archived_by: user?.id ?? null })
         .eq('id', request.id)
+      if (archiveError) throw archiveError
+
+      if (request.status === 'approved') {
+        await zeroOutLedgerForRequest(request, 'Reversal for archived PTO entry')
+      }
+
       await logAuditEvent({
         householdId: household.id,
         actorUserId: user?.id ?? '',
         entityType: 'leave_request',
         entityId: request.id,
         action: 'archive',
+        before: { status: request.status, hours: request.hours_requested },
       })
+      if (detailId === request.id) closeDetail()
       if (caregiverId) await loadRequests(caregiverId)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not archive entry.'))
     } finally {
       setArchivingId(null)
     }
@@ -360,11 +395,18 @@ export function PTO() {
   async function unarchiveRequest(request: LeaveRequest) {
     if (!household) return
     setArchivingId(request.id)
+    setError(null)
     try {
-      await supabase
+      const { error: unarchiveError } = await supabase
         .from('leave_requests')
         .update({ archived_at: null, archived_by: null })
         .eq('id', request.id)
+      if (unarchiveError) throw unarchiveError
+
+      if (request.status === 'approved') {
+        await applyUsedLedger(request, request, 'correction', 'Restored archived PTO entry')
+      }
+
       await logAuditEvent({
         householdId: household.id,
         actorUserId: user?.id ?? '',
@@ -373,6 +415,8 @@ export function PTO() {
         action: 'unarchive',
       })
       if (caregiverId) await loadRequests(caregiverId)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not restore entry.'))
     } finally {
       setArchivingId(null)
     }
@@ -394,6 +438,12 @@ export function PTO() {
     )
   }
 
+  function canEdit(request: LeaveRequest) {
+    return isParentOrCoAdmin || (isNanny && request.status === 'requested' && !request.archived_at)
+  }
+
+  const detailRequest = requests.find((r) => r.id === detailId) ?? null
+
   return (
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
@@ -401,7 +451,7 @@ export function PTO() {
         <Button
           variant="secondary"
           onClick={() => {
-            if (editingId) cancelEdit()
+            if (detailId) closeDetail()
             setShowForm((s) => !s)
           }}
         >
@@ -455,7 +505,7 @@ export function PTO() {
               const policyLedger = ledgerEntries.filter((e) => e.leave_policy_id === (policies.find((p) => p.leave_type === type)?.id))
               const balance = policyLedger.length > 0
                 ? computeLeaveBalanceFromLedger(policy, policyLedger)
-                : computeLeaveBalance(policy, requests)
+                : computeLeaveBalance(policy, unarchivedRequests)
               return (
                 <div key={type}>
                   <div className="flex items-center justify-between">
@@ -484,9 +534,9 @@ export function PTO() {
         </Card>
       )}
 
-      {(showForm || editingId) && (
-        <Card title={editingId ? 'Edit leave' : isParentOrCoAdmin ? 'Record leave' : 'Request leave'}>
-          <form onSubmit={editingId ? handleEditSubmit : handleSubmit} className="space-y-3">
+      {showForm && (
+        <Card title={isParentOrCoAdmin ? 'Record leave' : 'Request leave'}>
+          <form onSubmit={handleSubmit} className="space-y-3">
             <Field label="Type">
               <select className={inputClass} value={leaveType} onChange={(e) => setLeaveType(e.target.value as LeaveType)}>
                 {LEAVE_TYPES.map((t) => (
@@ -520,7 +570,7 @@ export function PTO() {
                 onChange={(e) => setHours(e.target.value)}
               />
             </Field>
-            {!editingId && isParentOrCoAdmin && (
+            {isParentOrCoAdmin && (
               <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
                 <input
                   type="checkbox"
@@ -531,19 +581,14 @@ export function PTO() {
               </label>
             )}
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-            <div className="flex gap-2">
-              {editingId && (
-                <Button type="button" variant="secondary" className="flex-1" onClick={cancelEdit}>
-                  Cancel
-                </Button>
-              )}
-              <Button type="submit" className="flex-1" disabled={submitting}>
-                {submitting ? 'Saving…' : editingId ? 'Save changes' : 'Submit'}
-              </Button>
-            </div>
+            <Button type="submit" className="w-full" disabled={submitting}>
+              {submitting ? 'Saving…' : 'Submit'}
+            </Button>
           </form>
         </Card>
       )}
+
+      {error && !showForm && !detailId && <p className="px-1 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
       {requests.some((r) => r.archived_at) && (
         <label className="flex items-center justify-end gap-2 text-xs text-gray-500 dark:text-gray-400">
@@ -563,59 +608,172 @@ export function PTO() {
         }
         return (
           <div className="space-y-2">
+            <p className="px-1 text-[11px] text-gray-400 dark:text-gray-500">
+              Tap an entry for details. Swipe left to archive
+              {isParentOrCoAdmin ? ', swipe right to approve' : ''}.
+            </p>
             {visibleRequests.map((r) => (
-              <Card key={r.id}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{formatLeaveType(r.leave_type)}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {r.start_date}
-                      {r.end_date !== r.start_date ? ` – ${r.end_date}` : ''} · {r.hours_requested ?? '—'} hrs
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <StatusChip status={r.status} />
-                    {r.archived_at && <span className="text-[11px] text-gray-400 dark:text-gray-500">Archived</span>}
-                    {isParentOrCoAdmin && r.status === 'requested' && (
-                      <>
-                        <button className="text-xs text-green-600 underline dark:text-green-400" onClick={() => reviewRequest(r, 'approved')}>
+              <SwipeRow
+                key={r.id}
+                className="rounded-2xl"
+                contentClassName=""
+                openLabel={`Open ${formatLeaveType(r.leave_type)} leave for ${r.start_date}`}
+                onOpen={() => openDetail(r)}
+                leadingAction={
+                  isParentOrCoAdmin && r.status === 'requested' && !r.archived_at
+                    ? { label: 'Approve', tone: 'approve', onAction: () => reviewRequest(r, 'approved') }
+                    : null
+                }
+                trailingActions={
+                  isParentOrCoAdmin
+                    ? [
+                        r.archived_at
+                          ? {
+                              label: 'Restore',
+                              tone: 'restore' as const,
+                              onAction: () => unarchiveRequest(r),
+                              disabled: archivingId === r.id,
+                            }
+                          : {
+                              label: 'Archive',
+                              tone: 'archive' as const,
+                              onAction: () => archiveRequest(r),
+                              disabled: archivingId === r.id,
+                            },
+                      ]
+                    : []
+                }
+              >
+                <Card>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{formatLeaveType(r.leave_type)}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {r.start_date}
+                        {r.end_date !== r.start_date ? ` – ${r.end_date}` : ''} · {r.hours_requested ?? '—'} hrs
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {r.archived_at && <span className="text-[11px] text-gray-400 dark:text-gray-500">Archived</span>}
+                      <StatusChip status={r.status} />
+                      {isParentOrCoAdmin && r.status === 'requested' && !r.archived_at && (
+                        <button
+                          className="text-xs text-green-600 underline dark:text-green-400"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            reviewRequest(r, 'approved')
+                          }}
+                        >
                           Approve
                         </button>
-                        <button className="text-xs text-red-600 underline dark:text-red-400" onClick={() => reviewRequest(r, 'rejected')}>
-                          Reject
-                        </button>
-                      </>
-                    )}
-                    {isParentOrCoAdmin && r.status === 'approved' && !r.archived_at && (
-                      <>
-                        <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={() => startEdit(r)}>
-                          Edit
-                        </button>
-                        <button
-                          className="text-xs text-gray-500 underline disabled:opacity-50 dark:text-gray-400"
-                          disabled={archivingId === r.id}
-                          onClick={() => archiveRequest(r)}
-                        >
-                          Archive
-                        </button>
-                      </>
-                    )}
-                    {isParentOrCoAdmin && r.archived_at && (
-                      <button
-                        className="text-xs text-gray-500 underline disabled:opacity-50 dark:text-gray-400"
-                        disabled={archivingId === r.id}
-                        onClick={() => unarchiveRequest(r)}
-                      >
-                        Unarchive
-                      </button>
-                    )}
+                      )}
+                    </div>
                   </div>
-                </div>
-              </Card>
+                </Card>
+              </SwipeRow>
             ))}
           </div>
         )
       })()}
+
+      {detailRequest && (
+        <Modal title="Leave details" onClose={closeDetail}>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <StatusChip status={detailRequest.status} />
+              {detailRequest.archived_at && (
+                <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                  Archived {detailRequest.archived_at.slice(0, 10)}
+                </span>
+              )}
+            </div>
+
+            {canEdit(detailRequest) ? (
+              <form onSubmit={handleEditSubmit} className="space-y-3">
+                <Field label="Type">
+                  <select className={inputClass} value={leaveType} onChange={(e) => setLeaveType(e.target.value as LeaveType)}>
+                    {LEAVE_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {formatLeaveType(t)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Start date">
+                  <input
+                    type="date"
+                    className={dateInputClass}
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    required
+                  />
+                </Field>
+                <Field label="End date">
+                  <input type="date" className={dateInputClass} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                </Field>
+                <Field label="Hours">
+                  <input
+                    type="number"
+                    step="0.25"
+                    min="0"
+                    className={inputClass}
+                    value={hours}
+                    onChange={(e) => setHours(e.target.value)}
+                  />
+                </Field>
+                {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+                <Button type="submit" className="w-full" disabled={submitting}>
+                  {submitting ? 'Saving…' : 'Save changes'}
+                </Button>
+              </form>
+            ) : (
+              <div className="space-y-1 text-sm text-gray-700 dark:text-gray-300">
+                <p>{formatLeaveType(detailRequest.leave_type)}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {detailRequest.start_date}
+                  {detailRequest.end_date !== detailRequest.start_date ? ` – ${detailRequest.end_date}` : ''} ·{' '}
+                  {detailRequest.hours_requested ?? '—'} hrs
+                </p>
+                {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+              </div>
+            )}
+
+            {isParentOrCoAdmin && (
+              <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-3 dark:border-gray-700">
+                {detailRequest.status === 'requested' && !detailRequest.archived_at && (
+                  <>
+                    <Button className="flex-1" onClick={() => reviewRequest(detailRequest, 'approved')}>
+                      Approve
+                    </Button>
+                    <Button variant="secondary" className="flex-1" onClick={() => reviewRequest(detailRequest, 'rejected')}>
+                      Reject
+                    </Button>
+                  </>
+                )}
+                {detailRequest.archived_at ? (
+                  <Button
+                    variant="secondary"
+                    className="flex-1"
+                    disabled={archivingId === detailRequest.id}
+                    onClick={() => unarchiveRequest(detailRequest)}
+                  >
+                    {archivingId === detailRequest.id ? 'Restoring…' : 'Restore'}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="danger"
+                    className="flex-1"
+                    disabled={archivingId === detailRequest.id}
+                    onClick={() => archiveRequest(detailRequest)}
+                  >
+                    {archivingId === detailRequest.id ? 'Archiving…' : 'Archive'}
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
