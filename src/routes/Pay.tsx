@@ -23,6 +23,8 @@ import {
 import { Card, Button, Field, inputClass, dateInputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
+import { SwipeRow } from '../components/SwipeRow'
+import { Modal } from '../components/Modal'
 import type {
   CaregiverProfile,
   LeaveLedgerEntry,
@@ -99,6 +101,9 @@ function timesheetErrorMessage(err: unknown, fallback: string): string {
   return errorMessage(err, fallback)
 }
 
+// Statuses where money is still owed, i.e. "mark paid"/"void" apply.
+const PAYABLE_STATUSES: readonly string[] = ['due', 'overdue', 'upcoming', 'partially_paid']
+
 function computeDueDate(periodEnd: string, caregiver: CaregiverProfile): string {
   if (caregiver.payday_rule === 'days_after_period_end' && caregiver.payday_days_after_period_end != null) {
     return format(addDays(new Date(periodEnd), caregiver.payday_days_after_period_end), 'yyyy-MM-dd')
@@ -160,8 +165,12 @@ export function Pay() {
   const [importMessage, setImportMessage] = useState<string | null>(null)
   const timesheetImportInput = useRef<HTMLInputElement>(null)
 
-  const [expandedTimesheetId, setExpandedTimesheetId] = useState<string | null>(null)
-  const [expandedPaymentId, setExpandedPaymentId] = useState<string | null>(null)
+  // Tapping a timesheet/payment row opens its detail sheet.
+  const [detailTimesheetId, setDetailTimesheetId] = useState<string | null>(null)
+  const [detailPaymentId, setDetailPaymentId] = useState<string | null>(null)
+  const [approvingTimesheetId, setApprovingTimesheetId] = useState<string | null>(null)
+  const [archivingId, setArchivingId] = useState<string | null>(null)
+  const [showPaymentArchive, setShowPaymentArchive] = useState(false)
 
   const activeCaregiver = isNanny ? caregiverProfile : caregivers.find((c) => c.id === caregiverId) ?? null
   // Spec 11/15.4: nanny_can_view_gross_pay/nanny_can_view_guaranteed_hours only
@@ -172,6 +181,7 @@ export function Pay() {
   const activeTimesheets = timesheets.filter((t) => !t.deleted_at)
   const trashedTimesheets = timesheets.filter((t) => t.deleted_at)
   const activePayments = payments.filter((p) => !p.deleted_at)
+  const trashedPayments = payments.filter((p) => p.deleted_at)
   // Includes archived timesheets too -- the unique (caregiver, period_start,
   // period_end) constraint still blocks regenerating an archived period, so
   // catch-up must resume after it, not before.
@@ -274,8 +284,20 @@ export function Pay() {
     return { occurrences, exceptions, shiftsById }
   }
 
-  async function doGenerate(timeEntries: TimeEntry[]) {
-    if (!caregiverId || !household || !activeCaregiver) return
+  // Worked/leave/guarantee math for one period. Shared by "generate a
+  // timesheet from time entries" and "approve a nanny-submitted timesheet"
+  // (spec 13.5: on approval the app calculates payable hours and gross pay,
+  // then creates the payment record) -- identical arithmetic, the only
+  // difference being whether the numbers land on a new row or an existing one.
+  async function computePeriodTotals(
+    forCaregiverId: string,
+    caregiver: CaregiverProfile,
+    start: string,
+    end: string,
+    timeEntries: TimeEntry[],
+    reimbursementsAmount: number,
+    manualAdjustmentsAmount: number
+  ) {
     const actualWorkedHours = timeEntries
       .filter((t) => t.status === 'approved')
       .reduce((sum, t) => sum + (t.paid_hours ?? 0), 0)
@@ -283,21 +305,24 @@ export function Pay() {
     const { data: leaveRows } = await supabase
       .from('leave_requests')
       .select('*')
-      .eq('caregiver_id', caregiverId)
+      .eq('caregiver_id', forCaregiverId)
       .eq('status', 'approved')
-      .gte('start_date', periodStart)
-      .lte('end_date', periodEnd)
+      // An archived leave request has had its ledger hours handed back (see
+      // PTO.tsx archiveRequest), so it must not be paid out here either.
+      .is('archived_at', null)
+      .gte('start_date', start)
+      .lte('end_date', end)
     const leaveRequests = (leaveRows ?? []) as LeaveRequest[]
     const sumLeave = (type: LeaveRequest['leave_type']) =>
       leaveRequests.filter((l) => l.leave_type === type).reduce((sum, l) => sum + (l.hours_requested ?? 0), 0)
 
-    const { occurrences, exceptions, shiftsById } = await loadScheduleContext(caregiverId, periodStart, periodEnd)
+    const { occurrences, exceptions, shiftsById } = await loadScheduleContext(forCaregiverId, start, end)
     const scheduledHours = Math.max(
       occurrences.reduce((sum, o) => sum + shiftHours(o.shift), 0) +
         scheduleExceptionHoursDelta(exceptions, shiftsById),
       0
     )
-    const guaranteedHoursBase = computeGuaranteedHoursBase(activeCaregiver, occurrences, exceptions, shiftsById)
+    const guaranteedHoursBase = computeGuaranteedHoursBase(caregiver, occurrences, exceptions, shiftsById)
     // Family cancellation hours (spec 13.3, 13.6) now come from approved
     // schedule exceptions instead of manual entry -- see SPEC_CHANGE_LOG.md.
     // weather_emergency exceptions are folded into the same bucket: both
@@ -306,13 +331,10 @@ export function Pay() {
     // days, and inventing one for a single exception type wasn't worth a
     // migration. `other` exceptions are intentionally excluded -- too broad
     // a catch-all to assume it should always be guarantee-protected pay.
-    const cancellationHours = activeCaregiver.family_cancellation_counts_toward_guarantee
+    const cancellationHours = caregiver.family_cancellation_counts_toward_guarantee
       ? sumExceptionHoursByType(exceptions, shiftsById, 'family_cancellation', { requireAffectsPay: true }) +
         sumExceptionHoursByType(exceptions, shiftsById, 'weather_emergency', { requireAffectsPay: true })
       : 0
-
-    const reimbursementsAmount = round2(Number(reimbursements) || 0)
-    const manualAdjustmentsAmount = round2(Number(manualAdjustments) || 0)
 
     const result = calculateTimesheet({
       actualWorkedHours,
@@ -322,16 +344,94 @@ export function Pay() {
       familyCancellationHours: cancellationHours,
       unpaidTimeOffHours: sumLeave('unpaid'),
       guaranteedHoursBase,
-      unpaidTimeOffReducesGuarantee: activeCaregiver.unpaid_time_off_reduces_guarantee,
-      ptoCountsTowardGuarantee: activeCaregiver.pto_counts_toward_guarantee,
-      sickCountsTowardGuarantee: activeCaregiver.sick_counts_toward_guarantee,
-      holidayCountsTowardGuarantee: activeCaregiver.holiday_counts_toward_guarantee,
-      overtimeThresholdHours: activeCaregiver.overtime_threshold_hours,
-      overtimeMultiplier: activeCaregiver.overtime_multiplier,
-      hourlyRate: activeCaregiver.default_hourly_rate ?? 0,
+      unpaidTimeOffReducesGuarantee: caregiver.unpaid_time_off_reduces_guarantee,
+      ptoCountsTowardGuarantee: caregiver.pto_counts_toward_guarantee,
+      sickCountsTowardGuarantee: caregiver.sick_counts_toward_guarantee,
+      holidayCountsTowardGuarantee: caregiver.holiday_counts_toward_guarantee,
+      overtimeThresholdHours: caregiver.overtime_threshold_hours,
+      overtimeMultiplier: caregiver.overtime_multiplier,
+      hourlyRate: caregiver.default_hourly_rate ?? 0,
       reimbursements: reimbursementsAmount,
       manualAdjustments: manualAdjustmentsAmount,
     })
+
+    return {
+      caregiver,
+      actualWorkedHours,
+      scheduledHours,
+      cancellationHours,
+      ptoHours: sumLeave('pto'),
+      sickHours: sumLeave('sick'),
+      holidayHours: sumLeave('holiday'),
+      unpaidHours: sumLeave('unpaid'),
+      reimbursements: reimbursementsAmount,
+      manualAdjustments: manualAdjustmentsAmount,
+      result,
+    }
+  }
+
+  type PeriodTotals = Awaited<ReturnType<typeof computePeriodTotals>>
+
+  function timesheetHourFields(totals: PeriodTotals) {
+    return {
+      scheduled_hours: totals.scheduledHours,
+      guaranteed_hours: totals.result.guaranteedHours,
+      actual_worked_hours: totals.actualWorkedHours,
+      regular_worked_hours: totals.result.regularWorkedHours,
+      overtime_worked_hours: totals.result.overtimeWorkedHours,
+      paid_pto_hours: totals.ptoHours,
+      paid_sick_hours: totals.sickHours,
+      paid_holiday_hours: totals.holidayHours,
+      family_cancellation_hours: totals.cancellationHours,
+      unpaid_time_off_hours: totals.unpaidHours,
+      guarantee_adjustment_hours: totals.result.guaranteeAdjustmentHours,
+      payable_regular_hours: totals.result.payableRegularHours,
+      payable_overtime_hours: totals.result.payableOvertimeHours,
+      hourly_rate: totals.caregiver.default_hourly_rate,
+      overtime_rate: totals.result.overtimeRate,
+      reimbursements: totals.reimbursements,
+      manual_adjustments: totals.manualAdjustments,
+      gross_pay_due: totals.result.grossPayDue,
+    }
+  }
+
+  function paymentRecordFields(totals: PeriodTotals) {
+    return {
+      actual_worked_hours: totals.actualWorkedHours,
+      regular_worked_hours: totals.result.regularWorkedHours,
+      overtime_worked_hours: totals.result.overtimeWorkedHours,
+      guaranteed_hours: totals.result.guaranteedHours,
+      guarantee_adjustment_hours: totals.result.guaranteeAdjustmentHours,
+      payable_regular_hours: totals.result.payableRegularHours,
+      payable_overtime_hours: totals.result.payableOvertimeHours,
+      paid_pto_hours: totals.ptoHours,
+      paid_sick_hours: totals.sickHours,
+      paid_holiday_hours: totals.holidayHours,
+      family_cancellation_hours: totals.cancellationHours,
+      hourly_rate: totals.caregiver.default_hourly_rate,
+      overtime_rate: totals.result.overtimeRate,
+      reimbursements: totals.reimbursements,
+      manual_adjustments: totals.manualAdjustments,
+      // Spec 13.8 "Payment method label" -- carries the caregiver's
+      // configured default method onto the record; editable per-record isn't
+      // built (no screen sets it after generation), matching how hourly_rate
+      // is also just copied at generation time rather than re-editable.
+      payment_method_label: totals.caregiver.payment_method_label,
+      gross_pay_due: totals.result.grossPayDue,
+    }
+  }
+
+  async function doGenerate(timeEntries: TimeEntry[]) {
+    if (!caregiverId || !household || !activeCaregiver) return
+    const totals = await computePeriodTotals(
+      caregiverId,
+      activeCaregiver,
+      periodStart,
+      periodEnd,
+      timeEntries,
+      round2(Number(reimbursements) || 0),
+      round2(Number(manualAdjustments) || 0)
+    )
 
     const { data: timesheet, error: tsError } = await supabase
       .from('timesheets')
@@ -342,24 +442,7 @@ export function Pay() {
         status: 'approved',
         approved_at: new Date().toISOString(),
         approved_by: user?.id ?? null,
-        scheduled_hours: scheduledHours,
-        guaranteed_hours: result.guaranteedHours,
-        actual_worked_hours: actualWorkedHours,
-        regular_worked_hours: result.regularWorkedHours,
-        overtime_worked_hours: result.overtimeWorkedHours,
-        paid_pto_hours: sumLeave('pto'),
-        paid_sick_hours: sumLeave('sick'),
-        paid_holiday_hours: sumLeave('holiday'),
-        family_cancellation_hours: cancellationHours,
-        unpaid_time_off_hours: sumLeave('unpaid'),
-        guarantee_adjustment_hours: result.guaranteeAdjustmentHours,
-        payable_regular_hours: result.payableRegularHours,
-        payable_overtime_hours: result.payableOvertimeHours,
-        hourly_rate: activeCaregiver.default_hourly_rate,
-        overtime_rate: result.overtimeRate,
-        reimbursements: reimbursementsAmount,
-        manual_adjustments: manualAdjustmentsAmount,
-        gross_pay_due: result.grossPayDue,
+        ...timesheetHourFields(totals),
       })
       .select()
       .single()
@@ -371,39 +454,17 @@ export function Pay() {
       entityType: 'timesheet',
       entityId: timesheet.id,
       action: 'create',
-      after: { periodStart, periodEnd, grossPayDue: result.grossPayDue },
+      after: { periodStart, periodEnd, grossPayDue: totals.result.grossPayDue },
     })
-
-    const dueDate = computeDueDate(periodEnd, activeCaregiver)
 
     const { error: payError } = await supabase.from('payment_records').insert({
       caregiver_id: caregiverId,
       timesheet_id: timesheet.id,
       period_start: periodStart,
       period_end: periodEnd,
-      due_date: dueDate,
+      due_date: computeDueDate(periodEnd, activeCaregiver),
       status: 'due',
-      actual_worked_hours: actualWorkedHours,
-      regular_worked_hours: result.regularWorkedHours,
-      overtime_worked_hours: result.overtimeWorkedHours,
-      guaranteed_hours: result.guaranteedHours,
-      guarantee_adjustment_hours: result.guaranteeAdjustmentHours,
-      payable_regular_hours: result.payableRegularHours,
-      payable_overtime_hours: result.payableOvertimeHours,
-      paid_pto_hours: sumLeave('pto'),
-      paid_sick_hours: sumLeave('sick'),
-      paid_holiday_hours: sumLeave('holiday'),
-      family_cancellation_hours: cancellationHours,
-      hourly_rate: activeCaregiver.default_hourly_rate,
-      overtime_rate: result.overtimeRate,
-      reimbursements: reimbursementsAmount,
-      manual_adjustments: manualAdjustmentsAmount,
-      // Spec 13.8 "Payment method label" -- carries the caregiver's
-      // configured default method onto the record; editable per-record isn't
-      // built (no screen sets it after generation), matching how hourly_rate
-      // is also just copied at generation time rather than re-editable.
-      payment_method_label: activeCaregiver.payment_method_label,
-      gross_pay_due: result.grossPayDue,
+      ...paymentRecordFields(totals),
     })
     if (payError) throw payError
 
@@ -412,6 +473,79 @@ export function Pay() {
     setManualAdjustments('0')
     setPendingUnapproved([])
     await loadData(caregiverId)
+  }
+
+  // Spec 13.5 Parent Workflow steps 4-6: approving a submitted timesheet
+  // recalculates payable hours/gross pay from the period's records (the
+  // nanny-submitted row only carries raw worked hours) and then creates the
+  // payment record. Before this, a nanny-submitted timesheet had no approval
+  // path at all and simply sat at 'submitted' forever.
+  async function approveTimesheet(timesheet: Timesheet) {
+    if (!caregiverId || !household || !activeCaregiver) return
+    setApprovingTimesheetId(timesheet.id)
+    setError(null)
+    try {
+      const { data: entries } = await supabase
+        .from('time_entries')
+        .select('*')
+        .eq('caregiver_id', timesheet.caregiver_id)
+        .is('deleted_at', null)
+        .gte('date', timesheet.period_start)
+        .lte('date', timesheet.period_end)
+      const totals = await computePeriodTotals(
+        timesheet.caregiver_id,
+        activeCaregiver,
+        timesheet.period_start,
+        timesheet.period_end,
+        (entries ?? []) as TimeEntry[],
+        timesheet.reimbursements,
+        timesheet.manual_adjustments
+      )
+
+      const { error: updateError } = await supabase
+        .from('timesheets')
+        .update({
+          status: 'approved',
+          approved_at: new Date().toISOString(),
+          approved_by: user?.id ?? null,
+          ...timesheetHourFields(totals),
+        })
+        .eq('id', timesheet.id)
+      if (updateError) throw updateError
+
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'timesheet',
+        entityId: timesheet.id,
+        action: 'approve',
+        before: { status: timesheet.status },
+        after: { status: 'approved', grossPayDue: totals.result.grossPayDue },
+      })
+
+      // Re-approving a timesheet that already produced a payment record must
+      // not create a second one.
+      const alreadyHasPayment = payments.some((p) => p.timesheet_id === timesheet.id && !p.deleted_at)
+      if (!alreadyHasPayment) {
+        const { error: payError } = await supabase.from('payment_records').insert({
+          caregiver_id: timesheet.caregiver_id,
+          timesheet_id: timesheet.id,
+          period_start: timesheet.period_start,
+          period_end: timesheet.period_end,
+          due_date: computeDueDate(timesheet.period_end, activeCaregiver),
+          status: 'due',
+          ...paymentRecordFields(totals),
+        })
+        if (payError) throw payError
+      }
+
+      setDetailTimesheetId(null)
+      await loadData(caregiverId)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not approve timesheet.'))
+    } finally {
+      setApprovingTimesheetId(null)
+    }
   }
 
   async function handleGenerateTimesheet(e: FormEvent) {
@@ -542,15 +676,11 @@ export function Pay() {
     }
   }
 
+  // No confirm prompt: archiving is a soft delete that the Archived section
+  // restores, and a modal on every swipe would defeat the gesture.
   async function archiveTimesheet(timesheet: Timesheet) {
-    if (
-      !window.confirm(
-        `Archive the timesheet for ${timesheet.period_start} – ${timesheet.period_end}? Its payment record moves with it. You can restore it later from Archived.`
-      )
-    ) {
-      return
-    }
     setError(null)
+    setArchivingId(timesheet.id)
     try {
       const deletedAt = new Date().toISOString()
       const { error: payDeleteError } = await supabase
@@ -575,14 +705,18 @@ export function Pay() {
         })
       }
 
+      setDetailTimesheetId(null)
       if (caregiverId) await loadData(caregiverId)
     } catch (err) {
       setError(errorMessage(err, 'Could not archive timesheet.'))
+    } finally {
+      setArchivingId(null)
     }
   }
 
   async function restoreTimesheet(timesheet: Timesheet) {
     setError(null)
+    setArchivingId(timesheet.id)
     try {
       const { error: payRestoreError } = await supabase
         .from('payment_records')
@@ -606,9 +740,45 @@ export function Pay() {
         })
       }
 
+      setDetailTimesheetId(null)
       if (caregiverId) await loadData(caregiverId)
     } catch (err) {
       setError(errorMessage(err, 'Could not restore timesheet.'))
+    } finally {
+      setArchivingId(null)
+    }
+  }
+
+  // A payment record can be archived on its own -- previously it could only
+  // be soft-deleted as a side effect of archiving its timesheet, which left
+  // no way to clear a payment raised in error without also losing the
+  // timesheet behind it. Restoring a timesheet still restores its payments.
+  async function setPaymentArchived(payment: PaymentRecord, archived: boolean) {
+    if (!household) return
+    setError(null)
+    setArchivingId(payment.id)
+    try {
+      const { error: updateError } = await supabase
+        .from('payment_records')
+        .update({ deleted_at: archived ? new Date().toISOString() : null })
+        .eq('id', payment.id)
+      if (updateError) throw updateError
+
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'payment_record',
+        entityId: payment.id,
+        action: archived ? 'archive' : 'restore',
+        before: { status: payment.status, gross_pay_due: payment.gross_pay_due },
+      })
+
+      setDetailPaymentId(null)
+      if (caregiverId) await loadData(caregiverId)
+    } catch (err) {
+      setError(errorMessage(err, archived ? 'Could not archive payment.' : 'Could not restore payment.'))
+    } finally {
+      setArchivingId(null)
     }
   }
 
@@ -950,6 +1120,46 @@ export function Pay() {
     }
   }
 
+  function canMarkPaid(payment: PaymentRecord) {
+    return isParentOrCoAdmin && !payment.deleted_at && PAYABLE_STATUSES.includes(payment.status)
+  }
+
+  function canApproveTimesheet(timesheet: Timesheet) {
+    return (
+      isParentOrCoAdmin &&
+      !timesheet.deleted_at &&
+      (timesheet.status === 'submitted' || timesheet.status === 'needs_correction')
+    )
+  }
+
+  function canArchiveTimesheet(timesheet: Timesheet) {
+    return isParentOrCoAdmin && !timesheet.deleted_at && timesheet.status !== 'paid' && timesheet.status !== 'locked'
+  }
+
+  // The mark-paid/void/correct forms render as cards near the top of the page,
+  // so opening one from the detail sheet has to dismiss the sheet first.
+  function openMarkPaid(payment: PaymentRecord) {
+    setDetailPaymentId(null)
+    setMarkingPaidPayment(payment)
+    setMarkPaidAmount((payment.gross_pay_due - (payment.amount_paid ?? 0)).toFixed(2))
+  }
+
+  function openVoid(payment: PaymentRecord) {
+    setDetailPaymentId(null)
+    setVoidingPayment(payment)
+    setVoidNote('')
+  }
+
+  function openCorrect(payment: PaymentRecord) {
+    setDetailPaymentId(null)
+    setCorrectingPayment(payment)
+    setCorrectionAmount(payment.gross_pay_due.toFixed(2))
+    setCorrectionNote('')
+  }
+
+  const detailTimesheet = timesheets.find((t) => t.id === detailTimesheetId) ?? null
+  const detailPayment = payments.find((p) => p.id === detailPaymentId) ?? null
+
   return (
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
@@ -1281,72 +1491,64 @@ export function Pay() {
         {activePayments.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">No payment records yet.</p>
         ) : (
-          <div className="space-y-2">
+          <div className="-mx-4">
+            {isParentOrCoAdmin && (
+              <p className="px-4 pb-2 text-[11px] text-gray-400 dark:text-gray-500">
+                Tap for details. Swipe left to archive, swipe right to mark paid.
+              </p>
+            )}
             {activePayments.map((p) => (
-              <div key={p.id} className="border-b border-gray-100 pb-2 last:border-0 dark:border-gray-700">
-                <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 text-left"
-                  onClick={() => setExpandedPaymentId((id) => (id === p.id ? null : p.id))}
-                >
-                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                    {p.period_start} – {p.period_end}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Due {p.due_date}{showGrossPay ? ` · $${p.gross_pay_due.toFixed(2)}` : ' · amount hidden'}
-                    {showPaymentMethod && formatPaymentMethod(p.payment_method_label) ? ` · ${formatPaymentMethod(p.payment_method_label)}` : ''}
-                  </p>
-                  {p.parent_note && (
-                    <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">{p.parent_note}</p>
-                  )}
-                </button>
-                <div className="flex flex-col items-end gap-1 shrink-0">
-                  <StatusChip status={p.status} />
-                  <div className="flex items-center gap-2">
-                    {isParentOrCoAdmin &&
-                      (p.status === 'due' || p.status === 'overdue' || p.status === 'upcoming' || p.status === 'partially_paid') && (
-                        <button
-                          className="text-xs text-blue-600 underline dark:text-blue-400"
-                          onClick={() => {
-                            setMarkingPaidPayment(p)
-                            setMarkPaidAmount((p.gross_pay_due - (p.amount_paid ?? 0)).toFixed(2))
-                          }}
-                        >
-                          Mark paid
-                        </button>
-                      )}
-                    {isParentOrCoAdmin && p.status === 'paid' && (
+              <SwipeRow
+                key={p.id}
+                className="border-b border-gray-100 last:border-0 dark:border-gray-700"
+                contentClassName="bg-white px-4 py-2 dark:bg-gray-800"
+                openLabel={`Open payment for ${p.period_start} to ${p.period_end}`}
+                onOpen={() => setDetailPaymentId(p.id)}
+                leadingAction={
+                  canMarkPaid(p) ? { label: 'Mark paid', tone: 'approve', onAction: () => openMarkPaid(p) } : null
+                }
+                trailingActions={
+                  isParentOrCoAdmin
+                    ? [
+                        {
+                          label: 'Archive',
+                          tone: 'archive' as const,
+                          onAction: () => setPaymentArchived(p, true),
+                          disabled: archivingId === p.id,
+                        },
+                      ]
+                    : []
+                }
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {p.period_start} – {p.period_end}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Due {p.due_date}{showGrossPay ? ` · $${p.gross_pay_due.toFixed(2)}` : ' · amount hidden'}
+                      {showPaymentMethod && formatPaymentMethod(p.payment_method_label) ? ` · ${formatPaymentMethod(p.payment_method_label)}` : ''}
+                    </p>
+                    {p.parent_note && (
+                      <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">{p.parent_note}</p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <StatusChip status={p.status} />
+                    {canMarkPaid(p) && (
                       <button
-                        className="text-xs text-amber-600 underline dark:text-amber-400"
-                        onClick={() => {
-                          setCorrectingPayment(p)
-                          setCorrectionAmount(p.gross_pay_due.toFixed(2))
-                          setCorrectionNote('')
+                        className="text-xs text-green-600 underline dark:text-green-400"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openMarkPaid(p)
                         }}
                       >
-                        Correct
+                        Mark paid
                       </button>
                     )}
-                    {isParentOrCoAdmin &&
-                      (p.status === 'due' || p.status === 'overdue' || p.status === 'upcoming' || p.status === 'partially_paid') && (
-                        <button
-                          className="text-xs text-red-500 underline dark:text-red-400"
-                          onClick={() => {
-                            setVoidingPayment(p)
-                            setVoidNote('')
-                          }}
-                        >
-                          Void
-                        </button>
-                      )}
                   </div>
                 </div>
-                </div>
-                {expandedPaymentId === p.id && (
-                  <HoursBreakdown record={p} showGuaranteedHours={showGuaranteedHours} />
-                )}
-              </div>
+              </SwipeRow>
             ))}
           </div>
         )}
@@ -1360,15 +1562,39 @@ export function Pay() {
         {activeTimesheets.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">No timesheets yet.</p>
         ) : (
-          <div className="space-y-2">
+          <div className="-mx-4">
+            {isParentOrCoAdmin && (
+              <p className="px-4 pb-2 text-[11px] text-gray-400 dark:text-gray-500">
+                Tap for details. Swipe left to archive, swipe right to approve.
+              </p>
+            )}
             {activeTimesheets.map((t) => (
-              <div key={t.id} className="border-b border-gray-100 pb-2 last:border-0 dark:border-gray-700">
-                <div className="flex items-center justify-between">
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 text-left"
-                    onClick={() => setExpandedTimesheetId((id) => (id === t.id ? null : t.id))}
-                  >
+              <SwipeRow
+                key={t.id}
+                className="border-b border-gray-100 last:border-0 dark:border-gray-700"
+                contentClassName="bg-white px-4 py-2 dark:bg-gray-800"
+                openLabel={`Open timesheet for ${t.period_start} to ${t.period_end}`}
+                onOpen={() => setDetailTimesheetId(t.id)}
+                leadingAction={
+                  canApproveTimesheet(t)
+                    ? { label: 'Approve', tone: 'approve', onAction: () => approveTimesheet(t), disabled: approvingTimesheetId === t.id }
+                    : null
+                }
+                trailingActions={
+                  canArchiveTimesheet(t)
+                    ? [
+                        {
+                          label: 'Archive',
+                          tone: 'archive' as const,
+                          onAction: () => archiveTimesheet(t),
+                          disabled: archivingId === t.id,
+                        },
+                      ]
+                    : []
+                }
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
                     <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                       {t.period_start} – {t.period_end}
                     </p>
@@ -1376,20 +1602,24 @@ export function Pay() {
                       {t.actual_worked_hours.toFixed(2)} hrs worked
                       {showGrossPay ? ` · $${t.gross_pay_due.toFixed(2)}` : ''}
                     </p>
-                  </button>
-                  <div className="flex items-center gap-2">
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
                     <StatusChip status={t.status} />
-                    {isParentOrCoAdmin && t.status !== 'paid' && t.status !== 'locked' && (
-                      <button className="text-xs text-red-600 underline dark:text-red-400" onClick={() => archiveTimesheet(t)}>
-                        Archive
+                    {canApproveTimesheet(t) && (
+                      <button
+                        className="text-xs text-green-600 underline disabled:opacity-50 dark:text-green-400"
+                        disabled={approvingTimesheetId === t.id}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          approveTimesheet(t)
+                        }}
+                      >
+                        {approvingTimesheetId === t.id ? 'Approving…' : 'Approve'}
                       </button>
                     )}
                   </div>
                 </div>
-                {expandedTimesheetId === t.id && (
-                  <HoursBreakdown record={t} showGuaranteedHours={showGuaranteedHours} />
-                )}
-              </div>
+              </SwipeRow>
             ))}
           </div>
         )}
@@ -1402,29 +1632,234 @@ export function Pay() {
             className="flex w-full items-center justify-between text-sm font-medium text-gray-700 dark:text-gray-300"
             onClick={() => setShowArchive((s) => !s)}
           >
-            <span>Archived ({trashedTimesheets.length})</span>
+            <span>Archived timesheets ({trashedTimesheets.length})</span>
             <span className="text-gray-400 dark:text-gray-500">{showArchive ? '▲' : '▼'}</span>
           </button>
           {showArchive && (
-            <div className="mt-3 space-y-2 border-t border-gray-100 pt-3 dark:border-gray-700">
+            <div className="-mx-4 mt-3 border-t border-gray-100 pt-3 dark:border-gray-700">
               {trashedTimesheets.map((t) => (
-                <div key={t.id} className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0 dark:border-gray-700">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                      {t.period_start} – {t.period_end}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {t.actual_worked_hours.toFixed(2)} hrs worked · ${t.gross_pay_due.toFixed(2)}
-                    </p>
+                <SwipeRow
+                  key={t.id}
+                  className="border-b border-gray-100 last:border-0 dark:border-gray-700"
+                  contentClassName="bg-white px-4 py-2 dark:bg-gray-800"
+                  openLabel={`Open archived timesheet for ${t.period_start} to ${t.period_end}`}
+                  onOpen={() => setDetailTimesheetId(t.id)}
+                  leadingAction={{ label: 'Restore', tone: 'restore', onAction: () => restoreTimesheet(t) }}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {t.period_start} – {t.period_end}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {t.actual_worked_hours.toFixed(2)} hrs worked · ${t.gross_pay_due.toFixed(2)}
+                      </p>
+                    </div>
+                    <button
+                      className="shrink-0 text-xs text-blue-600 underline dark:text-blue-400"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        restoreTimesheet(t)
+                      }}
+                    >
+                      Restore
+                    </button>
                   </div>
-                  <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={() => restoreTimesheet(t)}>
-                    Restore
-                  </button>
-                </div>
+                </SwipeRow>
               ))}
             </div>
           )}
         </Card>
+      )}
+
+      {isParentOrCoAdmin && trashedPayments.length > 0 && (
+        <Card>
+          <button
+            type="button"
+            className="flex w-full items-center justify-between text-sm font-medium text-gray-700 dark:text-gray-300"
+            onClick={() => setShowPaymentArchive((s) => !s)}
+          >
+            <span>Archived payments ({trashedPayments.length})</span>
+            <span className="text-gray-400 dark:text-gray-500">{showPaymentArchive ? '▲' : '▼'}</span>
+          </button>
+          {showPaymentArchive && (
+            <div className="-mx-4 mt-3 border-t border-gray-100 pt-3 dark:border-gray-700">
+              {trashedPayments.map((p) => (
+                <SwipeRow
+                  key={p.id}
+                  className="border-b border-gray-100 last:border-0 dark:border-gray-700"
+                  contentClassName="bg-white px-4 py-2 dark:bg-gray-800"
+                  openLabel={`Open archived payment for ${p.period_start} to ${p.period_end}`}
+                  onOpen={() => setDetailPaymentId(p.id)}
+                  leadingAction={{ label: 'Restore', tone: 'restore', onAction: () => setPaymentArchived(p, false) }}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {p.period_start} – {p.period_end}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Due {p.due_date} · ${p.gross_pay_due.toFixed(2)}
+                      </p>
+                    </div>
+                    <button
+                      className="shrink-0 text-xs text-blue-600 underline dark:text-blue-400"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setPaymentArchived(p, false)
+                      }}
+                    >
+                      Restore
+                    </button>
+                  </div>
+                </SwipeRow>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {detailTimesheet && (
+        <Modal title="Timesheet" onClose={() => setDetailTimesheetId(null)}>
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  {detailTimesheet.period_start} – {detailTimesheet.period_end}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {detailTimesheet.actual_worked_hours.toFixed(2)} hrs worked
+                  {showGrossPay ? ` · $${detailTimesheet.gross_pay_due.toFixed(2)}` : ''}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                <StatusChip status={detailTimesheet.status} />
+                {detailTimesheet.deleted_at && (
+                  <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                    Archived {detailTimesheet.deleted_at.slice(0, 10)}
+                  </span>
+                )}
+              </div>
+            </div>
+            <HoursBreakdown record={detailTimesheet} showGuaranteedHours={showGuaranteedHours} />
+            {detailTimesheet.correction_note && (
+              <p className="text-xs text-amber-700 dark:text-amber-300">{detailTimesheet.correction_note}</p>
+            )}
+            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+            {isParentOrCoAdmin && (
+              <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-3 dark:border-gray-700">
+                {canApproveTimesheet(detailTimesheet) && (
+                  <Button
+                    className="flex-1"
+                    disabled={approvingTimesheetId === detailTimesheet.id}
+                    onClick={() => approveTimesheet(detailTimesheet)}
+                  >
+                    {approvingTimesheetId === detailTimesheet.id ? 'Approving…' : 'Approve'}
+                  </Button>
+                )}
+                {detailTimesheet.deleted_at ? (
+                  <Button
+                    variant="secondary"
+                    className="flex-1"
+                    disabled={archivingId === detailTimesheet.id}
+                    onClick={() => restoreTimesheet(detailTimesheet)}
+                  >
+                    {archivingId === detailTimesheet.id ? 'Restoring…' : 'Restore'}
+                  </Button>
+                ) : (
+                  canArchiveTimesheet(detailTimesheet) && (
+                    <Button
+                      variant="danger"
+                      className="flex-1"
+                      disabled={archivingId === detailTimesheet.id}
+                      onClick={() => archiveTimesheet(detailTimesheet)}
+                    >
+                      {archivingId === detailTimesheet.id ? 'Archiving…' : 'Archive'}
+                    </Button>
+                  )
+                )}
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {detailPayment && (
+        <Modal title="Payment" onClose={() => setDetailPaymentId(null)}>
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  {detailPayment.period_start} – {detailPayment.period_end}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Due {detailPayment.due_date}
+                  {showGrossPay ? ` · $${detailPayment.gross_pay_due.toFixed(2)}` : ' · amount hidden'}
+                  {showPaymentMethod && formatPaymentMethod(detailPayment.payment_method_label)
+                    ? ` · ${formatPaymentMethod(detailPayment.payment_method_label)}`
+                    : ''}
+                </p>
+                {showGrossPay && detailPayment.amount_paid != null && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Paid ${detailPayment.amount_paid.toFixed(2)}
+                    {detailPayment.paid_at ? ` on ${detailPayment.paid_at.slice(0, 10)}` : ''}
+                  </p>
+                )}
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                <StatusChip status={detailPayment.status} />
+                {detailPayment.deleted_at && (
+                  <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                    Archived {detailPayment.deleted_at.slice(0, 10)}
+                  </span>
+                )}
+              </div>
+            </div>
+            <HoursBreakdown record={detailPayment} showGuaranteedHours={showGuaranteedHours} />
+            {detailPayment.parent_note && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">{detailPayment.parent_note}</p>
+            )}
+            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+            {isParentOrCoAdmin && (
+              <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-3 dark:border-gray-700">
+                {canMarkPaid(detailPayment) && (
+                  <Button className="flex-1" onClick={() => openMarkPaid(detailPayment)}>
+                    Mark paid
+                  </Button>
+                )}
+                {detailPayment.status === 'paid' && (
+                  <Button variant="secondary" className="flex-1" onClick={() => openCorrect(detailPayment)}>
+                    Correct
+                  </Button>
+                )}
+                {canMarkPaid(detailPayment) && (
+                  <Button variant="secondary" className="flex-1" onClick={() => openVoid(detailPayment)}>
+                    Void
+                  </Button>
+                )}
+                {detailPayment.deleted_at ? (
+                  <Button
+                    variant="secondary"
+                    className="flex-1"
+                    disabled={archivingId === detailPayment.id}
+                    onClick={() => setPaymentArchived(detailPayment, false)}
+                  >
+                    {archivingId === detailPayment.id ? 'Restoring…' : 'Restore'}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="danger"
+                    className="flex-1"
+                    disabled={archivingId === detailPayment.id}
+                    onClick={() => setPaymentArchived(detailPayment, true)}
+                  >
+                    {archivingId === detailPayment.id ? 'Archiving…' : 'Archive'}
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        </Modal>
       )}
     </div>
   )

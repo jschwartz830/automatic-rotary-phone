@@ -15,6 +15,8 @@ import { formatDateTime, formatEntryTimeRange } from '../lib/time'
 import { Card, Button, Field, inputClass, dateInputClass, timeInputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
+import { SwipeRow } from '../components/SwipeRow'
+import { Modal } from '../components/Modal'
 import type { ScheduleShift, ScheduleTemplate, TimeEntry, TimeEntryMethod } from '../lib/types'
 
 function WarningList({ warnings }: { warnings: string[] }) {
@@ -61,8 +63,9 @@ export function Time() {
   const [clockNote, setClockNote] = useState('')
   const [clockSubmitting, setClockSubmitting] = useState(false)
 
-  // Edit state
-  const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
+  // Detail-sheet state: tapping a row opens it with the entry's values loaded
+  // into the edit form.
+  const [detailEntryId, setDetailEntryId] = useState<string | null>(null)
   const [editDate, setEditDate] = useState('')
   const [editStart, setEditStart] = useState('')
   const [editEnd, setEditEnd] = useState('')
@@ -194,8 +197,27 @@ export function Time() {
     }
   }
 
-  async function approveEntry(entryId: string) {
-    await supabase.from('time_entries').update({ status: 'approved' }).eq('id', entryId)
+  async function approveEntry(entry: TimeEntry) {
+    setError(null)
+    const { error: approveError } = await supabase
+      .from('time_entries')
+      .update({ status: 'approved', updated_by: user?.id ?? null })
+      .eq('id', entry.id)
+    if (approveError) {
+      setError(errorMessage(approveError, 'Could not approve entry.'))
+      return
+    }
+    if (household) {
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'time_entry',
+        entityId: entry.id,
+        action: 'approve',
+        before: { status: entry.status },
+        after: { status: 'approved' },
+      })
+    }
     if (caregiverId) await loadEntries(caregiverId)
   }
 
@@ -281,8 +303,8 @@ export function Time() {
     }
   }
 
-  function startEdit(entry: TimeEntry) {
-    setEditingEntryId(entry.id)
+  function openDetail(entry: TimeEntry) {
+    setDetailEntryId(entry.id)
     setEditDate(entry.date)
     // Prefer stored manual times; fall back to clock times for clock entries.
     setEditStart(
@@ -303,8 +325,8 @@ export function Time() {
     setShowForm(false)
   }
 
-  function cancelEdit() {
-    setEditingEntryId(null)
+  function closeDetail() {
+    setDetailEntryId(null)
     setEditError(null)
   }
 
@@ -352,7 +374,7 @@ export function Time() {
         after: { date: editDate, manual_start_time: editStart, manual_end_time: editEnd, break_minutes: Number(editBreak) || 0, paid_hours: paidHours },
       })
 
-      setEditingEntryId(null)
+      setDetailEntryId(null)
       if (caregiverId) await loadEntries(caregiverId)
     } catch (err) {
       setEditError(errorMessage(err, 'Could not save changes.'))
@@ -363,6 +385,7 @@ export function Time() {
 
   async function handleArchive(entry: TimeEntry) {
     if (!household) return
+    setError(null)
     const { error: archiveError } = await supabase
       .from('time_entries')
       .update({ deleted_at: new Date().toISOString(), updated_by: user?.id ?? null })
@@ -379,6 +402,7 @@ export function Time() {
       action: 'archive',
       before: { date: entry.date, status: entry.status, paid_hours: entry.paid_hours },
     })
+    if (detailEntryId === entry.id) closeDetail()
     if (caregiverId) await loadEntries(caregiverId)
   }
 
@@ -400,11 +424,28 @@ export function Time() {
       action: 'restore',
       before: { date: entry.date, status: entry.status, paid_hours: entry.paid_hours },
     })
+    if (detailEntryId === entry.id) closeDetail()
     if (caregiverId) await loadEntries(caregiverId)
   }
 
   const activeEntries = entries.filter((e) => !e.deleted_at)
   const archivedEntries = entries.filter((e) => e.deleted_at)
+
+  // An in-progress clock entry has no end time to edit yet, and a locked
+  // entry belongs to a closed pay period; everything else is editable by a
+  // parent, or by the nanny while it's still theirs to change.
+  function canModify(entry: TimeEntry) {
+    return (
+      entry.id !== activeClockEntry?.id &&
+      !entry.deleted_at &&
+      entry.status !== 'locked' &&
+      (isParentOrCoAdmin || (isNanny && (entry.status === 'draft' || entry.status === 'submitted')))
+    )
+  }
+
+  function canApprove(entry: TimeEntry) {
+    return isParentOrCoAdmin && entry.status === 'submitted' && !entry.deleted_at && entry.id !== activeClockEntry?.id
+  }
 
   // Shared validation context (spec 13.4). Warnings are advisory — they don't
   // block saving, matching the spec's "warn when" wording.
@@ -437,7 +478,8 @@ export function Time() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showForm, date, startTime, endTime, breakMinutes, entries, actingRole, overtimeThresholdHours, weekStartsOn, templates, shiftsByTemplate])
 
-  const editingEntry = entries.find((e) => e.id === editingEntryId) ?? null
+  const detailEntry = entries.find((e) => e.id === detailEntryId) ?? null
+  const editingEntry = detailEntry
   const editWarnings = useMemo(() => {
     if (!editingEntry || !isValidCalendarDate(editDate)) return []
     return validateTimeEntry(
@@ -556,89 +598,34 @@ export function Time() {
         </Card>
       ) : (
         <div className="space-y-2">
+          <p className="px-1 text-[11px] text-gray-400 dark:text-gray-500">
+            Tap an entry for details. Swipe left to archive{isParentOrCoAdmin ? ', swipe right to approve' : ''}.
+          </p>
           {activeEntries.map((entry) => {
             const isActiveClock = entry.id === activeClockEntry?.id
-            const isEditing = entry.id === editingEntryId
             const { start: displayStart, end: displayEnd } = formatEntryTimeRange(entry, timeFormat)
-            const canEdit =
-              !isActiveClock &&
-              entry.status !== 'locked' &&
-              (isParentOrCoAdmin || (isNanny && (entry.status === 'draft' || entry.status === 'submitted')))
-            const canArchive =
-              !isActiveClock &&
-              entry.status !== 'locked' &&
-              (isParentOrCoAdmin || (isNanny && (entry.status === 'draft' || entry.status === 'submitted')))
 
             return (
-              <Card key={entry.id}>
-                {isEditing ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Edit entry</p>
-                      <button className="text-xs text-gray-500 underline dark:text-gray-400" onClick={cancelEdit}>
-                        Cancel
-                      </button>
-                    </div>
-                    {entry.clock_in_at && (
-                      <p className="text-xs text-gray-400 dark:text-gray-500">
-                        Original clock: {formatDateTime(entry.clock_in_at, timeFormat)}
-                        {entry.clock_out_at && ` – ${formatDateTime(entry.clock_out_at, timeFormat)}`}
-                      </p>
-                    )}
-                    <Field label="Date">
-                      <input
-                        type="date"
-                        className={dateInputClass}
-                        value={editDate}
-                        onChange={(e) => setEditDate(e.target.value)}
-                      />
-                    </Field>
-                    <div className="flex gap-3">
-                      <Field label="Start">
-                        <input
-                          type="time"
-                          className={timeInputClass}
-                          value={editStart}
-                          onChange={(e) => setEditStart(e.target.value)}
-                        />
-                      </Field>
-                      <Field label="End">
-                        <input
-                          type="time"
-                          className={timeInputClass}
-                          value={editEnd}
-                          onChange={(e) => setEditEnd(e.target.value)}
-                        />
-                      </Field>
-                    </div>
-                    <Field label="Unpaid break (minutes)">
-                      <input
-                        type="number"
-                        min="0"
-                        className={inputClass}
-                        value={editBreak}
-                        onChange={(e) => setEditBreak(e.target.value)}
-                      />
-                    </Field>
-                    <Field label="Note (optional)">
-                      <input
-                        className={inputClass}
-                        value={editNote}
-                        onChange={(e) => setEditNote(e.target.value)}
-                      />
-                    </Field>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {hoursBetween(editStart, editEnd, Number(editBreak) || 0).toFixed(2)} paid hours
-                    </p>
-                    <WarningList warnings={editWarnings} />
-                    {editError && <p className="text-sm text-red-600 dark:text-red-400">{editError}</p>}
-                    <Button className="w-full" onClick={() => handleSaveEdit(entry)} disabled={editSaving}>
-                      {editSaving ? 'Saving…' : 'Save changes'}
-                    </Button>
-                  </div>
-                ) : (
+              <SwipeRow
+                key={entry.id}
+                className="rounded-2xl"
+                contentClassName=""
+                openLabel={`Open time entry for ${entry.date}`}
+                onOpen={() => openDetail(entry)}
+                leadingAction={
+                  canApprove(entry)
+                    ? { label: 'Approve', tone: 'approve', onAction: () => approveEntry(entry) }
+                    : null
+                }
+                trailingActions={
+                  canModify(entry)
+                    ? [{ label: 'Archive', tone: 'archive', onAction: () => handleArchive(entry) }]
+                    : []
+                }
+              >
+                <Card>
                   <div className="flex items-start justify-between gap-2">
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{entry.date}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
                         {displayStart}–{displayEnd} · {entry.paid_hours?.toFixed(2) ?? '0.00'} hrs
@@ -649,29 +636,23 @@ export function Time() {
                         </p>
                       )}
                     </div>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
+                    <div className="flex shrink-0 flex-col items-end gap-1">
                       <StatusChip status={isActiveClock ? 'clocked_in' : entry.status} />
-                      <div className="flex items-center gap-2">
-                        {isParentOrCoAdmin && entry.status === 'submitted' && (
-                          <button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={() => approveEntry(entry.id)}>
-                            Approve
-                          </button>
-                        )}
-                        {canEdit && (
-                          <button className="text-xs text-gray-600 underline dark:text-gray-400" onClick={() => startEdit(entry)}>
-                            Edit
-                          </button>
-                        )}
-                        {canArchive && (
-                          <button className="text-xs text-red-500 underline dark:text-red-400" onClick={() => handleArchive(entry)}>
-                            Archive
-                          </button>
-                        )}
-                      </div>
+                      {canApprove(entry) && (
+                        <button
+                          className="text-xs text-green-600 underline dark:text-green-400"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            approveEntry(entry)
+                          }}
+                        >
+                          Approve
+                        </button>
+                      )}
                     </div>
                   </div>
-                )}
-              </Card>
+                </Card>
+              </SwipeRow>
             )
           })}
         </div>
@@ -692,27 +673,146 @@ export function Time() {
               {archivedEntries.map((entry) => {
                 const { start: displayStart, end: displayEnd } = formatEntryTimeRange(entry, timeFormat)
                 return (
-                  <Card key={entry.id}>
-                    <div className="flex items-start justify-between gap-2 opacity-60">
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{entry.date}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {displayStart}–{displayEnd} · {entry.paid_hours?.toFixed(2) ?? '0.00'} hrs
-                        </p>
+                  <SwipeRow
+                    key={entry.id}
+                    className="rounded-2xl"
+                    contentClassName=""
+                    openLabel={`Open archived time entry for ${entry.date}`}
+                    onOpen={() => openDetail(entry)}
+                    leadingAction={{ label: 'Restore', tone: 'restore', onAction: () => handleRestore(entry) }}
+                  >
+                    <Card>
+                      <div className="flex items-start justify-between gap-2 opacity-60">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{entry.date}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            {displayStart}–{displayEnd} · {entry.paid_hours?.toFixed(2) ?? '0.00'} hrs
+                          </p>
+                        </div>
+                        <button
+                          className="shrink-0 text-xs text-blue-600 underline dark:text-blue-400"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleRestore(entry)
+                          }}
+                        >
+                          Restore
+                        </button>
                       </div>
-                      <button
-                        className="shrink-0 text-xs text-blue-600 underline dark:text-blue-400"
-                        onClick={() => handleRestore(entry)}
-                      >
-                        Restore
-                      </button>
-                    </div>
-                  </Card>
+                    </Card>
+                  </SwipeRow>
                 )
               })}
             </div>
           )}
         </div>
+      )}
+
+      {detailEntry && (
+        <Modal title="Time entry" onClose={closeDetail}>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <StatusChip status={detailEntry.id === activeClockEntry?.id ? 'clocked_in' : detailEntry.status} />
+              {detailEntry.deleted_at && (
+                <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                  Archived {detailEntry.deleted_at.slice(0, 10)}
+                </span>
+              )}
+            </div>
+            {detailEntry.clock_in_at && (
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                Original clock: {formatDateTime(detailEntry.clock_in_at, timeFormat)}
+                {detailEntry.clock_out_at && ` – ${formatDateTime(detailEntry.clock_out_at, timeFormat)}`}
+              </p>
+            )}
+
+            {canModify(detailEntry) ? (
+              <div className="space-y-3">
+                <Field label="Date">
+                  <input
+                    type="date"
+                    className={dateInputClass}
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                  />
+                </Field>
+                <div className="flex gap-3">
+                  <Field label="Start">
+                    <input
+                      type="time"
+                      className={timeInputClass}
+                      value={editStart}
+                      onChange={(e) => setEditStart(e.target.value)}
+                    />
+                  </Field>
+                  <Field label="End">
+                    <input
+                      type="time"
+                      className={timeInputClass}
+                      value={editEnd}
+                      onChange={(e) => setEditEnd(e.target.value)}
+                    />
+                  </Field>
+                </div>
+                <Field label="Unpaid break (minutes)">
+                  <input
+                    type="number"
+                    min="0"
+                    className={inputClass}
+                    value={editBreak}
+                    onChange={(e) => setEditBreak(e.target.value)}
+                  />
+                </Field>
+                <Field label="Note (optional)">
+                  <input className={inputClass} value={editNote} onChange={(e) => setEditNote(e.target.value)} />
+                </Field>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {hoursBetween(editStart, editEnd, Number(editBreak) || 0).toFixed(2)} paid hours
+                </p>
+                <WarningList warnings={editWarnings} />
+                {editError && <p className="text-sm text-red-600 dark:text-red-400">{editError}</p>}
+                <Button className="w-full" onClick={() => handleSaveEdit(detailEntry)} disabled={editSaving}>
+                  {editSaving ? 'Saving…' : 'Save changes'}
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{detailEntry.date}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {formatEntryTimeRange(detailEntry, timeFormat).start}–
+                  {formatEntryTimeRange(detailEntry, timeFormat).end} ·{' '}
+                  {detailEntry.paid_hours?.toFixed(2) ?? '0.00'} hrs
+                </p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">
+                  {detailEntry.deleted_at
+                    ? 'Restore this entry to edit it.'
+                    : detailEntry.status === 'locked'
+                      ? 'This entry is in a locked pay period and can no longer be edited.'
+                      : 'This entry is still clocked in — clock out to edit it.'}
+                </p>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-3 dark:border-gray-700">
+              {canApprove(detailEntry) && (
+                <Button className="flex-1" onClick={() => approveEntry(detailEntry)}>
+                  Approve
+                </Button>
+              )}
+              {detailEntry.deleted_at
+                ? isParentOrCoAdmin && (
+                    <Button variant="secondary" className="flex-1" onClick={() => handleRestore(detailEntry)}>
+                      Restore
+                    </Button>
+                  )
+                : canModify(detailEntry) && (
+                    <Button variant="danger" className="flex-1" onClick={() => handleArchive(detailEntry)}>
+                      Archive
+                    </Button>
+                  )}
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   )

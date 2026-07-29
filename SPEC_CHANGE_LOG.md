@@ -8,6 +8,89 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-29 — iOS-style swipe actions on Time / PTO / Timesheets / Payments; PTO archivable from any status; timesheet approval creates its payment record
+
+**Requested behaviour:** archive PTO even once it's approved, and give the
+four record lists iOS list semantics — swipe left for archive, swipe right to
+approve, tap for a detail sheet where the record can be edited.
+
+**1. New `src/components/SwipeRow.tsx`.** One gesture component behind all
+four lists rather than per-screen handlers. Drag left parks the row open over
+its trailing actions (archive/restore) so the action still has to be tapped;
+drag right reveals the leading action and a *full* swipe fires it outright,
+matching iOS Mail. Notes on the implementation, all of which are load-bearing:
+
+* `touch-action: pan-y` on the moving element — the component owns the
+  horizontal axis and leaves vertical scrolling to the browser, so a list
+  still scrolls normally when the finger starts on a row.
+* An axis lock after 8px of travel decides swipe-vs-scroll once per gesture.
+* `pointermove` fires for a hovering mouse with no button down, so the
+  handler is gated on a `pressed` ref set at `pointerdown`. Without it,
+  moving the cursor across a row dragged it open.
+* The settle decision reads the offset from a ref, not from state, so it
+  can't act on a value one render behind the last move.
+* A module-level registry keeps only one row open at a time, list-wide.
+* Actions are real `<button>`s in the DOM at all times (just clipped), and
+  the row content carries `role="button"` + Enter/Space, so nothing here is
+  reachable only by gesture. Every swipe action also stays available as a
+  normal button inside the detail sheet.
+
+**2. Tap-to-detail replaces the inline edit forms.** `Time.tsx` and `PTO.tsx`
+previously swapped a list row in place for an edit form; both now open a
+`Modal` detail sheet carrying the same form plus that record's actions.
+Timesheets and payments previously expanded inline to show `HoursBreakdown`
+and had no detail view at all; they now open the same kind of sheet.
+
+**3. PTO can be archived from any status, and archiving now moves the
+balance.** The Archive control used to be rendered only for `approved`
+requests, and migration `0015_leave_request_archive.sql` deliberately defined
+archiving as display-only ("hides a settled request … without touching status
+or the ledger"). That reading doesn't survive the request here: if a parent
+archives an approved PTO entry because the leave never happened, the hours
+have to come back, otherwise the balance keeps counting leave that isn't on
+the list any more and nothing on screen explains the difference. So archiving
+an approved request now posts a balancing `reversal` to `leave_ledger`, and
+unarchiving posts a `correction` that re-applies it. **This is a deliberate
+departure from 0015's comment, not an oversight.** No migration is needed —
+both event types already exist and the existing `leave_requests_update` /
+`leave_ledger_insert_manager` policies already permit it.
+
+The netting helper this introduced (`zeroOutLedgerForRequest`) sums *all* of
+a request's ledger rows per policy and posts one balancing entry, replacing
+the old `adjustLedgerForEdit`, which reversed each `used` row it found and so
+double-reversed a request that was edited twice. Rejecting a
+previously-approved request now returns its hours too — it didn't before.
+
+Two consequences of archived leave no longer counting: `computeLeaveBalance`'s
+request-based fallback is fed unarchived requests only, and `Pay.tsx`'s period
+math filters approved leave with `.is('archived_at', null)`, so an archived
+request is no longer paid out on the next timesheet.
+
+**4. Approving a submitted timesheet now does what spec 13.5 says.** Swipe-right
+on a timesheet needed a real approval to run, and there wasn't one: a
+nanny-submitted timesheet (`Pay.tsx handleSubmitTimesheet`, which writes only
+raw worked hours with zeros everywhere else) sat at `submitted` forever with no
+UI path out. Spec 13.5's Parent Workflow steps 4-6 are explicit — approve,
+recalculate payable hours and gross pay, create the payment record — so
+`approveTimesheet` now recomputes the period from its time entries, leave and
+schedule exceptions, writes the full hour breakdown onto the timesheet, and
+inserts the payment record (skipped if a live one already exists, so
+re-approving can't double-pay). `doGenerate`'s calculation was extracted to
+`computePeriodTotals` + `timesheetHourFields`/`paymentRecordFields` so both
+paths compute identically rather than by parallel copies.
+
+**5. Payments can be archived independently.** `payment_records.deleted_at`
+existed but was only ever set as a side effect of archiving the timesheet,
+leaving no way to clear a payment raised in error without losing the timesheet
+behind it. Added `setPaymentArchived` plus an "Archived payments" section
+mirroring the timesheet one. Restoring a timesheet still restores its payments.
+
+**6. Dropped the `window.confirm` on archiving a timesheet.** It was the only
+one of the four lists that prompted, and a modal on every swipe defeats the
+gesture. Archiving is a soft delete with a visible Restore in all four lists.
+
+---
+
 ## 2026-07-29 — Guaranteed-hours policy settings, nanny visibility settings, payment method label, reimbursements/manual adjustments, private notes, schedule-shift linking (fresh line-by-line spec audit)
 
 **Fresh line-by-line pass over `APPLICATION_SPEC.md` against current `src/`
