@@ -75,6 +75,184 @@ shipped Today/This-Week cards for a while, the current tile grid + reminder
 feed still feels like it's missing something specific. Building further
 without that signal risks polishing a screen nobody's flagged as lacking.
 
+### 24. Leave policy accrual automation and per-policy settings beyond front-loaded-annual (spec 13.7/15.10/16.9)
+
+`leave_policies` has columns for `accrual_method` (`front_loaded_annual`,
+`per_hour_worked`, `per_pay_period`, `monthly`, `manual_only`, `none`),
+`accrual_rate_hours_per_hour_worked`, `accrual_rate_hours_per_period`,
+`monthly_accrual_hours`, `balance_cap_hours`, `carryover_cap_hours`,
+`reset_month`/`reset_day`, `visible_to_nanny`, `counts_toward_guarantee`,
+`counts_toward_payable_hours`, and `counts_toward_overtime` (spec 15.10) —
+but `CaregiverDetail.tsx`'s "PTO settings" card only ever upserts
+`accrual_method: 'front_loaded_annual'` (hardcoded) and
+`annual_allowance_hours`. Every other column above is either never written
+(no UI sets it, so it stays at its DB default forever) or never read (no calc
+consults it) — confirmed by grepping `src` for each field name outside
+`types.ts`. `negative_balance_allowed`/`waiting_period_days` are a partial
+exception: `Pto.tsx`'s request form already reads both (2026-07-01 batch 3),
+but neither has a settings UI to change them away from the DB default either.
+
+This wasn't a silent gap in isolation — spec 16.9 gives explicit formulas for
+`per_hour_worked`/`per_pay_period`/`monthly` accrual, and spec 13.7 lists all
+of the above as real "PTO Policy Options" a Parent Admin should configure.
+But building it is a genuine judgment call, not a mechanical UI addition,
+for two reasons:
+
+1. **No server cron exists** (spec 9's constraint — GitHub Pages + Supabase,
+   no Edge Functions). `per_pay_period` accrual ("on timesheet approved") can
+   piggyback on the existing `doGenerate` flow, but `monthly` accrual ("on
+   configured monthly date") has no natural trigger point in a client-only
+   app — it would need to run as a catch-up computation the next time
+   *anyone* opens the app, backfilling any months missed, which is a real
+   design decision about how to detect "haven't accrued for month X yet"
+   without double-crediting.
+2. **`leave_policies.counts_toward_guarantee` looks like a second, more
+   granular version of the caregiver-level
+   `pto_counts_toward_guarantee`/`sick_counts_toward_guarantee`/
+   `holiday_counts_toward_guarantee` flags this session just wired up in
+   `calc.ts`/`CaregiverDetail.tsx` (see `SPEC_CHANGE_LOG.md`, this date) —
+   spec 13.6 and spec 13.7 each independently list what reads as the same
+   concept ("does this leave type count toward the guarantee") from two
+   different entry points, one per-caregiver-per-category, one
+   per-leave-policy. Building the `leave_policies` version too would leave
+   two settings governing the same outcome with no defined precedence.
+   `visible_to_nanny` has the same shape of overlap with the existing
+   caregiver-level `nanny_can_view_pto_balance` flag (all-or-nothing across
+   both PTO and sick) — a per-leave-type override would need to define how
+   the two interact.
+
+- **Option A — leave as-is.** `front_loaded_annual` (the spec's own
+  "Recommended Default" accrual method) plus the two already-read
+  enforcement fields (`negative_balance_allowed`, `waiting_period_days`,
+  still missing UI) covers the large majority of real households. Zero new
+  work beyond, optionally, adding UI for the two already-read-but-unset
+  fields.
+- **Option B — add UI for the fields calc/validation already reads, stop
+  there.** Add settings-page inputs for `negative_balance_allowed` and
+  `waiting_period_days` (both already enforced in `Pto.tsx`, just not
+  settable) plus `balance_cap_hours`/`carryover_cap_hours` (straightforward
+  caps, no new triggers needed — they'd gate the existing balance
+  computation, not require a scheduled job). Leaves accrual-method
+  automation and the `counts_toward_guarantee`/`visible_to_nanny`
+  redundancy alone.
+- **Option C — full build.** Implement all remaining accrual methods
+  (with a defined "catch up missed months on next app open" rule for
+  `monthly`), plus resolve the `counts_toward_guarantee`/`visible_to_nanny`
+  redundancy explicitly (e.g. per-policy overrides the caregiver-level flag
+  when set, caregiver-level is the fallback). Multi-day effort with several
+  sub-decisions of its own.
+
+**No recommendation given** — this is more "which slice of a large,
+partially-specified feature to build next" than a two-line judgment call;
+flagging the redundancy and the serverless-trigger problem is the main point
+of this entry so a future session (or you) can scope it deliberately rather
+than half-build it.
+
+### 25. Timesheet reject/request-correction workflow doesn't exist (spec 11/13.5/14.3/17)
+
+Spec's Parent Workflow (13.5) step 4 is "Approves or requests correction";
+the Nanny Workflow's steps 5-6 are "Receives correction request if parent
+rejects" / "Resubmits if needed"; the role matrix (11) lists
+"Reject/request correction" as a first-class Parent Admin/Co-Admin action;
+`needs_correction` is a real `timesheets` status with its own status-chip
+color and CSV-import support (`timesheetImport.ts`). None of this has a UI
+path: a nanny's "Submit timesheet" button (`Pay.tsx`) creates a `submitted`
+marker row (gross pay always 0, per the 2026-07-01 batch-2 decision), and
+the parent's *only* real approval mechanism is the separate "Generate
+timesheet from time entries" form, which always inserts a brand-new
+`approved` timesheet computed straight from time entries — it never reads,
+approves, or replaces the nanny's submitted marker row. The only action ever
+available on a `submitted` row is "Archive." So today, a submitted timesheet
+can be archived or ignored, but never explicitly approved or sent back with
+a correction note, and a nanny is never notified of a rejection because
+there isn't one.
+
+This is a judgment call, not a mechanical fix, because the two flows
+(nanny's marker-row submission vs. parent's from-scratch generation) are
+architecturally disconnected by a prior deliberate decision (Q&A item 9,
+2026-07-01 batch 2): "parent reviews and generates the official pay
+calculation from it" — but "generates" today means "computes independently
+from time entries," not "acts on the submitted row." Making "Approve" and
+"Request correction" real actions on a submitted row requires deciding what
+"Approve" even means here: does it call the same calc path as "Generate"
+(effectively replacing the marker row with a computed one, changing its own
+ID/audit trail), or does it just flip `status` on the existing row without
+computing pay (leaving `gross_pay_due` at 0 forever, which contradicts spec
+13.5 step 5 "app calculates payable hours and gross pay due" on approval)?
+And for "Request correction," does the nanny get to edit and resubmit the
+*same* row, or does rejecting it just leave it archived while the nanny
+starts over with a new submission?
+
+- **Option A — leave as-is.** The parent's "generate from time entries" flow
+  already produces the one true payable timesheet per period; the nanny's
+  "submit" is just a heads-up notification, which the parent implicitly
+  "approves" by generating and implicitly "rejects" by archiving without
+  generating (with no note, and no nanny-visible signal either way). Zero
+  new work, but doesn't match the spec's explicit correction-request/
+  resubmit language.
+- **Option B — merge the two flows.** Make the nanny's submitted row *the*
+  row a parent approves: "Approve" on a submitted timesheet runs the same
+  calc as today's "Generate" but updates that row in place (instead of
+  inserting a new one) and creates its payment record; "Request correction"
+  sets `status: 'needs_correction'` + `correction_note` (a real column
+  already in the schema, currently unused) and notifies the nanny (a new
+  reminder-engine card), who can then edit their entries and resubmit
+  (transitioning back to `submitted`). Removes the current parallel
+  "Generate timesheet" form entirely in favor of one path. Closest to the
+  spec's literal workflow, but is a real rearchitecture of the core pay
+  approval loop with migration/backfill implications for any
+  already-submitted rows.
+- **Option C — add correction as a side channel, keep both flows.** Keep
+  "Generate" as the actual pay-computation path (least regression risk), but
+  add a lightweight "Request correction" action *on the submitted marker
+  row only* (before a parent generates from it) that sets
+  `needs_correction` + `correction_note` and surfaces a reminder card to the
+  nanny; the nanny edits entries and resubmits (new `submitted` row, old one
+  archived). "Approve" stays implicit (parent just clicks "Generate" from
+  the Pay form as today). Smaller change than B, but "approve" and "request
+  correction" remain asymmetric (one's explicit, one isn't), which is a
+  half-measure against the spec's literal wording.
+
+**No recommendation given** — B is the most spec-faithful but the highest
+risk (touches the core pay-approval data flow that's been stable and
+tested across ~30 sessions); C is safer but doesn't fully close the gap.
+Worth a deliberate choice rather than picking one unilaterally given how
+central this workflow is.
+
+### 26. Payment record attachment/photo (spec 13.8) — no file-upload capability exists in the app
+
+Spec 13.8's Payment Record Fields list "Attachment/photo optional," and
+`payment_records.attachment_url` has existed as a column since migration
+0001 — but nothing in `src` ever reads or writes it, and the app has no
+Supabase Storage integration of any kind (`supabase.storage` doesn't appear
+anywhere in `src`). Building this is architecturally fine (Storage doesn't
+need an Edge Function, so it doesn't violate the "stay serverless" hard
+constraint), but it's a new capability class for this codebase with its own
+design questions: what bucket/path convention and RLS policy (mirroring the
+existing per-household/per-caregiver read scoping used everywhere else),
+what file types/size limit, camera-capture vs. file-picker on mobile, and
+whether it belongs on the payment record (as spec'd) or also on time entries
+(clock-out already accepts a note but not a photo, which some real nanny
+apps use for e.g. mileage receipts).
+
+- **Option A — skip it.** It's explicitly marked "optional" in the spec
+  text, and no session across ~30 has flagged a household actually needing
+  it. Zero work.
+- **Option B — minimal build.** One Storage bucket
+  (`payment-attachments`, scoped by household via RLS same-shape as existing
+  table policies), a single file input on the "Mark paid" form, and a
+  thumbnail/link on the payment row. No camera-specific UX, no size
+  validation beyond Supabase's defaults.
+- **Option C — full build.** Bucket + RLS, camera capture on mobile, size/
+  type validation and client-side compression, and attachments on both
+  payment records and time entries (for receipt-style use cases beyond what
+  spec 13.8 literally asks for).
+
+**Recommendation: A unless a real household asks for it.** This is the kind
+of "optional" spec line that's cheap to defer indefinitely and expensive to
+build speculatively (new Storage/RLS surface, mobile upload UX) with no
+signal yet that it's needed.
+
 ---
 
 ## Resolved items — 2026-07-26 (part 2)

@@ -50,6 +50,12 @@ export function Time() {
   const [endTime, setEndTime] = useState(DEFAULT_END_TIME)
   const [breakMinutes, setBreakMinutes] = useState('0')
   const [note, setNote] = useState('')
+  // Tracks which scheduled shift (if any) the pre-fill below came from, so a
+  // saved entry can record spec 15.8's optional schedule_shift_id link -- it
+  // stays linked even if the nanny/parent tweaks the pre-filled times, since
+  // it identifies "this is the shift scheduled for this date," not "the
+  // times match exactly."
+  const [scheduledShiftId, setScheduledShiftId] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [clockNote, setClockNote] = useState('')
@@ -116,10 +122,12 @@ export function Time() {
       setStartTime(scheduled.start_time.slice(0, 5))
       setEndTime(scheduled.end_time.slice(0, 5))
       setBreakMinutes(String(scheduled.break_minutes))
+      setScheduledShiftId(scheduled.id)
     } else {
       setStartTime(DEFAULT_START_TIME)
       setEndTime(DEFAULT_END_TIME)
       setBreakMinutes('0')
+      setScheduledShiftId(null)
     }
   }, [date, templates, shiftsByTemplate])
 
@@ -152,6 +160,7 @@ export function Time() {
         .insert({
           caregiver_id: caregiverId,
           date,
+          schedule_shift_id: scheduledShiftId,
           manual_start_time: startTime,
           manual_end_time: endTime,
           break_minutes: Number(breakMinutes) || 0,
@@ -198,11 +207,14 @@ export function Time() {
     setClockSubmitting(true)
     setError(null)
     try {
+      const todayStr = new Date().toISOString().slice(0, 10)
+      const todaysShift = generateShiftsForRange(templates, shiftsByTemplate, todayStr, todayStr)[0]?.shift
       const { data: entry, error: insertError } = await supabase
         .from('time_entries')
         .insert({
           caregiver_id: caregiverId,
-          date: new Date().toISOString().slice(0, 10),
+          date: todayStr,
+          schedule_shift_id: todaysShift?.id ?? null,
           clock_in_at: new Date().toISOString(),
           method: 'clock',
           status: 'draft',

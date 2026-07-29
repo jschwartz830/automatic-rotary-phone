@@ -1616,6 +1616,7 @@ Fields:
 * nanny_can_view_gross_pay boolean default true
 * nanny_can_view_pto_balance boolean default true
 * nanny_can_view_guaranteed_hours boolean default true
+* nanny_can_view_payment_method boolean default true
 * notes_private text nullable
 * created_at timestamptz
 * updated_at timestamptz

@@ -1,5 +1,23 @@
 import { addDays, endOfMonth, format, getDate, getDay, setDate, startOfMonth, subDays } from 'date-fns'
-import type { CaregiverProfile } from './types'
+import type { CaregiverProfile, PaymentMethodLabel } from './types'
+
+// Spec 13.8 "Payment method label" -- centralized so the caregiver settings
+// form and the Pay screen's payment rows can't drift out of sync on display
+// text.
+const PAYMENT_METHOD_LABELS: Record<PaymentMethodLabel, string> = {
+  zelle: 'Zelle',
+  venmo: 'Venmo',
+  check: 'Check',
+  bank_transfer: 'Bank transfer',
+  payroll_provider: 'Payroll provider',
+  cash: 'Cash',
+  other: 'Other',
+}
+
+export function formatPaymentMethod(label: PaymentMethodLabel | null): string | null {
+  if (!label) return null
+  return PAYMENT_METHOD_LABELS[label] ?? label
+}
 
 export interface PayPeriodRange {
   start: string

@@ -12,6 +12,19 @@ export interface TimesheetCalcInput {
   unpaidTimeOffHours: number
   guaranteedHoursBase: number
   unpaidTimeOffReducesGuarantee: boolean
+  // Spec 13.6 "Whether PTO/sick/holiday counts toward guaranteed hours" --
+  // gates whether each category offsets the guarantee shortfall (i.e. is
+  // included in actual_paid_hours per spec 16.4, "whether each leave/family
+  // cancellation category counts should depend on policy settings"). This is
+  // independent of payability: PTO/sick/holiday hours are always payable
+  // (added to payableRegularHours below) whether or not they count toward
+  // the guarantee -- the flag only affects how much guarantee-adjustment
+  // top-up is needed. Defaults to true to match the caregiver_profiles
+  // column defaults and the spec's "Recommended Default" ("PTO/sick can be
+  // configured separately", implying on-by-default).
+  ptoCountsTowardGuarantee: boolean
+  sickCountsTowardGuarantee: boolean
+  holidayCountsTowardGuarantee: boolean
   overtimeThresholdHours: number
   overtimeMultiplier: number
   hourlyRate: number
@@ -45,6 +58,9 @@ export function calculateTimesheet(input: TimesheetCalcInput): TimesheetCalcResu
     unpaidTimeOffHours,
     guaranteedHoursBase,
     unpaidTimeOffReducesGuarantee,
+    ptoCountsTowardGuarantee,
+    sickCountsTowardGuarantee,
+    holidayCountsTowardGuarantee,
     overtimeThresholdHours,
     overtimeMultiplier,
     hourlyRate,
@@ -52,9 +68,16 @@ export function calculateTimesheet(input: TimesheetCalcInput): TimesheetCalcResu
     manualAdjustments,
   } = input
 
-  // 16.4 Actual Paid Hours
+  // 16.4 Actual Paid Hours -- per spec, "whether each leave/family
+  // cancellation category counts should depend on policy settings"; a
+  // category excluded here still gets paid (see payableRegularHours below),
+  // it just doesn't offset how much guarantee top-up is owed.
   const actualPaidHours =
-    actualWorkedHours + paidPtoHours + paidSickHours + paidHolidayHours + familyCancellationHours
+    actualWorkedHours +
+    (ptoCountsTowardGuarantee ? paidPtoHours : 0) +
+    (sickCountsTowardGuarantee ? paidSickHours : 0) +
+    (holidayCountsTowardGuarantee ? paidHolidayHours : 0) +
+    familyCancellationHours
 
   // 16.5 Guarantee Adjustment
   const adjustedGuaranteedHours = unpaidTimeOffReducesGuarantee
