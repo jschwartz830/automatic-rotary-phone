@@ -217,7 +217,11 @@ export function SwipeRow({
       <div
         // touch-pan-y lets the browser keep vertical scrolling while we own the
         // horizontal axis -- without it the list wouldn't scroll over a row.
-        className={`relative touch-pan-y ${contentClassName}`}
+        // select-none + touch-callout:none stop iOS's text-selection loupe/
+        // callout menu from hijacking a drag that starts on row text -- without
+        // them, a slower drag (the full-width swipe "approve" needs) can get
+        // swallowed by the native gesture before pointermove ever sees it.
+        className={`relative touch-pan-y select-none [-webkit-touch-callout:none] ${contentClassName}`}
         style={{
           transform: `translate3d(${offset}px, 0, 0)`,
           transition: dragging ? 'none' : 'transform 220ms cubic-bezier(0.22, 0.61, 0.36, 1)',
