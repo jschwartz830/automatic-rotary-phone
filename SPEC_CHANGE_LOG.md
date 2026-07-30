@@ -8,6 +8,72 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-30 — Health check + targeted spec audit (reminders/RLS/audit-log/acceptance-criteria sections), one new gap found, no code changes
+
+**This session's scope, per the standing recurring-task instructions:** verify
+the app still builds cleanly, do a fresh but efficient audit pass (30 prior
+sessions have already covered the spec close to exhaustively, so this one
+targeted sections least recently touched rather than re-reading everything),
+re-confirm the time-entry schedule pre-fill behavior once more (asked for
+again in this run's prompt), and surface the 5 already-open Q&A items (22-26)
+for a decision rather than resolving them unilaterally, since this run's
+instructions asked to present them and wait rather than auto-pick the
+recommended option as a couple of past unattended runs did.
+
+**Health check:** `npm run build` (tsc -b && vite build) and `npm run lint`
+both clean — no new TypeScript errors, no new lint errors (the handful of
+existing `react-hooks/exhaustive-deps` / fast-refresh warnings predate this
+session and are unrelated to spec compliance).
+
+**Audit (delegated, sections 13.9/21 reminders, 17 status rules, 18/19
+authorization/RLS, 20 audit log, 24 acceptance criteria, 25 recommended
+defaults):** one genuinely new gap found —
+
+**`schedule_shifts.paid_if_family_canceled` and `.default_category` (spec
+15.6) are dead columns.** Both exist in the schema (migration 0001) and
+`types.ts`, matching spec exactly, but nothing in `src` ever sets them on
+insert (the four shift-insert call sites in `Schedule.tsx` all leave them at
+the DB default) or reads them anywhere. In practice, family-cancellation pay
+is decided per-exception via `schedule_exceptions.affects_pay` instead of a
+per-shift-template default, and shift "category" (regular/holiday/special/
+occasional) has no effect on pay rate or display anywhere. Not a crash or
+regression — the feature these two columns imply (templated per-shift
+defaults for cancellation pay and categorization) was simply never built.
+Opened as Q&A item 27 rather than built blind: `default_category`'s allowed
+values and intended effect aren't specified anywhere past the column
+default, and `paid_if_family_canceled` overlaps with the existing per-
+exception `affects_pay` flag in the same shape as the already-open item 24
+redundancy (two settings, unclear precedence), so it's a judgment call, not
+a mechanical fill-in.
+
+Two more columns came back unused in the same sweep but are too minor to
+warrant a Q&A item: `users.last_login_at` and `household_users.invited_at`
+(migration 0001) — neither is tied to any spec acceptance-criteria bullet or
+UI requirement, they just aren't populated. No action taken; noting for
+completeness only.
+
+Everything else checked (audit-log event coverage against spec 20's 13-item
+list, RLS helper-function coverage against spec 18/19, status-rule handling
+against spec 17, the spec 24 acceptance-criteria checklist, spec 25
+recommended defaults) matched the current implementation with no new
+discrepancies.
+
+**Time-entry schedule pre-fill — re-confirmed once more, still no change
+needed.** `Time.tsx:50` defaults the date field to today; the effect at
+`Time.tsx:116-128` pre-fills start time, end time, break minutes, and
+`schedule_shift_id` from the caregiver's scheduled shift for whatever date
+is selected, falling back to a 9-5 default when nothing's scheduled. This is
+the same behavior confirmed in essentially every session since it was first
+built 2026-06-30 — flagging again here since this run's prompt asked for it
+by name, but treating it as re-verification, not new work.
+
+No code changes this session beyond documentation (this entry, plus Q&A item
+27). The 5 already-open Q&A items (22-26) were not resolved unilaterally —
+see `QUESTIONS_AND_CLARIFICATIONS.md` and the chat notification sent this
+session for the decision to make.
+
+---
+
 ## 2026-07-29 — iOS-style swipe actions on Time / PTO / Timesheets / Payments; PTO archivable from any status; timesheet approval creates its payment record
 
 **Requested behaviour:** archive PTO even once it's approved, and give the
