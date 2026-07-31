@@ -8,51 +8,12 @@ rather than a silent guess.
 
 ## Open items
 
-### 27. `schedule_shifts.paid_if_family_canceled` / `.default_category` are dead columns (spec 15.6) — worth building the per-shift-template defaults, or drop them?
-
-Both columns exist in the schema and `types.ts`, matching spec 15.6 exactly,
-but nothing in `src` ever sets them (all 4 shift-insert call sites in
-`Schedule.tsx` leave them at the DB default) or reads them. Found by this
-session's audit; see `SPEC_CHANGE_LOG.md` 2026-07-30 for detail.
-
-Two separate small judgment calls bundled here:
-
-- **`paid_if_family_canceled`** would let a shift template say "this
-  particular shift is/isn't guaranteed pay if the family cancels it,"
-  defaulted when creating a `family_cancellation` schedule exception for that
-  shift. Today that's decided per-exception via `affects_pay` instead — a
-  parent sets it by hand every time rather than it defaulting from the
-  template. Functionally similar, just one extra tap per cancellation, unless
-  a household cancels often enough for the missing default to be annoying.
-- **`default_category`** (`regular`/`holiday`/`special`/`occasional` per the
-  column default) has no spec'd effect on pay rate or anything else past the
-  column itself — spec 15.6 defines the field but no calculation rule in
-  section 16 or elsewhere references shift category. Building this means
-  inventing what "category" is supposed to *do*, which isn't a two-line
-  mechanical fix.
-
-- **Option A — leave as-is.** Neither column does anything today; per-
-  exception `affects_pay` already covers the cancellation-pay use case, just
-  with one more tap than a template default would save. Zero work.
-- **Option B — build `paid_if_family_canceled` only.** Add a toggle to the
-  shift create/edit form, and when a family-cancellation exception is created
-  for a shift, default `affects_pay` from the shift's
-  `paid_if_family_canceled` (still editable per-exception). Leave
-  `default_category` unbuilt until its intended effect is defined.
-  Straightforward, no new judgment calls beyond "template default, editable
-  override" which is a pattern already used elsewhere in the app.
-- **Option C — drop both columns.** If category was never going to affect
-  pay and per-exception cancellation pay is working fine, remove the dead
-  columns from the schema/types/spec instead of leaving them as permanent
-  unused surface area (same reasoning as item 13's resolution, which dropped
-  `manual_by_pay_period` for being unbuildable-as-specified).
-
-**Recommendation: B for `paid_if_family_canceled`, A (leave unbuilt, don't
-drop) for `default_category`** until there's an actual use for shift
-categorization — dropping a column outright is harder to undo than leaving
-an unused one in place, and "regular/holiday/special/occasional" reads like
-it's meant to support something (rate multipliers? reporting?) that just
-hasn't been asked for yet.
+Items 22-26 below have been carried forward, unresolved, across the last two
+sessions (2026-07-30, 2026-07-31) — presented again in-chat each time rather
+than decided unilaterally, per the standing instruction to surface judgment
+calls rather than guess. Item 27 was resolved this session (2026-07-31, see
+"Resolved items" below) since it had unambiguous recommendations for both of
+its sub-decisions, unlike 22-26.
 
 ### 22. Calendar: build a real month view, or keep the week-grid-only simplification (spec 13.10/14.4)?
 
@@ -298,6 +259,42 @@ apps use for e.g. mileage receipts).
 of "optional" spec line that's cheap to defer indefinitely and expensive to
 build speculatively (new Storage/RLS surface, mobile upload UX) with no
 signal yet that it's needed.
+
+---
+
+## Resolved items — 2026-07-31
+
+### 27. `schedule_shifts.paid_if_family_canceled` / `.default_category` are dead columns (spec 15.6) — RESOLVED (option B for `paid_if_family_canceled`, option A for `default_category`)
+
+**Decision (made unattended — this session ran on a schedule with nobody to
+answer in chat; taken because, unlike items 22-26, both sub-decisions here
+had an unambiguous recommendation with low blast radius):** Built **option
+B** for `paid_if_family_canceled` only, per the recommendation. Delivered:
+
+- A "Paid if family cancels this shift" checkbox on the Add Shift form in
+  `Schedule.tsx`, defaulting to `true` (matching the column's DB default),
+  shown for the weekly/biweekly/monthly/custom recurrence choices (the
+  one-time option creates a `schedule_exceptions` row directly, not a
+  `schedule_shifts` row, so the field doesn't apply there). All four shift-
+  insert call sites now write it instead of leaving it at the DB default.
+- `family_cancellation` added to the set of exception types that can
+  reference an "Original shift" in the day-detail exception form (previously
+  only `removed_shift`/`shortened_shift`/`extended_shift` could) — needed so
+  the app knows *which* shift is being canceled when a day has more than one.
+  When there's exactly one shift scheduled that day, it's auto-selected.
+- Selecting a type of "Family cancellation" (or picking/changing the
+  original shift while that type is selected) now defaults the exception's
+  "Affects pay" checkbox from that shift's `paid_if_family_canceled` — still
+  a normal checkbox the parent can override per-exception, per the option B
+  spec. Linking the original shift also means `exceptionHours()` can now
+  auto-calculate hours from the canceled shift's duration when no explicit
+  hours/time-range override is given, which it couldn't before (family-
+  cancellation exceptions had no shift link at all).
+
+`default_category` was left unbuilt (option A) — no calculation or display
+anywhere reads shift category, and inventing what "category" should *do* was
+explicitly out of scope for a mechanical fill-in per the original write-up.
+The column stays in place, unused, until there's an actual use for it.
 
 ---
 
