@@ -8,6 +8,57 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-07-31 — `paid_if_family_canceled` template default wired up (spec 15.6), resolves Q&A item 27; time-entry pre-fill re-verified; items 22-26 re-presented
+
+**This session's scope, per the standing recurring-task instructions:** make
+progress against the spec in phases, re-verify the time-entry schedule
+pre-fill (asked for again by name in this run's prompt), and present the
+still-open Q&A items (22-26) for a decision rather than resolving them
+unilaterally. Q&A item 27 (found in the 2026-07-30 audit) was the one
+exception — see below for why.
+
+**`schedule_shifts.paid_if_family_canceled` wired up (spec 15.6, Q&A item 27,
+option B).** Built unattended (nobody available in chat this session) because
+both of item 27's sub-decisions had an unambiguous, low-risk recommendation,
+unlike items 22-26 which explicitly have none or call for a real product
+choice. `Schedule.tsx`'s Add Shift form now has a "Paid if family cancels this
+shift" checkbox (default on, matching the column default), written by all
+four recurring shift-insert call sites (weekly/biweekly/monthly/custom — the
+one-time option inserts a `schedule_exceptions` row directly, not a
+`schedule_shifts` row, so it doesn't apply there). `family_cancellation` is
+now one of the exception types that can reference an "Original shift" in the
+day-detail exception form (previously only the shift-modification types
+could); it auto-selects the day's shift when there's exactly one. Choosing
+"Family cancellation" as the exception type, or changing which shift it
+references, now defaults the exception's own "Affects pay" checkbox from that
+shift's `paid_if_family_canceled` — still a plain checkbox the parent can
+override per-exception afterward, so a household that always overrides isn't
+worse off, and one that doesn't saves the tap. Linking the original shift
+also lets `exceptionHours()` (`src/lib/schedule.ts`) fall back to the
+canceled shift's own duration when no explicit hours or time range is given,
+which family-cancellation exceptions couldn't do before (they had no shift
+link at all). `default_category` was left unbuilt (option A) — nothing in the
+spec defines what shift category should affect, so there's nothing to wire it
+to yet; see `QUESTIONS_AND_CLARIFICATIONS.md` for the full resolution note.
+
+**Time-entry schedule pre-fill — re-verified, no change.** Same behavior
+confirmed every session since 2026-06-30: `Time.tsx` defaults the manual-entry
+date to today and pre-fills start/end/break from the caregiver's scheduled
+shift for whichever date is selected (falling back to 9-5 when nothing's
+scheduled that day). Asked for again by name in this run's prompt; nothing
+needed building.
+
+**Health check:** `npm install`, `npx tsc -b`, `npx oxlint`, and `npx vite
+build` all clean — no new TypeScript errors, no new lint warnings beyond the
+handful of pre-existing `react-hooks/exhaustive-deps`/fast-refresh warnings
+unrelated to this change.
+
+Q&A items 22-26 were not resolved unilaterally — they're re-presented in
+`QUESTIONS_AND_CLARIFICATIONS.md` and in the chat message from this session
+for a decision.
+
+---
+
 ## 2026-07-30 — Health check + targeted spec audit (reminders/RLS/audit-log/acceptance-criteria sections), one new gap found, no code changes
 
 **This session's scope, per the standing recurring-task instructions:** verify

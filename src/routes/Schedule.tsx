@@ -55,7 +55,12 @@ const EXCEPTION_LABELS: Record<ExceptionType, string> = {
 
 // Exceptions that reference an existing occurrence (to shorten/extend/remove
 // it) vs. ones that stand alone.
-const EXCEPTION_TYPES_WITH_ORIGINAL_SHIFT: ExceptionType[] = ['removed_shift', 'shortened_shift', 'extended_shift']
+const EXCEPTION_TYPES_WITH_ORIGINAL_SHIFT: ExceptionType[] = [
+  'removed_shift',
+  'shortened_shift',
+  'extended_shift',
+  'family_cancellation',
+]
 const EXCEPTION_TYPES_WITH_TIME_RANGE: ExceptionType[] = ['added_shift', 'shortened_shift', 'extended_shift']
 
 function toIsoDate(d: Date): string {
@@ -91,6 +96,7 @@ export function Schedule() {
   const [startTime, setStartTime] = useState('09:00')
   const [endTime, setEndTime] = useState('17:00')
   const [breakMinutes, setBreakMinutes] = useState('0')
+  const [paidIfFamilyCanceled, setPaidIfFamilyCanceled] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -214,6 +220,7 @@ export function Schedule() {
     setStartTime('09:00')
     setEndTime('17:00')
     setBreakMinutes('0')
+    setPaidIfFamilyCanceled(true)
     setError(null)
   }
 
@@ -285,6 +292,7 @@ export function Schedule() {
             start_time: startTime,
             end_time: endTime,
             break_minutes: Number(breakMinutes) || 0,
+            paid_if_family_canceled: paidIfFamilyCanceled,
           })
           if (shiftError) throw shiftError
         }
@@ -307,6 +315,7 @@ export function Schedule() {
             start_time: startTime,
             end_time: endTime,
             break_minutes: Number(breakMinutes) || 0,
+            paid_if_family_canceled: paidIfFamilyCanceled,
           })
           if (shiftError) throw shiftError
         }
@@ -330,6 +339,7 @@ export function Schedule() {
           start_time: startTime,
           end_time: endTime,
           break_minutes: Number(breakMinutes) || 0,
+          paid_if_family_canceled: paidIfFamilyCanceled,
         })
         if (shiftError) throw shiftError
         await logAuditEvent({
@@ -350,6 +360,7 @@ export function Schedule() {
           end_time: endTime,
           break_minutes: Number(breakMinutes) || 0,
           notes: otherNote || null,
+          paid_if_family_canceled: paidIfFamilyCanceled,
         })
         if (shiftError) throw shiftError
         await logAuditEvent({
@@ -745,7 +756,18 @@ export function Schedule() {
                               <select
                                 className={inputClass}
                                 value={exceptionType}
-                                onChange={(e) => setExceptionType(e.target.value as ExceptionType)}
+                                onChange={(e) => {
+                                  const nextType = e.target.value as ExceptionType
+                                  setExceptionType(nextType)
+                                  // Family-cancellation pay defaults from the canceled shift's own
+                                  // template setting (spec 15.6) rather than always defaulting true,
+                                  // so a household that marks a shift unpaid-if-canceled doesn't have
+                                  // to remember to uncheck "affects pay" by hand every time.
+                                  if (nextType === 'family_cancellation' && dayOccs.length === 1) {
+                                    setExceptionOriginalShiftId(dayOccs[0].shift.id)
+                                    setExceptionAffectsPay(dayOccs[0].shift.paid_if_family_canceled)
+                                  }
+                                }}
                               >
                                 {EXCEPTION_TYPES.map((t) => (
                                   <option key={t} value={t}>
@@ -759,7 +781,13 @@ export function Schedule() {
                                 <select
                                   className={inputClass}
                                   value={exceptionOriginalShiftId}
-                                  onChange={(e) => setExceptionOriginalShiftId(e.target.value)}
+                                  onChange={(e) => {
+                                    const shiftId = e.target.value
+                                    setExceptionOriginalShiftId(shiftId)
+                                    if (exceptionType === 'family_cancellation') {
+                                      setExceptionAffectsPay(shiftId ? shiftsById[shiftId].paid_if_family_canceled : true)
+                                    }
+                                  }}
                                 >
                                   <option value="">None</option>
                                   {dayOccs.map((occ) => (
@@ -1025,6 +1053,16 @@ export function Schedule() {
                 onChange={(e) => setBreakMinutes(e.target.value)}
               />
             </Field>
+            {recurrenceChoice !== 'once' && (
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={paidIfFamilyCanceled}
+                  onChange={(e) => setPaidIfFamilyCanceled(e.target.checked)}
+                />
+                Paid if family cancels this shift
+              </label>
+            )}
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
             <div className="flex gap-2 pt-1">
               <Button type="button" variant="secondary" className="flex-1" onClick={() => setShowAddShiftModal(false)}>
