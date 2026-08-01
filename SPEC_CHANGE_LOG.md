@@ -8,6 +8,85 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-01 — Reminder cards scoped by role per spec 21 (mechanical fix); targeted audit of onboarding/PTO-timing/reminder-scoping finds two new judgment calls (Q&A items 28-29); time-entry pre-fill re-verified; items 22-26 re-presented
+
+**This session's scope, per the standing recurring-task instructions:** make
+progress against the spec in phases, re-verify the time-entry schedule
+pre-fill (asked for again by name in this run's prompt), and present open
+judgment calls rather than deciding them unilaterally. Ran a fresh, targeted
+spec-vs-code audit first, deliberately aimed at spec sections prior sessions'
+audits covered less closely (onboarding, PTO deduction timing, reminder
+role-scoping, notification copy, validation edge cases) rather than
+re-treading the well-covered sections (RLS, exports, guaranteed-hours calc,
+PTO ledger mechanics, status chips) — see the audit's findings below.
+
+**Reminder cards now scoped by role, per spec 21 (mechanical, built).** Spec
+21 assigns `payment_due`/`payment_overdue`/`pending_timesheet_approval`/
+`pending_pto_request` to "parent alert" only — no nanny mention for any of
+the four, and each is a "the parent needs to act" case (pay someone, approve
+a timesheet or PTO request). `computeReminders()` (`src/lib/reminders.ts`)
+previously generated the same cards regardless of viewer role; a nanny
+viewing `Home.tsx` after submitting a PTO request, for instance, saw the
+"PTO request pending" card meant for the parent who needs to approve it.
+Added a `viewerIsNanny` param that filters those four types out for a nanny
+viewer (`PARENT_ONLY_REMINDER_TYPES` in `reminders.ts`); `missing_clock_out`/
+`unsubmitted_timesheet` (spec grants both nanny-required and parent-optional)
+and `upcoming_pto` (spec grants both explicitly) are unaffected, as are
+`schedule_change`/`pto_balance_low`/`weekly_summary`, which spec 21 doesn't
+scope at all. Low-risk, purely additive filter — built unilaterally since it
+directly implements explicit, unambiguous spec text with no design choice
+involved (unlike items 28-29 below).
+
+**Two new judgment calls found, not built — see `QUESTIONS_AND_CLARIFICATIONS.md` items 28-29.**
+
+- **Item 28 — onboarding.** Spec 13.1 specifies an 11-step guided parent
+  setup (timezone, pay rate, pay frequency, guaranteed hours, PTO policy,
+  schedule, reminders, etc.); `Onboarding.tsx` only ever collects household
+  name and optionally nanny name + hourly rate. Every other setting has a
+  real, working UI elsewhere in the app (`More.tsx`, `CaregiverDetail.tsx`,
+  `Schedule.tsx`) — nothing is missing functionally, it's just not funneled
+  into one first-run flow, so a new household lands on Home with mostly-
+  default settings and has to discover each screen on its own.
+- **Item 29 — PTO deduction timing.** Spec 13.7 lists deduction timing as
+  configurable among three options and gives an explicit recommended
+  default ("show pending impact on approval, finalize on timesheet
+  approval"). `PTO.tsx`'s `applyUsedLedger()` instead makes an immediate,
+  final ledger deduction at approval time, with no "pending" state, no
+  timesheet-approval-triggered finalization, and no settings UI for the
+  other two timing options at all — the configurability itself was never
+  built, and the one behavior that exists doesn't match the spec's stated
+  recommendation.
+
+Neither was built unilaterally: item 28's fix has three genuinely different
+shapes (do nothing / add a setup checklist / full wizard rebuild) and item 29
+would change an already-relied-upon number's timing for every household
+using the app today, which isn't a call to make without a response, unlike
+last session's item 27 (unambiguous recommendation, zero-risk fill-in).
+
+**Audit also checked and found no new issues in:** RLS/permissions, audit
+log, exports, guaranteed-hours calc, pay settings/frequency, PTO ledger
+mechanics, status chips, timezone/DST handling — these matched the spec
+closely on inspection.
+
+**Time-entry schedule pre-fill — re-verified, no change.** Same behavior
+confirmed every session since 2026-06-30: `Time.tsx` defaults the manual-
+entry date to today and pre-fills start/end/break from the caregiver's
+scheduled shift for whichever date is selected (falling back to 9-5 when
+nothing's scheduled that day). Asked for again by name in this run's prompt;
+nothing needed building.
+
+**Health check:** `npm install`, `npx tsc -b`, `npx oxlint`, and `npx vite
+build` all clean — no new TypeScript errors, no new lint warnings beyond the
+handful of pre-existing `react-hooks/exhaustive-deps`/fast-refresh warnings
+unrelated to this change.
+
+Q&A items 22-26 were not resolved unilaterally (unchanged from the last two
+sessions) — they're re-presented in `QUESTIONS_AND_CLARIFICATIONS.md` and in
+the chat message from this session for a decision, alongside the two new
+items above.
+
+---
+
 ## 2026-07-31 — `paid_if_family_canceled` template default wired up (spec 15.6), resolves Q&A item 27; time-entry pre-fill re-verified; items 22-26 re-presented
 
 **This session's scope, per the standing recurring-task instructions:** make

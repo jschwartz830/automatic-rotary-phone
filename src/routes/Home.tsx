@@ -386,6 +386,7 @@ export function Home() {
         leaveBalances,
         scheduleExceptions,
         disabledTypes,
+        viewerIsNanny: isNanny,
       })
       if (!disabledTypes.has('weekly_summary')) {
         cards.push(
