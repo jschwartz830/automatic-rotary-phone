@@ -8,12 +8,99 @@ rather than a silent guess.
 
 ## Open items
 
-Items 22-26 below have been carried forward, unresolved, across the last two
-sessions (2026-07-30, 2026-07-31) — presented again in-chat each time rather
-than decided unilaterally, per the standing instruction to surface judgment
-calls rather than guess. Item 27 was resolved this session (2026-07-31, see
-"Resolved items" below) since it had unambiguous recommendations for both of
-its sub-decisions, unlike 22-26.
+Items 22-26 below have been carried forward, unresolved, across the last
+three sessions (2026-07-30, 2026-07-31, 2026-08-01) — presented again in-chat
+each time rather than decided unilaterally, per the standing instruction to
+surface judgment calls rather than guess. Item 27 was resolved 2026-07-31
+since it had unambiguous recommendations for both of its sub-decisions,
+unlike 22-26. Items 28-29 are new this session (2026-08-01), found via a
+targeted spec-vs-code audit of sections not closely covered by prior
+sessions (onboarding, PTO deduction timing) — see `SPEC_CHANGE_LOG.md`
+2026-08-01 for the audit's full scope and what it found nothing wrong with.
+
+### 28. Onboarding implements 2 of spec 13.1's 11 setup steps — build it out, or is "everything's reachable, just not funneled" good enough (spec 13.1)?
+
+Spec 13.1 specifies an 11-step guided parent setup: create household → set
+timezone → add nanny profile → start date → pay rate → pay frequency →
+guaranteed hours → PTO/sick policy → recurring schedule → invite nanny
+(optional) → configure reminders. `Onboarding.tsx` only collects household
+name and, optionally, nanny name + a single hourly rate — steps 2 and 4-11
+are skipped entirely during onboarding. Every one of those settings *does*
+exist as a real, working UI control elsewhere (timezone and pay frequency in
+`More.tsx`, guaranteed hours/PTO policy/pay rate in `CaregiverDetail.tsx`,
+schedule in `Schedule.tsx`, reminders in `More.tsx`'s reminder settings card,
+nanny invite via the join code) — nothing is missing from the app, it's just
+not funneled into one guided flow, so a new household has to discover each
+screen on its own after landing on Home with mostly-default settings
+(`America/New_York` timezone, no schedule, no PTO policy, no reminders
+configured).
+
+- **Option A — leave as-is.** Every setting is one or two taps away from
+  Home/More; a new parent who explores the app for five minutes finds all of
+  it. Zero new work.
+- **Option B — add a "Finish setup" checklist card.** A dismissible card on
+  `Home.tsx`, shown only while unconfigured, listing the still-default
+  settings (no schedule yet, no PTO policy yet, etc.) each linking straight
+  to the relevant existing screen. Doesn't touch the onboarding flow itself
+  or require building anything new per-step — just surfaces what already
+  exists at the moment it's most useful. Disappears once every item's been
+  touched (or is manually dismissed).
+- **Option C — full multi-step wizard.** Rebuild `Onboarding.tsx` into an
+  11-step literal match for spec 13.1, collecting every field inline before
+  the household ever reaches Home. Closest to the spec's literal wording, but
+  a much longer first-run flow, and duplicates form UI that already exists
+  on the settings screens (two places that create/edit the same PTO
+  policy/schedule, for instance).
+
+**Recommendation: B.** It closes the actual gap (a new household not knowing
+what's left to configure) without a first-run flow long enough to abandon,
+and without building a second copy of forms that already work fine on their
+own screens.
+
+### 29. PTO/sick/unpaid deduction timing is hardcoded to "on approval," not spec 13.7's recommended default of "on timesheet approval" (spec 13.7)
+
+Spec 13.7 "PTO Deduction Timing" lists three configurable options (deduct on
+approval / on PTO date / on timesheet approval) and gives an explicit
+recommended default: *"Show pending impact on approval. Finalize deduction
+when timesheet is approved."* `PTO.tsx`'s `applyUsedLedger(...)` instead
+writes the real `'used'` ledger row — an immediate, final balance
+deduction — at the moment a request is approved (`reviewRequest`, and the
+parent/co-admin self-create-as-approved path), with no "pending" state and
+no later finalization step tied to timesheet approval. There's no
+`leave_policies` column or settings UI for choosing between the three
+options at all — this isn't a case of the setting existing but defaulting
+wrong, the configurability itself was never built, and the one timing model
+that *is* built doesn't match the one spec calls out as recommended.
+
+- **Option A — leave as-is.** Deduct-on-approval is simpler (one state
+  transition, no "pending" ledger entries to reconcile later) and arguably
+  better UX for a small household — a nanny's balance updates the moment
+  they're told yes, instead of sitting in limbo until a future timesheet is
+  approved, which could be weeks later for a household that runs behind on
+  approvals. Zero work, but a real household relying on the literal spec
+  language (e.g. expecting a balance to stay uncommitted until payroll
+  actually processes it) would see different behavior than documented.
+- **Option B — match the recommended default.** Change `applyUsedLedger` to
+  write a `'pending'`-flavored ledger entry (or track pending impact
+  client-side without a ledger row) at approval time, then write the real
+  `'used'` deduction when the covering timesheet is approved. Requires
+  deciding how "pending" balance impact is shown in the UI (a separate
+  "pending" number alongside "available," per spec's PTO Balance Views?) and
+  how a PTO request maps to "its" timesheet when leave can span a period
+  boundary or a household doesn't submit timesheets promptly — genuine
+  design work, not a one-line timing change.
+- **Option C — make it configurable, default to B's behavior.** Add the
+  `leave_policies` column(s) needed to select per-policy among all three
+  spec-listed timing options, implement all three, default new policies to
+  "on timesheet approval" per spec. Superset of B; more work, matches spec's
+  explicit "Configurable" framing in addition to its recommended default.
+
+**No recommendation given** — unlike item 27, this isn't a low-blast-radius
+fill-in: it would change when an existing, already-relied-upon number (PTO
+balance) moves for every household using the app today, and the "right"
+option depends on a product judgment (does a family want the balance to
+update the moment they say yes, or only once payroll actually processes it)
+that isn't mine to make unilaterally.
 
 ### 22. Calendar: build a real month view, or keep the week-grid-only simplification (spec 13.10/14.4)?
 

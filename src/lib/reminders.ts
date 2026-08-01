@@ -31,6 +31,17 @@ const LOW_BALANCE_THRESHOLD_HOURS = 8
 const SCHEDULE_CHANGE_LOOKBACK_DAYS = 3
 const SCHEDULE_CHANGE_TYPES = new Set(['added_shift', 'removed_shift', 'shortened_shift', 'extended_shift'])
 
+// Spec 21 scopes these four types to "parent alert" only, with no nanny
+// mention -- each is a "the parent needs to act" case (pay someone, approve
+// a timesheet/PTO request). Hidden from nanny viewers; see computeReminders'
+// viewerIsNanny param.
+const PARENT_ONLY_REMINDER_TYPES = new Set([
+  'payment_due',
+  'payment_overdue',
+  'pending_timesheet_approval',
+  'pending_pto_request',
+])
+
 export interface ReminderCard {
   id: string
   type: string
@@ -60,6 +71,14 @@ export function computeReminders(input: {
   leaveBalances?: LeaveBalanceSummary[]
   scheduleExceptions?: ScheduleException[]
   disabledTypes?: Set<string>
+  // True when the signed-in viewer is the nanny. Spec 21 scopes
+  // payment_due/payment_overdue/pending_timesheet_approval/pending_pto_request
+  // to "parent alert" only (no nanny mention) -- those are all "the parent
+  // needs to act on this" cases, so a nanny viewer never sees them. Types
+  // spec 21 explicitly grants to both (missing_clock_out,
+  // unsubmitted_timesheet, upcoming_pto) or doesn't scope at all
+  // (schedule_change, pto_balance_low) are unaffected.
+  viewerIsNanny?: boolean
 }): ReminderCard[] {
   const {
     today,
@@ -72,6 +91,7 @@ export function computeReminders(input: {
     leaveBalances,
     scheduleExceptions,
     disabledTypes,
+    viewerIsNanny,
   } = input
   // Index schedule occurrences by date for O(1) lookup
   const occurrencesByDate = new Map<string, GeneratedShiftOccurrence[]>()
@@ -226,7 +246,8 @@ export function computeReminders(input: {
     })
   }
 
-  return disabledTypes && disabledTypes.size > 0 ? cards.filter((c) => !disabledTypes.has(c.type)) : cards
+  const visibleCards = viewerIsNanny ? cards.filter((c) => !PARENT_ONLY_REMINDER_TYPES.has(c.type)) : cards
+  return disabledTypes && disabledTypes.size > 0 ? visibleCards.filter((c) => !disabledTypes.has(c.type)) : visibleCards
 }
 
 /**
