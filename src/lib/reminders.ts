@@ -1,4 +1,4 @@
-import { addDays, differenceInCalendarDays, parseISO, startOfWeek } from 'date-fns'
+import { addDays, differenceInCalendarDays, format, parseISO, startOfWeek } from 'date-fns'
 import type { CaregiverProfile, LeaveRequest, PaymentRecord, ReminderType, ScheduleException, TimeEntry, Timesheet } from './types'
 import type { GeneratedShiftOccurrence } from './schedule'
 
@@ -41,6 +41,23 @@ const PARENT_ONLY_REMINDER_TYPES = new Set([
   'pending_timesheet_approval',
   'pending_pto_request',
 ])
+
+// Spec 13.9's "Example Reminder Copy" formats dates as "Jun 22–28" / "Aug 14",
+// not raw ISO strings -- matches the `format()` convention already used for
+// user-facing dates elsewhere (e.g. Schedule.tsx).
+function formatDate(isoDate: string): string {
+  return format(parseISO(isoDate), 'MMM d')
+}
+
+function formatDateRange(startIso: string, endIso: string): string {
+  if (startIso === endIso) return formatDate(startIso)
+  const start = parseISO(startIso)
+  const end = parseISO(endIso)
+  if (start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth()) {
+    return `${format(start, 'MMM d')}–${format(end, 'd')}`
+  }
+  return `${format(start, 'MMM d')} – ${format(end, 'MMM d')}`
+}
 
 export interface ReminderCard {
   id: string
@@ -138,7 +155,7 @@ export function computeReminders(input: {
         id: `missing-clock-out-${entry.id}`,
         type: 'missing_clock_out',
         severity: 'warning',
-        message: `Clock-out missing for ${entry.date}.`,
+        message: `Clock-out missing for ${formatDate(entry.date)}.`,
       })
     }
   }
@@ -149,7 +166,7 @@ export function computeReminders(input: {
         id: `unsubmitted-${ts.id}`,
         type: 'unsubmitted_timesheet',
         severity: 'warning',
-        message: `Timesheet for ${ts.period_start} – ${ts.period_end} has not been submitted.`,
+        message: `Timesheet for ${formatDateRange(ts.period_start, ts.period_end)} has not been submitted.`,
       })
     }
     if (ts.status === 'submitted') {
@@ -157,7 +174,7 @@ export function computeReminders(input: {
         id: `pending-approval-${ts.id}`,
         type: 'pending_timesheet_approval',
         severity: 'info',
-        message: `Timesheet for ${ts.period_start} – ${ts.period_end} is ready for review.`,
+        message: `Timesheet for ${formatDateRange(ts.period_start, ts.period_end)} is ready for review.`,
       })
     }
   }
@@ -168,7 +185,7 @@ export function computeReminders(input: {
         id: `pto-pending-${lr.id}`,
         type: 'pending_pto_request',
         severity: 'info',
-        message: `${lr.leave_type.toUpperCase()} request pending for ${lr.start_date}.`,
+        message: `${lr.leave_type.toUpperCase()} request pending for ${formatDate(lr.start_date)}.`,
       })
     }
     if (lr.status === 'approved' && differenceInCalendarDays(parseISO(lr.start_date), today) <= 7 && differenceInCalendarDays(parseISO(lr.start_date), today) >= 0) {
@@ -176,7 +193,7 @@ export function computeReminders(input: {
         id: `upcoming-pto-${lr.id}`,
         type: 'upcoming_pto',
         severity: 'info',
-        message: `Upcoming ${lr.leave_type} starting ${lr.start_date}.`,
+        message: `Upcoming ${lr.leave_type} starting ${formatDate(lr.start_date)}.`,
       })
     }
   }
@@ -189,7 +206,7 @@ export function computeReminders(input: {
         id: `payment-overdue-${pr.id}`,
         type: 'payment_overdue',
         severity: 'urgent',
-        message: `Payment for ${pr.period_start} – ${pr.period_end} is overdue.`,
+        message: `Payment for ${formatDateRange(pr.period_start, pr.period_end)} is overdue.`,
       })
       continue
     }
@@ -200,21 +217,21 @@ export function computeReminders(input: {
         id: `payment-due-today-${pr.id}`,
         type: 'payment_due',
         severity: 'warning',
-        message: `Payment for ${pr.period_start} – ${pr.period_end} is due today.`,
+        message: `Payment for ${formatDateRange(pr.period_start, pr.period_end)} is due today.`,
       })
     } else if (daysUntilDue === 1) {
       cards.push({
         id: `payment-due-tomorrow-${pr.id}`,
         type: 'payment_due',
         severity: 'info',
-        message: `Payment for ${pr.period_start} – ${pr.period_end} is due tomorrow.`,
+        message: `Payment for ${formatDateRange(pr.period_start, pr.period_end)} is due tomorrow.`,
       })
     } else {
       cards.push({
         id: `payment-due-soon-${pr.id}-${daysUntilDue}`,
         type: 'payment_due',
         severity: 'info',
-        message: `Payment for ${pr.period_start} – ${pr.period_end} is due in ${daysUntilDue} days.`,
+        message: `Payment for ${formatDateRange(pr.period_start, pr.period_end)} is due in ${daysUntilDue} days.`,
       })
     }
   }
@@ -242,7 +259,7 @@ export function computeReminders(input: {
       id: `schedule-change-${ex.id}`,
       type: 'schedule_change',
       severity: 'info',
-      message: `Schedule changed for ${ex.date}: ${ex.exception_type.replace(/_/g, ' ')}.`,
+      message: `Schedule changed for ${formatDate(ex.date)}: ${ex.exception_type.replace(/_/g, ' ')}.`,
     })
   }
 
@@ -309,7 +326,7 @@ export function buildWeeklySummaryCards(input: {
       `${hoursThisWeek.toFixed(1)} hrs logged this week`,
       `timesheet ${currentTimesheet ? currentTimesheet.status.replace(/_/g, ' ') : 'not yet generated'}`,
     ]
-    if (upcomingPayment && showGrossPay) parts.push(`$${upcomingPayment.gross_pay_due.toFixed(2)} due ${upcomingPayment.due_date}`)
+    if (upcomingPayment && showGrossPay) parts.push(`$${upcomingPayment.gross_pay_due.toFixed(2)} due ${formatDate(upcomingPayment.due_date)}`)
     if (ptoBalance?.remainingHours != null && showPtoBalance) parts.push(`${ptoBalance.remainingHours.toFixed(1)} PTO hrs left`)
     if (sickBalance?.remainingHours != null && showPtoBalance) parts.push(`${sickBalance.remainingHours.toFixed(1)} sick hrs left`)
 

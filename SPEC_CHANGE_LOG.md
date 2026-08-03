@@ -8,6 +8,93 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-03 — PTO note/comment fields, `leave_policy_id`, and an in-app Ledger view wired up (spec 13.7/14.5/15.11); reminder copy now uses formatted dates (spec 13.9); time-entry pre-fill re-verified; items 22-26 re-presented, one new judgment call (item 30)
+
+**This session's scope, per the standing recurring-task instructions:** make
+progress against the spec in phases, re-verify the time-entry schedule
+pre-fill (asked for again by name in this run's prompt), and present open
+judgment calls rather than deciding them unilaterally. Ran a fresh, targeted
+spec-vs-code audit of `APPLICATION_SPEC.md` §14.5 (PTO Screen), §14.6 (Pay
+Screen), §14.7 (Settings Screen), and §13.9's "Example Reminder Copy" against
+`src/lib/reminders.ts` — sections prior sessions' change-log entries hadn't
+named explicitly — plus a column-usage grep of `leave_requests`/`leave_ledger`
+against `src`, the same method item 24's `leave_policies` audit used.
+
+**Four mechanical gaps found and fixed:**
+
+1. **`leave_requests.nanny_note`/`parent_note` were never written.** Spec
+   13.7 lists "Note" as a real request field and "Comment" as a real parent
+   action; both columns existed in the schema but no form field captured
+   either. `PTO.tsx`'s request form, edit form, and the request-detail modal
+   now have a Note/Comment input, following the exact `isNanny ? {nanny_note}
+   : {parent_note}` pattern `Time.tsx` already uses for its own note field.
+   The note is shown on the list row and in the read-only detail view too,
+   matching `Time.tsx`'s existing display convention (each viewer sees their
+   own role's note, not the counterpart's — consistent with, not a fix to,
+   that existing asymmetry).
+2. **`leave_requests.leave_policy_id` was never written on insert.** The
+   matching policy was already being looked up two lines above the insert
+   (for the waiting-period/negative-balance checks) — `PTO.tsx`'s insert now
+   sets `leave_policy_id: policy?.id ?? null`. Zero-risk data-completeness
+   fix; nothing reads the column yet, but leaving a FK column permanently
+   null makes future reporting/joins on it impossible after the fact.
+3. **No in-app Ledger view existed**, despite spec 14.5 listing "Ledger" as
+   its own bullet under the Parent view (distinct from "Current balance").
+   `ledgerEntries` was already being loaded but only ever consumed for
+   balance math or gated behind CSV export (nanny has no export access per
+   spec 13.11, so a nanny never saw individual ledger lines, only the
+   aggregate balance). Added a collapsible "Ledger" card on `PTO.tsx`,
+   parent/co-admin only per the spec's view split, listing each entry's
+   date, leave type, event type, hours delta, and running balance.
+4. **Reminder copy used raw ISO dates**, not spec 13.9's "Example Reminder
+   Copy" style ("Jun 22–28", "Aug 14"). `reminders.ts` interpolated
+   `period_start`/`start_date`/etc. directly into every message despite the
+   rest of the app formatting user-facing dates via `date-fns` (e.g.
+   `Schedule.tsx`'s `format(weekStart, 'MMM d')`). Added `formatDate`/
+   `formatDateRange` helpers to `reminders.ts` and applied them to every
+   date-bearing message in `computeReminders`/`buildWeeklySummaryCards`.
+   Cosmetic-only; message wording/logic is unchanged.
+
+**One new judgment call found, not built — see `QUESTIONS_AND_CLARIFICATIONS.md` item 30.**
+`leave_requests.start_time`/`end_time` (spec 15.11, optional per spec 13.7)
+are dead columns — never set or read anywhere — so a partial-day PTO request
+has no way to say *which* hours, only a typed total. Same shape as the
+already-resolved-as-"skip for now" item 26 (payment attachment): an
+explicitly optional field with a working fallback (a typed hours number) and
+no signal yet that a household needs the finer granularity.
+
+**Also checked, no new issue: manual adjustment reachability.** Spec 14.5's
+"Manual adjustment" bullet is only reachable today via
+`CaregiverDetail.tsx`'s "PTO settings" card, which conflates editing the
+recurring policy amount with a one-time correction — the same overlap
+already flagged and left open as item 24; not re-opened as a separate item.
+
+**Built unilaterally, not flagged as a judgment call:** all four items above
+were either implementing explicit, unambiguous spec text with an obvious
+correct shape (the note fields, the FK write, the date formatting) or
+directly reusing an already-loaded value with no new design surface (the
+Ledger view reuses `ledgerEntries`, which was already being fetched) — same
+bar past sessions used for unilateral vs. flagged work.
+
+**Time-entry schedule pre-fill — re-verified, no change.** Same behavior
+confirmed every session since 2026-06-30: `Time.tsx` defaults the manual-
+entry date to today and pre-fills start/end/break from the caregiver's
+scheduled shift for whichever date is selected (falling back to 9am-5pm when
+nothing's scheduled that day). Asked for again by name in this run's prompt;
+nothing needed building.
+
+**Health check:** `npm install`, `npx tsc -b`, `npx oxlint`, and `npx vite
+build` all clean — no new TypeScript errors, no new lint warnings beyond the
+same handful of pre-existing `react-hooks/exhaustive-deps`/fast-refresh
+warnings prior sessions have already noted.
+
+Q&A items 22-26 were not resolved unilaterally (unchanged from the last three
+sessions) — they're re-presented in `QUESTIONS_AND_CLARIFICATIONS.md` and in
+the chat message from this session for a decision, alongside items 28-29
+(still open from 2026-08-01) and the new item 30 above.
+
+---
+
 ## 2026-08-01 — Reminder cards scoped by role per spec 21 (mechanical fix); targeted audit of onboarding/PTO-timing/reminder-scoping finds two new judgment calls (Q&A items 28-29); time-entry pre-fill re-verified; items 22-26 re-presented
 
 **This session's scope, per the standing recurring-task instructions:** make
