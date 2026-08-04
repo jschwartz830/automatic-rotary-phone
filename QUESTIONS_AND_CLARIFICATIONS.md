@@ -8,15 +8,19 @@ rather than a silent guess.
 
 ## Open items
 
-Items 22-26 below have been carried forward, unresolved, across the last
-three sessions (2026-07-30, 2026-07-31, 2026-08-01) — presented again in-chat
-each time rather than decided unilaterally, per the standing instruction to
-surface judgment calls rather than guess. Item 27 was resolved 2026-07-31
-since it had unambiguous recommendations for both of its sub-decisions,
-unlike 22-26. Items 28-29 are new this session (2026-08-01), found via a
-targeted spec-vs-code audit of sections not closely covered by prior
-sessions (onboarding, PTO deduction timing) — see `SPEC_CHANGE_LOG.md`
-2026-08-01 for the audit's full scope and what it found nothing wrong with.
+Items 22-26 below have been carried forward, unresolved, across the last four
+sessions (2026-07-30, 2026-07-31, 2026-08-01, 2026-08-03) — presented again
+in-chat each time rather than decided unilaterally, per the standing
+instruction to surface judgment calls rather than guess. Item 27 was resolved
+2026-07-31 since it had unambiguous recommendations for both of its
+sub-decisions, unlike 22-26. Items 28-29 were added 2026-08-01 via a targeted
+spec-vs-code audit of sections not closely covered by prior sessions
+(onboarding, PTO deduction timing). Item 30 is new this session (2026-08-03),
+found via a targeted audit of the PTO/Pay/Settings screens and reminder copy
+— see `SPEC_CHANGE_LOG.md` 2026-08-03 for what that audit found and fixed
+mechanically (PTO note/comment fields, `leave_policy_id`, an in-app Ledger
+view, and reminder-copy date formatting) versus what it left as a judgment
+call below.
 
 ### 28. Onboarding implements 2 of spec 13.1's 11 setup steps — build it out, or is "everything's reachable, just not funneled" good enough (spec 13.1)?
 
@@ -101,6 +105,35 @@ balance) moves for every household using the app today, and the "right"
 option depends on a product judgment (does a family want the balance to
 update the moment they say yes, or only once payroll actually processes it)
 that isn't mine to make unilaterally.
+
+### 30. `leave_requests.start_time`/`end_time` are dead columns — build partial-day/hourly PTO, or is a whole-day-plus-total-hours request enough (spec 13.7/15.11)?
+
+Spec 13.7's PTO Request Workflow lists "Start time, optional" / "End time,
+optional" as real request fields alongside start/end date and hours
+requested, and `leave_requests.start_time`/`end_time` (spec 15.11) exist in
+the schema for exactly that — but neither is ever set or read anywhere in
+`src` (confirmed by grep, same method used for item 24's `leave_policies`
+audit). `PTO.tsx`'s request form only offers date pickers plus a single
+free-typed total-hours number; a nanny requesting a half day off has no way
+to say *which* hours of the day, only how many hours total.
+
+- **Option A — leave as-is.** A typed hours number already covers the
+  numeric side of a partial-day request (e.g. "4 hrs" for a half day); the
+  household just loses the ability to say *when* those hours fall, which
+  nothing downstream (calendar, timesheet, payment calc) currently uses
+  anyway. Zero new work.
+- **Option B — add the time pickers.** Two optional `time` inputs on the
+  request form, shown only for single-day requests (a multi-day range with
+  per-day partial hours would need a different UI entirely, which spec
+  doesn't ask for). Requires deciding whether/how the calendar and
+  timesheet displays should surface the time-of-day once it exists, since
+  neither reads it today.
+
+**Recommendation: A unless a real household asks for hour-of-day
+granularity.** Same shape as item 26 (Payment attachment) — an
+explicitly-optional spec field with a working numeric fallback already in
+place, and no signal yet that the missing granularity has actually blocked
+anyone.
 
 ### 22. Calendar: build a real month view, or keep the week-grid-only simplification (spec 13.10/14.4)?
 
