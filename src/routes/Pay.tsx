@@ -931,7 +931,9 @@ export function Pay() {
       const periodEnd = records.reduce((latest, record) => record.period_end > latest ? record.period_end : latest, records[0].period_end)
       const [entriesResult, leaveResult] = await Promise.all([
         supabase.from('time_entries').select('*').eq('caregiver_id', caregiverId).is('deleted_at', null).gte('date', periodStart).lte('date', periodEnd),
-        supabase.from('leave_requests').select('*').eq('caregiver_id', caregiverId).eq('status', 'approved').lte('start_date', periodEnd).gte('end_date', periodStart),
+        // Archived leave was handed back and isn't part of what was paid --
+        // exclude it here too so the daily breakdown matches the period totals.
+        supabase.from('leave_requests').select('*').eq('caregiver_id', caregiverId).eq('status', 'approved').is('archived_at', null).lte('start_date', periodEnd).gte('end_date', periodStart),
       ])
       if (entriesResult.error) throw entriesResult.error
       if (leaveResult.error) throw leaveResult.error
