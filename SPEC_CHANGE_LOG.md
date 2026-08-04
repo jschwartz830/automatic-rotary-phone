@@ -94,6 +94,39 @@ the chat message from this session for a decision, alongside items 28-29
 (still open from 2026-08-01) and the new item 30 above.
 
 ---
+## 2026-08-04 — Archived leave requests still leaked into three read paths that weren't updated when 0015 added `archived_at` (bug fix, no spec change)
+
+`Pay.tsx`'s `computePeriodTotals` (the pay-math path) already excluded archived
+leave via `.is('archived_at', null)`, per the comment left when 0015 shipped.
+Three other places that read `leave_requests` were never given the same
+treatment, so an archived PTO/sick/unpaid entry kept showing up everywhere
+except the paycheck it was archived to stop affecting:
+
+- `Schedule.tsx`'s `loadLeave` (the weekly schedule view) still queried
+  `status in ('approved','requested')` with no `archived_at` filter, so an
+  archived request kept rendering its chip on the day it covered.
+- `Home.tsx`'s dashboard balance fallback called `computeLeaveBalance` with
+  the *unfiltered* `leave_requests` result (unlike `PTO.tsx`, which already
+  pre-filters into `unarchivedRequests` before calling the same function) --
+  only reachable for a policy with zero ledger rows yet, but wrong when hit.
+- `Pay.tsx`'s `exportDetailedRecords` (the daily-detail CSV) queried leave for
+  the export period without the filter, so the per-day PTO/sick/unpaid
+  columns could show hours a payment record's own period totals no longer
+  counted.
+
+Fixed the root cause once instead of patching each call site again:
+`computeLeaveBalance` (`lib/leave.ts`) now filters `!r.archived_at` itself, so
+no caller can forget it (this also covers the `Home.tsx` case without
+touching `Home.tsx`). `Schedule.tsx` and `Pay.tsx`'s CSV query each got the
+same `.is('archived_at', null)` `Pay.tsx`'s pay-math query already used.
+
+**Unpaid time off already zeroes out guaranteed-hours pay when it fully
+covers the guarantee -- re-verified, not a bug.** A week scheduled/guaranteed
+for 12 hours with 12 hours of approved unpaid leave and no other worked/leave
+hours produces `guaranteeAdjustmentHours = 0` and `gross_pay_due = 0` today,
+because `unpaid_time_off_reduces_guarantee` (`caregiver_profiles`, default
+`true`) subtracts unpaid hours from the guarantee base before topping up pay
+(`calc.ts`'s `calculateTimesheet`, 16.5). No code change was needed here.
 
 ## 2026-08-01 — Reminder cards scoped by role per spec 21 (mechanical fix); targeted audit of onboarding/PTO-timing/reminder-scoping finds two new judgment calls (Q&A items 28-29); time-entry pre-fill re-verified; items 22-26 re-presented
 
