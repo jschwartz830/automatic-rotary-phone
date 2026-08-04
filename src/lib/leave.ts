@@ -85,6 +85,11 @@ export function computeLeaveBalance(
   const usedHours = leaveRequests
     .filter((r) => r.leave_type === policy.leave_type)
     .filter((r) => r.status === 'approved' || r.status === 'used')
+    // An archived request has had its ledger hours handed back (see
+    // PTO.tsx archiveRequest), so it must not count against the balance here
+    // either -- callers that pass unfiltered leaveRequests would otherwise
+    // disagree with the ledger-based balance above.
+    .filter((r) => !r.archived_at)
     .filter((r) => r.start_date >= periodStart && r.start_date <= periodEnd)
     .reduce((sum, r) => sum + (r.hours_requested ?? 0), 0)
 

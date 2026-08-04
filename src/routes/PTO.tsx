@@ -35,10 +35,12 @@ export function PTO() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [hours, setHours] = useState('')
+  const [note, setNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isRetroactive, setIsRetroactive] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
+  const [showLedger, setShowLedger] = useState(false)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [archivingId, setArchivingId] = useState<string | null>(null)
   const { policies } = useLeavePolicies(caregiverId)
@@ -205,11 +207,14 @@ export function PTO() {
         .from('leave_requests')
         .insert({
           caregiver_id: caregiverId,
+          leave_policy_id: policy?.id ?? null,
           leave_type: leaveType,
           start_date: startDate,
           end_date: endDate || startDate,
           hours_requested: hours ? Number(hours) : null,
           status: isParentOrCoAdmin ? 'approved' : 'requested',
+          nanny_note: isNanny ? note || null : null,
+          parent_note: !isNanny ? note || null : null,
           requested_by: user?.id ?? null,
           reviewed_by: isParentOrCoAdmin ? user?.id ?? null : null,
           reviewed_at: isParentOrCoAdmin ? new Date().toISOString() : null,
@@ -233,6 +238,7 @@ export function PTO() {
 
       setShowForm(false)
       setHours('')
+      setNote('')
       setIsRetroactive(false)
       await loadRequests(caregiverId)
     } catch (err) {
@@ -282,6 +288,7 @@ export function PTO() {
     setStartDate(request.start_date)
     setEndDate(request.end_date)
     setHours(request.hours_requested != null ? String(request.hours_requested) : '')
+    setNote((isNanny ? request.nanny_note : request.parent_note) ?? '')
     setError(null)
   }
 
@@ -291,6 +298,7 @@ export function PTO() {
     setStartDate('')
     setEndDate('')
     setHours('')
+    setNote('')
     setError(null)
   }
 
@@ -314,6 +322,7 @@ export function PTO() {
           start_date: startDate,
           end_date: endDate || startDate,
           hours_requested: newHours,
+          ...(isNanny ? { nanny_note: note || null } : { parent_note: note || null }),
         })
         .eq('id', detailId)
       if (updateError) throw updateError
@@ -534,6 +543,38 @@ export function PTO() {
         </Card>
       )}
 
+      {isParentOrCoAdmin && caregiverId && (
+        <Card title="Ledger" action={<button className="text-xs text-blue-600 underline dark:text-blue-400" onClick={() => setShowLedger((s) => !s)}>{showLedger ? 'Hide' : 'Show'}</button>}>
+          {showLedger &&
+            (ledgerEntries.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400">No ledger entries yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {[...ledgerEntries].reverse().map((entry) => {
+                  const policy = policies.find((p) => p.id === entry.leave_policy_id)
+                  return (
+                    <div key={entry.id} className="flex items-center justify-between gap-2 text-xs">
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900 dark:text-gray-100">
+                          {entry.event_date} · {policy ? formatLeaveType(policy.leave_type) : '—'} · {entry.event_type.replace(/_/g, ' ')}
+                        </p>
+                        {entry.notes && <p className="text-gray-400 dark:text-gray-500">{entry.notes}</p>}
+                      </div>
+                      <div className="shrink-0 text-right text-gray-500 dark:text-gray-400">
+                        <p className={entry.hours_delta < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}>
+                          {entry.hours_delta > 0 ? '+' : ''}
+                          {entry.hours_delta.toFixed(2)}
+                        </p>
+                        <p>bal {entry.balance_after.toFixed(2)}</p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+        </Card>
+      )}
+
       {showForm && (
         <Card title={isParentOrCoAdmin ? 'Record leave' : 'Request leave'}>
           <form onSubmit={handleSubmit} className="space-y-3">
@@ -569,6 +610,9 @@ export function PTO() {
                 value={hours}
                 onChange={(e) => setHours(e.target.value)}
               />
+            </Field>
+            <Field label="Note (optional)">
+              <input className={inputClass} value={note} onChange={(e) => setNote(e.target.value)} />
             </Field>
             {isParentOrCoAdmin && (
               <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -652,6 +696,11 @@ export function PTO() {
                         {r.start_date}
                         {r.end_date !== r.start_date ? ` – ${r.end_date}` : ''} · {r.hours_requested ?? '—'} hrs
                       </p>
+                      {(isNanny ? r.nanny_note : r.parent_note) && (
+                        <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
+                          {isNanny ? r.nanny_note : r.parent_note}
+                        </p>
+                      )}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       {r.archived_at && <span className="text-[11px] text-gray-400 dark:text-gray-500">Archived</span>}
@@ -721,6 +770,9 @@ export function PTO() {
                     onChange={(e) => setHours(e.target.value)}
                   />
                 </Field>
+                <Field label={isNanny ? 'Note (optional)' : 'Comment (optional)'}>
+                  <input className={inputClass} value={note} onChange={(e) => setNote(e.target.value)} />
+                </Field>
                 {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
                 <Button type="submit" className="w-full" disabled={submitting}>
                   {submitting ? 'Saving…' : 'Save changes'}
@@ -734,6 +786,11 @@ export function PTO() {
                   {detailRequest.end_date !== detailRequest.start_date ? ` – ${detailRequest.end_date}` : ''} ·{' '}
                   {detailRequest.hours_requested ?? '—'} hrs
                 </p>
+                {(isNanny ? detailRequest.nanny_note : detailRequest.parent_note) && (
+                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                    {isNanny ? detailRequest.nanny_note : detailRequest.parent_note}
+                  </p>
+                )}
                 {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
               </div>
             )}

@@ -158,6 +158,9 @@ export function Schedule() {
       .lte('start_date', end)
       .gte('end_date', start)
       .in('status', ['approved', 'requested'])
+      // An archived request no longer applies -- it shouldn't still show as
+      // blocking the schedule for its day.
+      .is('archived_at', null)
     setLeaveForWeek((data ?? []) as LeaveRequest[])
   }
 
