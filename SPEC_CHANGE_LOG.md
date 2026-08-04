@@ -8,6 +8,94 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-04 — PWA manifest duplication/inconsistency fixed (spec 8, mechanical); targeted audit of sections 6/7/8/18/24 plus a households/household_users column sweep finds one new judgment call (Q&A item 30); time-entry pre-fill re-verified; items 22-26/28-29 re-presented
+
+**This session's scope, per the standing recurring-task instructions:**
+re-verify the time-entry schedule pre-fill (asked for again by name), run a
+fresh targeted audit aimed at spec sections prior sessions covered less
+closely — section 6 (Supabase schema vs. spec), section 7 (GitHub Actions
+deploy config), section 8 (PWA requirement), section 18 (Authorization —
+session handling, auth guards), section 24 (Acceptance Criteria, checked
+literally) — plus a fresh grep-every-column-name sweep of two data-model
+tables not recently swept (`households`, `household_users`). No session ran
+2026-08-02 or 2026-08-03.
+
+**PWA manifest was duplicated and inconsistent (spec 8, mechanical, built).**
+`index.html` hand-authored a `<link rel="manifest" href="/manifest.json">`
+pointing at a static `public/manifest.json`, *in addition to* the
+`<link rel="manifest">` that `vite-plugin-pwa` auto-injects pointing at its
+own generated `manifest.webmanifest` — confirmed by building and inspecting
+`dist/index.html`, which shipped both tags. The two manifests disagreed:
+`public/manifest.json` had `theme_color: "#111827"` (matching the app's
+`<meta name="theme-color">` and `PreferencesContext.tsx`'s light-mode value);
+`vite.config.ts`'s `VitePWA({ manifest: {...} })` had `theme_color:
+"#ffffff"`. Which one a browser actually honors when two `<link
+rel="manifest">` tags are present is undefined/browser-dependent, so this was
+a real (if subtle) "PWA install may pick up the wrong theme color"
+correctness bug, not just untidiness. Similarly, `public/sw.js` was a
+hand-written service worker that's been fully superseded by
+`vite-plugin-pwa`'s generated `sw.js` (`registerSW` from
+`virtual:pwa-register` is what `main.tsx` actually registers) — confirmed by
+building and diffing `dist/sw.js` against `public/sw.js`: the workbox-
+generated file always wins at `dist/sw.js` regardless of the static one, so
+`public/sw.js` was dead code that could mislead a future reader into thinking
+it's the real service worker. Fix: removed `public/manifest.json` and
+`public/sw.js`, removed the manual manifest `<link>` from `index.html` (the
+plugin still auto-injects one, confirmed post-fix by rebuilding — single
+`<link rel="manifest" href=".../manifest.webmanifest">`, correctly base-path-
+prefixed), and changed `vite.config.ts`'s `theme_color` to `#111827` to match
+the rest of the app. Verified via a clean production build that
+`dist/index.html` now has exactly one manifest link and `dist/manifest.webmanifest`
+carries the correct theme color.
+
+**One new judgment call found, not built — see `QUESTIONS_AND_CLARIFICATIONS.md` item 30.**
+`household_users.status` has an unused `'removed'` enum value — every RLS
+helper already checks `status = 'active'`, so soft-deleting would revoke
+access identically to today's hard delete, and it looked at first glance like
+a one-line "use the status column that already exists" fix. It isn't:
+`join_household_by_code()` (the `SECURITY DEFINER` function backing the
+join-code invite flow) blocks rejoining if *any* row exists for that
+household/user pair regardless of status, and does a plain `INSERT` that
+would violate the table's unique constraint against a leftover `'removed'`
+row. Soft-deleting without also teaching the join function to handle a
+`'removed'` row would permanently lock a removed member out of ever
+rejoining via a join code again — worse than the gap it would fix — and
+whether a removed member *should* be able to silently rejoin with an old
+code is a real access-control call, not a mechanical one. Not built
+unilaterally for that reason.
+
+**Audit also checked and found no new issues in:** GitHub Actions deploy
+workflow (matches spec 3/5/7 and goes further, with retry-on-failure logic
+spec doesn't require); Vite base-path config; env var handling (only the
+anon key reaches the frontend bundle, confirmed by grep); auth guards/session
+handling (`Gate`/`RequireHousehold` in `App.tsx`, `AuthContext.tsx`'s
+`onAuthStateChange` wiring); `caregiver_profiles.employment_status`
+transitions (has real UI in `CaregiverDetail.tsx`); schedule exceptions
+correctly feeding both the calendar grid and the timesheet's
+`family_cancellation_hours` line item (this was a stale "known gap" in an
+older log entry — already resolved by a prior session, reconfirmed current);
+`manage_users` permission key properly gates both the RLS policy and the
+`More.tsx` UI for household member management.
+
+**Time-entry schedule pre-fill — re-verified, no change.** Same behavior
+confirmed every session since 2026-06-30: `Time.tsx` defaults the manual-
+entry date to today (`useState(new Date().toISOString().slice(0, 10))`) and
+pre-fills start/end/break from the caregiver's scheduled shift for whichever
+date is selected via a `useEffect` keyed on `date`/`templates`/
+`shiftsByTemplate`, falling back to `09:00`–`17:00` when nothing's scheduled
+that day. Asked for again by name in this run's prompt; nothing needed
+building.
+
+**Health check:** `npm install`, `npx tsc -b`, `npx oxlint`, and `npx vite
+build` all clean — no new TypeScript errors, no new lint warnings beyond the
+pre-existing handful unrelated to this session's change.
+
+Q&A items 22-26 and 28-29 were not resolved unilaterally (unchanged from
+prior sessions) — re-presented in `QUESTIONS_AND_CLARIFICATIONS.md` alongside
+the new item 30 above for a decision.
+
+---
+
 ## 2026-08-01 — Reminder cards scoped by role per spec 21 (mechanical fix); targeted audit of onboarding/PTO-timing/reminder-scoping finds two new judgment calls (Q&A items 28-29); time-entry pre-fill re-verified; items 22-26 re-presented
 
 **This session's scope, per the standing recurring-task instructions:** make

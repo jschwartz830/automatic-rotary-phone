@@ -8,15 +8,76 @@ rather than a silent guess.
 
 ## Open items
 
-Items 22-26 below have been carried forward, unresolved, across the last
-three sessions (2026-07-30, 2026-07-31, 2026-08-01) — presented again in-chat
-each time rather than decided unilaterally, per the standing instruction to
-surface judgment calls rather than guess. Item 27 was resolved 2026-07-31
-since it had unambiguous recommendations for both of its sub-decisions,
-unlike 22-26. Items 28-29 are new this session (2026-08-01), found via a
-targeted spec-vs-code audit of sections not closely covered by prior
-sessions (onboarding, PTO deduction timing) — see `SPEC_CHANGE_LOG.md`
-2026-08-01 for the audit's full scope and what it found nothing wrong with.
+Items 22-26 below have been carried forward, unresolved, across several
+sessions (2026-07-30, 2026-07-31, 2026-08-01, 2026-08-04) — presented again
+in-chat each time rather than decided unilaterally, per the standing
+instruction to surface judgment calls rather than guess. Item 27 was resolved
+2026-07-31 since it had unambiguous recommendations for both of its
+sub-decisions, unlike 22-26. Items 28-29 were added 2026-08-01, found via a
+targeted spec-vs-code audit of sections not closely covered by prior sessions
+(onboarding, PTO deduction timing). Item 30 is new this session (2026-08-04),
+found via a targeted audit of spec sections 6/8/18/24 and a fresh data-model
+column sweep of `households`/`household_users` — see `SPEC_CHANGE_LOG.md`
+2026-08-04 for the audit's full scope and what it found nothing wrong with.
+
+### 30. Removing a household member hard-deletes the `household_users` row instead of using the schema's `'removed'` status (spec 10/15.3) — and fixing that collides with the join-code rejoin flow
+
+`household_users.status` has three defined values —
+`'invited' | 'active' | 'removed'` — and every RLS helper
+(`is_household_member` and friends, migration 0002) already checks
+`status = 'active'`, so a soft-delete would revoke access exactly as well as
+a hard delete does today. But `More.tsx`'s `removeMember()` does a plain
+`supabase.from('household_users').delete()`, not a status update. This is
+the only real "remove" path in the app that doesn't leave a queryable row
+behind — it doesn't fully violate spec (an `audit_events` row with
+`before: {role, email}` is still written, so there's *a* record, just not
+one queryable from `household_users` itself), but it's inconsistent with the
+schema's own `'removed'` enum value and with the app's general
+never-hard-delete posture elsewhere (time entries/timesheets/leave requests
+all soft-delete or status-transition instead).
+
+This isn't a one-line fix, which is why it's here instead of just being
+built: `join_household_by_code()` (migrations 0011/0013, `SECURITY DEFINER`)
+both (a) raises "You are already a member of this household" if *any* row
+exists for that `household_id`/`user_id` pair regardless of status, and (b)
+does a plain `INSERT`, which would violate the `unique (household_id,
+user_id)` constraint if a `'removed'` row were left in place. Switching
+`removeMember` to soft-delete without also teaching the join function to
+treat a `'removed'` row as rejoinable (reactivate in place, or delete-then-
+insert) would permanently lock that person out of ever rejoining via a join
+code again, even after being deliberately re-invited — a worse regression
+than the thing being fixed. And *should* a removed member be able to silently
+rejoin with an old code they still know, without the parent re-approving
+them? That's a real access-control judgment call, not a mechanical one.
+
+- **Option A — leave as-is.** Hard delete plus the existing `audit_events`
+  row is an acceptable record for a household-membership change (lower
+  stakes than a financial record); rejoin-after-removal already works today
+  precisely because the row is gone. Zero work.
+- **Option B — soft-delete, and make rejoin explicitly re-activate.** Change
+  `removeMember` to `update({status: 'removed'})`; change
+  `join_household_by_code()` to treat an existing `'removed'` row as
+  rejoinable (reactivate: `status = 'active', accepted_at = now()`) while
+  still blocking if the existing row is `'active'`. Preserves full
+  membership history in `household_users` itself and matches the schema's
+  own enum, at the cost of a new migration touching a `SECURITY DEFINER`
+  function.
+- **Option C — soft-delete, but require an explicit re-invite.** Same as B
+  for `removeMember`, but leave `join_household_by_code()` raising on any
+  existing row (as today) — a removed member's old code simply stops
+  working for them, and the parent must regenerate/share the join code
+  again (already a one-tap action in `More.tsx`) to let them back in.
+  Closer to a real "revoke access" semantic than B's silent reactivation.
+
+**Recommendation: C**, if this gets built at all — it keeps the audit-trail
+benefit of B without B's silent-rejoin side effect, at the same
+implementation cost (the join function only needs to *reject* a `'removed'`
+row with a clearer error, not reactivate one). But given the low real-world
+stakes (a household-membership record, not a financial one) and that today's
+hard-delete plus audit-log entry is a defensible reading of the spec on its
+own, **A is a legitimate choice too** — flagging this mainly because the
+schema's unused `'removed'` enum value looked, on first read, like a
+one-line mechanical fix, and it's worth documenting why it isn't.
 
 ### 28. Onboarding implements 2 of spec 13.1's 11 setup steps — build it out, or is "everything's reachable, just not funneled" good enough (spec 13.1)?
 
