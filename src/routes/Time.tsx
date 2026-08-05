@@ -604,6 +604,10 @@ export function Time() {
           {activeEntries.map((entry) => {
             const isActiveClock = entry.id === activeClockEntry?.id
             const { start: displayStart, end: displayEnd } = formatEntryTimeRange(entry, timeFormat)
+            // Spec 14.3 Time Screen "Show: ... Scheduled vs actual" -- reuses
+            // the same schedule lookup the add/edit form already uses for
+            // pre-fill and validation warnings, just applied per saved row.
+            const scheduledForDay = scheduledHoursFor(entry.date)
 
             return (
               <SwipeRow
@@ -629,6 +633,12 @@ export function Time() {
                       <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{entry.date}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
                         {displayStart}–{displayEnd} · {entry.paid_hours?.toFixed(2) ?? '0.00'} hrs
+                        {scheduledForDay !== null && (
+                          <span className="text-gray-400 dark:text-gray-500">
+                            {' '}
+                            (scheduled {scheduledForDay.toFixed(2)} hrs)
+                          </span>
+                        )}
                       </p>
                       {(isNanny ? entry.nanny_note : entry.parent_note) && (
                         <p className="text-xs text-gray-400 mt-0.5 dark:text-gray-500">

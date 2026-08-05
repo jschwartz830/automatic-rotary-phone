@@ -8,6 +8,102 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-05 — Time screen now shows scheduled-vs-actual per row (spec 14.3, mechanical); targeted audit of sections 14/16 finds two new judgment calls (Q&A items 31-32, one a real financial-calc bug); items 22-26/28-30 re-presented
+
+**This session's scope, per the standing recurring-task instructions:** a
+fresh, targeted audit of two spec areas prior sessions had covered less
+closely than others — section 16 "Calculation Rules" (16.1-16.9) checked
+formula-by-formula against `src/lib/calc.ts` and `Pay.tsx`'s
+`computePeriodTotals`, and spec 14.3 (Time Screen)/14.4 (Calendar
+Screen)/14.7 (Settings Screen) checked bullet-by-bullet against
+`Time.tsx`/`Schedule.tsx`/`More.tsx`. 14.4 was skipped once its gaps were
+confirmed to be the same already-open Q&A item 22 (week-grid-only calendar);
+nothing new was added there per this run's instructions not to re-describe an
+already-tracked gap.
+
+**Time screen now shows scheduled hours next to actual, per row (spec 14.3,
+mechanical, built).** Spec 14.3 lists "Scheduled vs actual" under the Time
+screen's "Show" bullets; `Time.tsx`'s entry rows previously showed only
+actual worked hours (`entry.paid_hours`), with the caregiver's scheduled
+hours for that date computed only transiently inside the add/edit form's
+validation warnings (`scheduledHoursFor`, already existed) and never
+displayed on the saved row itself. Each active entry row now shows
+"(scheduled X.XX hrs)" next to the actual hours whenever a shift was
+scheduled that date, reusing the same `scheduledHoursFor` helper the form
+already had — no new schedule query, no new design surface, a direct
+"read a value that's already computed and just wasn't shown" fix. Left the
+collapsed Archived list unchanged (lower-traffic view, already visually
+de-emphasized) to keep the change surgical.
+
+**Two new judgment calls found, not built — see
+`QUESTIONS_AND_CLARIFICATIONS.md` items 31-32.**
+
+- **Item 31 (the significant one) — overtime and `fixed_weekly` guaranteed
+  hours are computed once per whole pay period, not per calendar week, in
+  `calc.ts`/`Pay.tsx`/`schedule.ts`.** Spec 16.6 is explicit that the
+  overtime threshold is "40 actual worked hours per **week**," and spec
+  16.3's `fixed_weekly` guaranteed-hours basis is a distinct sibling of
+  `fixed_pay_period` specifically because it's meant to represent a week's
+  worth, not a period's. But `pay_frequency` (a real, selectable
+  `caregiver_profiles` setting — weekly/biweekly/semi_monthly/monthly) is
+  never consulted by the calc engine: `computePeriodTotals` sums worked
+  hours across the *entire* pay period and runs them through
+  `calculateTimesheet` exactly once against a flat, unscaled
+  `overtime_threshold_hours` (default 40) and, separately,
+  `computeGuaranteedHoursBase` returns `fixed_weekly_guaranteed_hours` as-is
+  regardless of how long the period being computed actually is. For a
+  biweekly caregiver working 38 hours in each of two weeks (76 total, zero
+  overtime under any real weekly rule), today's code computes 36 hours of
+  overtime — a real miscalculation of `gross_pay_due`, not a cosmetic gap.
+  Not fixed directly because the "correct" fix requires an unspecified
+  product decision about how to bucket weeks inside a period that frequently
+  doesn't align to week boundaries (partial weeks at a semi-monthly or
+  monthly period's edges have no spec'd threshold-proration rule), and a
+  wrong-in-a-different-way fix is a real risk given this touches
+  already-relied-upon pay math for every non-weekly household. See the Q&A
+  entry for the three options considered (leave as-is / approximate
+  period-length scaling / true per-calendar-week bucketing) — no
+  recommendation given, deliberately, given the stakes.
+- **Item 32 — Time screen is a single flat, unscoped list of every entry
+  ever logged, not spec 14.3's This Week / Previous Weeks / Corrections tab
+  structure.** `Time.tsx`'s `loadEntries` has no date filter at all and
+  renders the full result as one reverse-chronological list. Not built
+  directly because the "Corrections" third of the ask has nothing to show
+  until Q&A item 25 (reject/request-correction workflow) is decided, and the
+  "This Week"/"Previous Weeks" split needs its own navigation-model decision
+  plus the same pay-period-vs-calendar-week question item 31 raises for
+  money, just for display instead. Recommendation given (option B — add
+  week grouping/paging, skip Corrections until item 25 lands) but not
+  built unilaterally, matching the bar items 22/23 already set for
+  screen-structure decisions.
+
+**Audit also checked and found no new issues in:** every other 16.x formula
+(16.1 paid-hours, 16.2 scheduled-hours, 16.4 actual-paid-hours gating, 16.5
+guarantee adjustment, 16.7 payable-hours capping, 16.8 gross pay) matches the
+spec's stated formulas and worked examples (13.6 Examples 1-4) exactly for a
+single-week period, which is the only case the code was ever exercised
+against; 16.9's per-hour-worked/per-pay-period/monthly accrual gap is the
+same already-open item 24, not re-described here. 14.7 Settings: every listed
+section (Household settings, User permissions, Nanny profile, Pay settings,
+Guaranteed hours settings, PTO/sick settings, Schedule templates, Reminder
+settings, Export records, Audit log) is reachable from `More.tsx` or one tap
+away from it (Audit Log via its bottom link, Export via Pay.tsx, Schedule
+templates via Schedule.tsx) — same "everything reachable, just not funneled
+into one screen" pattern already accepted for item 28's onboarding gap, not
+a new finding.
+
+**Health check:** `npm install`, `npx tsc -b`, `npx oxlint`, and `npx vite
+build` all clean — no new TypeScript errors, no new lint warnings beyond the
+same pre-existing handful (`react-hooks/exhaustive-deps` in `Schedule.tsx`,
+`react-refresh/only-export-components` in the context files and
+`Card.tsx`) prior sessions have already noted.
+
+Q&A items 22-26 and 28-30 were not resolved unilaterally (unchanged from
+prior sessions) — re-presented in `QUESTIONS_AND_CLARIFICATIONS.md` alongside
+the two new items above (31-32) for a decision.
+
+---
+
 ## 2026-08-04 — PWA manifest duplication/inconsistency fixed (spec 8, mechanical); targeted audit of sections 6/7/8/18/24 plus a households/household_users column sweep finds one new judgment call (Q&A item 30); time-entry pre-fill re-verified; items 22-26/28-29 re-presented
 
 **This session's scope, per the standing recurring-task instructions:**
