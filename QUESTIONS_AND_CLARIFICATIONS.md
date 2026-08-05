@@ -9,16 +9,19 @@ rather than a silent guess.
 ## Open items
 
 Items 22-26 below have been carried forward, unresolved, across several
-sessions (2026-07-30, 2026-07-31, 2026-08-01, 2026-08-04) — presented again
-in-chat each time rather than decided unilaterally, per the standing
-instruction to surface judgment calls rather than guess. Item 27 was resolved
-2026-07-31 since it had unambiguous recommendations for both of its
+sessions (2026-07-30, 2026-07-31, 2026-08-01, 2026-08-04, 2026-08-05) —
+presented again in-chat each time rather than decided unilaterally, per the
+standing instruction to surface judgment calls rather than guess. Item 27 was
+resolved 2026-07-31 since it had unambiguous recommendations for both of its
 sub-decisions, unlike 22-26. Items 28-29 were added 2026-08-01, found via a
 targeted spec-vs-code audit of sections not closely covered by prior sessions
-(onboarding, PTO deduction timing). Item 30 is new this session (2026-08-04),
-found via a targeted audit of spec sections 6/8/18/24 and a fresh data-model
-column sweep of `households`/`household_users` — see `SPEC_CHANGE_LOG.md`
-2026-08-04 for the audit's full scope and what it found nothing wrong with.
+(onboarding, PTO deduction timing). Item 30 was added 2026-08-04, found via a
+targeted audit of spec sections 6/8/18/24 and a fresh data-model column sweep
+of `households`/`household_users`. Items 31-32 are new this session
+(2026-08-05), found via a targeted audit of spec section 16 (Calculation
+Rules) against `src/lib/calc.ts`/`Pay.tsx`, and spec 14.3/14.4/14.7 against
+`Time.tsx`/`Schedule.tsx`/`More.tsx` — see `SPEC_CHANGE_LOG.md` 2026-08-05 for
+the audit's full scope and what it fixed mechanically along the way.
 
 ### 30. Removing a household member hard-deletes the `household_users` row instead of using the schema's `'removed'` status (spec 10/15.3) — and fixing that collides with the join-code rejoin flow
 
@@ -449,6 +452,127 @@ apps use for e.g. mileage receipts).
 of "optional" spec line that's cheap to defer indefinitely and expensive to
 build speculatively (new Storage/RLS surface, mobile upload UX) with no
 signal yet that it's needed.
+
+### 31. Overtime and `fixed_weekly` guaranteed hours are computed once per pay period, not per calendar week — wrong math for every caregiver not on weekly pay (spec 16.3/16.6)
+
+Spec 16.6 defines the overtime threshold as "40 actual worked hours per
+**week**" and gives `regular_worked_hours = min(actual_worked_hours,
+overtime_threshold)` / `overtime_worked_hours = max(actual_worked_hours -
+overtime_threshold, 0)`. Spec 16.3 gives `fixed_weekly` as a guaranteed-hours
+basis distinct from its sibling `fixed_pay_period` — the two names only make
+sense as different things if `fixed_weekly_guaranteed_hours` represents a
+single week's guarantee and `fixed_pay_period_guaranteed_hours` represents
+the whole period's. But `caregiver_profiles.pay_frequency` is a real,
+selectable setting in `CaregiverDetail.tsx` with four options — `weekly`,
+`biweekly`, `semi_monthly`, `monthly` (`src/lib/types.ts`) — and neither
+`calc.ts`'s `calculateTimesheet` nor `schedule.ts`'s
+`computeGuaranteedHoursBase` is aware of period length at all:
+`Pay.tsx`'s `computePeriodTotals` sums `actualWorkedHours` across the *entire*
+pay period (however long) and passes it, together with the caregiver's flat
+`overtime_threshold_hours` (default 40), into `calculateTimesheet` exactly
+once. For a biweekly caregiver working 38 hours in each of two weeks (76
+total, zero overtime under a real per-week rule), today's code computes
+`overtime_worked_hours = max(76 - 40, 0) = 36` — a massive miscalculation of
+`gross_pay_due`. The same flat-application problem hits
+`fixed_weekly_guaranteed_hours` (`computeGuaranteedHoursBase`,
+`src/lib/schedule.ts`): it's used as-is as the guarantee base for whatever
+period is being computed, with no scaling for period length, so a biweekly
+caregiver with a 30-hour weekly guarantee only ever gets a 30-hour guarantee
+credited across the whole two-week period instead of 60.
+
+This isn't a new-feature gap, it's a live-money bug for every household that
+picks a non-weekly `pay_frequency` — but fixing it correctly means deciding
+how to bucket calendar weeks inside a period that frequently doesn't align to
+week boundaries (a semi-monthly period like Aug 1–15 starts mid-week; any
+period can have a partial week at either edge), which the spec never
+addresses. Should a partial week at a period's edge get the full 40-hour
+threshold, a prorated one, or merge into the adjacent week? Should
+`fixed_weekly_guaranteed_hours` scale by the number of
+`household.week_start_day`-aligned week-starts inside the period, or by
+`period_days / 7`? Both are defensible, neither is spec'd. A prior session's
+own reasoning already brushed up against this exact tension without
+connecting it back to `Pay.tsx`'s actual calculation: `SPEC_CHANGE_LOG.md`'s
+2026-07-27 entry (Home's "This Week" card) explicitly notes the caregiver's
+"pay period (frequently biweekly, rarely aligned to a calendar week)" as the
+reason a payable-hours estimate was kept off the Home screen, but that
+observation was never traced through to the fact that `Pay.tsx` itself has
+the same misalignment problem when it actually runs the numbers.
+
+- **Option A — leave as-is, document as a known limitation.** Overtime and
+  `fixed_weekly` guarantee math is only correct when `pay_frequency ===
+  'weekly'` (the DB default, and per spec 13.5 "the main approval object").
+  A household already able to pick biweekly/semi-monthly/monthly gets wrong
+  numbers today with no warning anywhere in the UI. Zero work, but silently
+  wrong pay for real households.
+- **Option B — simple period-length scaling (approximate, mechanical).**
+  Scale both `overtime_threshold_hours` and `fixed_weekly_guaranteed_hours`
+  by `period_days / 7` before they reach `calculateTimesheet` — e.g. a 14-day
+  period gets an 80-hour threshold and double the weekly guarantee. Doesn't
+  match "40 hours per calendar week" literally (a caregiver who works 70
+  hours in week 1 and 10 in week 2 of a biweekly period still shows zero
+  overtime under this scaling, where a strict weekly rule would show 30), but
+  it's a one-line change per value, fixes the worst of today's miscalculation
+  (a flat 40-hour/30-hour threshold regardless of period length), and needs
+  no new UI or data model.
+- **Option C — true per-calendar-week bucketing.** Split a period's time
+  entries by ISO week (respecting `household.week_start_day`), run
+  regular/overtime math per week and sum the results; scale
+  `fixed_weekly_guaranteed_hours` by the number of week-starts inside the
+  period. Matches spec 16.6 literally, but needs an explicit, currently
+  unspecified rule for partial weeks at period boundaries, and is real
+  calc-engine surgery (splitting time entries by week, reconciling that
+  against the existing single-pass `calculateTimesheet` shape), not a
+  one-line fix.
+
+**No recommendation given** — unlike a mechanical fill-in, any fix here
+changes `gross_pay_due` (an already-relied-upon, real-money number) for every
+household not on weekly pay, in a direction that depends on their actual
+hours pattern and could go either way, and the "correct" partial-week rule
+genuinely isn't specified anywhere in the spec. Shipping a fix that's wrong
+in a *different* way than today's bug is a real risk here, more than most
+items on this list — worth a deliberate, informed choice rather than a guess.
+
+### 32. Time screen is one flat, unscoped list — not spec 14.3's This Week / Previous Weeks / Corrections tabs (spec 14.3)
+
+Spec 14.3 lists three tabs (This Week, Previous Weeks, Corrections) and,
+under "Show," a per-row "scheduled vs actual" comparison (added this session,
+see `SPEC_CHANGE_LOG.md` 2026-08-05) plus "missing time warnings." `Time.tsx`'s
+`loadEntries` queries every `time_entries` row the caregiver has ever had,
+with no date filter at all, and `activeEntries.map(...)` renders the entire
+result as one reverse-chronological list — no week grouping, no navigation,
+and nothing resembling a "Corrections" view. A household with months of
+history sees every entry it's ever logged in one long scroll, with no way to
+jump to "this week" or page through past weeks the way spec 14.3 implies.
+
+Why this needs a decision rather than a mechanical fill-in: the "Corrections"
+third of the tab structure has nothing to show yet — Q&A item 25 already
+leaves the actual reject/request-correction workflow unbuilt (no
+`needs_correction` UI path exists anywhere), so a Corrections tab today would
+either be an empty shell or silently duplicate item 25's undecided scope.
+And "This Week"/"Previous Weeks" needs its own navigation model (prev/next
+week arrows? a week picker? infinite scroll grouped by week headers?) plus a
+definition of "this week" for a household whose pay period isn't
+calendar-weekly — the same `week_start_day`-alignment question item 31 raises
+for pay math, just for display instead of money this time.
+
+- **Option A — leave as-is.** The flat list is simpler to implement and scroll
+  through for a household with only a few weeks of history; no data is
+  hidden, just not pre-grouped. Zero work.
+- **Option B — add This Week / Previous Weeks grouping only, skip
+  Corrections until item 25 resolves.** Default the view to the current
+  calendar week (via `household.week_start_day`, already used elsewhere in
+  this file for validation), with a simple prev/next-week toggle to page
+  through history instead of one long list. Closes the two-thirds of the tab
+  structure that doesn't depend on an unresolved item.
+- **Option C — full three-tab build, sequenced after item 25.** Same as B,
+  plus a Corrections tab once item 25 defines what "request correction" and
+  "resubmit" actually do in this codebase.
+
+**Recommendation: B**, and only once the flat list has actually proven hard
+to navigate in practice — same shape as items 22/23's calendar/Home-screen
+precedent, this is a screen-structure change worth doing deliberately, and
+two-thirds of the spec's literal ask (the Corrections tab) is blocked on item
+25 regardless of what's decided here.
 
 ---
 
