@@ -9,19 +9,28 @@ rather than a silent guess.
 ## Open items
 
 Items 22-26 below have been carried forward, unresolved, across several
-sessions (2026-07-30, 2026-07-31, 2026-08-01, 2026-08-04, 2026-08-05) —
-presented again in-chat each time rather than decided unilaterally, per the
-standing instruction to surface judgment calls rather than guess. Item 27 was
-resolved 2026-07-31 since it had unambiguous recommendations for both of its
-sub-decisions, unlike 22-26. Items 28-29 were added 2026-08-01, found via a
-targeted spec-vs-code audit of sections not closely covered by prior sessions
-(onboarding, PTO deduction timing). Item 30 was added 2026-08-04, found via a
-targeted audit of spec sections 6/8/18/24 and a fresh data-model column sweep
-of `households`/`household_users`. Items 31-32 are new this session
-(2026-08-05), found via a targeted audit of spec section 16 (Calculation
-Rules) against `src/lib/calc.ts`/`Pay.tsx`, and spec 14.3/14.4/14.7 against
-`Time.tsx`/`Schedule.tsx`/`More.tsx` — see `SPEC_CHANGE_LOG.md` 2026-08-05 for
-the audit's full scope and what it fixed mechanically along the way.
+sessions (2026-07-30, 2026-07-31, 2026-08-01, 2026-08-04, 2026-08-05,
+2026-08-06) — presented again in-chat each time rather than decided
+unilaterally, per the standing instruction to surface judgment calls rather
+than guess. Item 27 was resolved 2026-07-31 since it had unambiguous
+recommendations for both of its sub-decisions, unlike 22-26. Items 28-29 were
+added 2026-08-01, found via a targeted spec-vs-code audit of sections not
+closely covered by prior sessions (onboarding, PTO deduction timing). Item 30
+was added 2026-08-04, found via a targeted audit of spec sections 6/8/18/24
+and a fresh data-model column sweep of `households`/`household_users`. Items
+31-32 were added 2026-08-05, found via a targeted audit of spec section 16
+(Calculation Rules) against `src/lib/calc.ts`/`Pay.tsx`, and spec
+14.3/14.4/14.7 against `Time.tsx`/`Schedule.tsx`/`More.tsx` — see
+`SPEC_CHANGE_LOG.md` 2026-08-05 for the audit's full scope and what it fixed
+mechanically along the way. This session (2026-08-06) audited spec sections
+17/18/19/20/25/26 (Status Rules, Authorization, RLS, Audit Log, Recommended
+Defaults, Implementation Notes) against the code; found one addendum to item
+25 (time-entry-level `rejected`/`corrected` statuses have the same
+never-built gap as the timesheet-level workflow item 25 already covers — see
+that item's 2026-08-06 addendum below) and no new standalone items. Build and
+lint were also re-verified clean, and the time-entry schedule pre-fill (spec
+13.4, asked for again by name in this run's prompt) was re-confirmed already
+built and working — see `SPEC_CHANGE_LOG.md` 2026-08-06.
 
 ### 30. Removing a household member hard-deletes the `household_users` row instead of using the schema's `'removed'` status (spec 10/15.3) — and fixing that collides with the join-code rejoin flow
 
@@ -366,6 +375,20 @@ available on a `submitted` row is "Archive." So today, a submitted timesheet
 can be archived or ignored, but never explicitly approved or sent back with
 a correction note, and a nanny is never notified of a rejection because
 there isn't one.
+
+**Addendum (2026-08-06):** the same gap exists one level down. Spec 17's
+Time Entry Status list includes `rejected` and `corrected` as real states
+alongside `draft`/`submitted`/`approved`/`locked`, and
+`TimeEntryStatus` (`src/lib/types.ts`) already types both — but grepping
+`src` for where a `time_entries` row's `status` is ever written turns up
+only `'draft'`/`'submitted'`/`'approved'`, plus the archive path (which uses
+`deleted_at`, not `status`, per the app's soft-delete pattern). `Time.tsx`
+has no reject action on an individual entry, only Approve/Archive. Not
+splitting this into its own numbered item because it's the same unresolved
+design question as above one layer down (what does "reject" mean without a
+resubmit path, does a parent reject an entry or a whole timesheet) — worth
+building together with whichever option gets picked for the timesheet-level
+workflow, not in isolation.
 
 This is a judgment call, not a mechanical fix, because the two flows
 (nanny's marker-row submission vs. parent's from-scratch generation) are

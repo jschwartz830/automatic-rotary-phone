@@ -8,6 +8,79 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-06 — Health check + targeted audit of sections 17/18/19/20/25/26 (Status Rules, Authorization, RLS, Audit Log, Recommended Defaults, Implementation Notes); one addendum to Q&A item 25, no new standalone items; time-entry pre-fill re-verified; items 22-26/28-32 re-presented
+
+**This session's scope, per the standing recurring-task instructions:** this
+run's prompt asked again by name for the manual time-entry form to pre-fill
+from the caregiver's scheduled hours (defaulting the date to today) — already
+built and re-verified unchanged every session since 2026-07-24, checked again
+below. Beyond that, a targeted audit of spec sections not closely covered by
+the last several sessions: 17 (Status Rules), 18 (Authorization
+Requirements), 19 (RLS Requirements), 20 (Audit Log Requirements), 25
+(Recommended Defaults), 26 (Implementation Notes for Coding Agent).
+
+**Time-entry schedule pre-fill — re-verified, no change.** Same behavior
+confirmed again by reading `Time.tsx` directly this session: the manual-entry
+form defaults its date field to today
+(`useState(new Date().toISOString().slice(0, 10))`) and an effect
+(`Time.tsx:120-135`) looks up that date's scheduled shift via
+`generateShiftsForRange` and pre-fills start time, end time, and break
+minutes from it whenever one exists, falling back to a 9:00-5:00 default
+otherwise. This also drives `handleClockIn`'s `schedule_shift_id` link and
+the per-row "(scheduled X.XX hrs)" display added 2026-08-05. Nothing to
+change here; re-verifying rather than re-building since the underlying code
+is untouched.
+
+**One addendum to Q&A item 25, no new standalone item.** Spec 17's Time
+Entry Status list names `rejected` and `corrected` as real per-entry states
+alongside `draft`/`submitted`/`approved`/`locked`; `TimeEntryStatus`
+(`src/lib/types.ts`) already types both, but grepping `src` for where a
+`time_entries.status` is ever written to `'rejected'` or `'corrected'` turns
+up nothing — `Time.tsx` only ever writes `'draft'`, `'submitted'`, or
+`'approved'` (archival uses the separate `deleted_at` soft-delete column, not
+`status`). This is the same unresolved design question item 25 already
+raises for timesheets (what does "reject" mean without a defined resubmit
+path), one layer down at the individual-entry level, so it's recorded as an
+addendum on item 25 rather than a new numbered item — building it in
+isolation would risk conflicting with whichever option gets picked for the
+timesheet-level workflow.
+
+**Audit found no other new issues in 17/18/19/20/25/26.** Every
+`payment_records`/`timesheets` status in spec 17's Payment Status and
+Timesheet Status lists is a real, reachable value in `types.ts` and
+`StatusChip.tsx` (Corrected/Voided payment statuses included). Section 18's
+nanny restriction list and section 19's RLS bullet list were spot-checked
+against `supabase/migrations/` policy definitions for the tables spec 19
+names explicitly (`households`, `caregiver_profiles`, `time_entries`,
+`leave_requests`, `payment_records`) — all use the `is_household_member`/
+`is_parent_or_coadmin`/`is_caregiver_user` helper functions spec 19
+recommends, matching prior sessions' RLS audits (most recently 2026-07-30).
+Section 20's audit-event list was checked against `logAuditEvent` call
+sites across `src/routes/*` — every listed event type (invite/remove,
+permission/pay-rate/guaranteed-hours/PTO-policy/schedule changes, exception
+lifecycle, time-entry edit-after-submission, timesheet submit/approve,
+payment paid/corrected, PTO manual adjustment) has a call site. Section 25's
+defaults were spot-checked against `supabase/migrations/` column defaults
+and found consistent (weekly pay period, Monday week start, 40hr/1.5x
+overtime, PTO visible to nanny by default, pay rate hidden from nanny by
+default, none of which have drifted since the defaults were originally set).
+Section 26's build-order and implementation principles are historical
+(describes how to build the app, not an ongoing behavioral requirement) and
+weren't re-audited against runtime behavior beyond what 17-20 already cover.
+
+**Health check:** `npm install`, `npm run build` (`tsc -b && vite build`),
+and `npm run lint` (`oxlint`) all clean — no new TypeScript errors, no new
+lint warnings beyond the same pre-existing handful prior sessions have
+already noted (`react-hooks/exhaustive-deps` in `Schedule.tsx`,
+`react-refresh/only-export-components` in the context files and
+`Card.tsx`).
+
+Q&A items 22-26 and 28-32 were not resolved unilaterally (unchanged from
+prior sessions) — re-presented in `QUESTIONS_AND_CLARIFICATIONS.md`, item 25
+carrying this session's addendum.
+
+---
+
 ## 2026-08-05 — Time screen now shows scheduled-vs-actual per row (spec 14.3, mechanical); targeted audit of sections 14/16 finds two new judgment calls (Q&A items 31-32, one a real financial-calc bug); items 22-26/28-30 re-presented
 
 **This session's scope, per the standing recurring-task instructions:** a
