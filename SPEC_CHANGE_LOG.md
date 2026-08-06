@@ -8,6 +8,34 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-06 — Archiving a timesheet didn't actually free its period for a redo (bug fix, no spec change)
+
+`timesheets` carries a plain `unique (caregiver_id, period_start, period_end)`
+constraint from `0001_schema.sql`. `0005_soft_delete_timesheets.sql` later
+made archiving a timesheet a soft delete (`deleted_at` set, row kept), but
+never revisited that constraint -- Postgres doesn't know `deleted_at`-set rows
+are supposed to be inactive, so it kept rejecting a new `insert` for the same
+`(caregiver_id, period_start, period_end)` even after the old row was
+archived. `Pay.tsx` had grown a workaround (`timesheetErrorMessage` catching
+the `23505` and telling the user to "adjust the dates instead") and a comment
+on `lastPeriodEnd` explicitly noting the constraint "still blocks
+regenerating an archived period" -- both papering over the underlying bug
+rather than fixing it. Net effect: once a timesheet was archived (directly,
+or after voiding its payment and then archiving the now-unpaid timesheet),
+that pay period was stuck forever -- no new timesheet could ever be generated
+for it again.
+
+`0017_timesheet_period_unique_excludes_archived.sql` drops that constraint
+and replaces it with a partial unique index scoped to
+`where deleted_at is null`, matching how `deleted_at` is already treated as
+"inactive" everywhere else in the app (payment records, leave requests).
+Archiving a timesheet -- including the void-payment-then-archive-timesheet
+path -- now genuinely clears its period for a fresh timesheet. Updated the
+now-stale `timesheetErrorMessage` copy and `lastPeriodEnd` comment in
+`Pay.tsx` to match; left `lastPeriodEnd` itself including archived timesheets
+unchanged, since it's still the right "most recent period" to suggest
+catch-up from.
+
 ## 2026-08-05 — Time screen now shows scheduled-vs-actual per row (spec 14.3, mechanical); targeted audit of sections 14/16 finds two new judgment calls (Q&A items 31-32, one a real financial-calc bug); items 22-26/28-30 re-presented
 
 **This session's scope, per the standing recurring-task instructions:** a
