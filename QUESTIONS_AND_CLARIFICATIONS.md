@@ -21,7 +21,12 @@ of `households`/`household_users`. Items 31-32 are new this session
 (2026-08-05), found via a targeted audit of spec section 16 (Calculation
 Rules) against `src/lib/calc.ts`/`Pay.tsx`, and spec 14.3/14.4/14.7 against
 `Time.tsx`/`Schedule.tsx`/`More.tsx` — see `SPEC_CHANGE_LOG.md` 2026-08-05 for
-the audit's full scope and what it fixed mechanically along the way.
+the audit's full scope and what it fixed mechanically along the way. Items
+33-34 are new this session (2026-08-07), found via a targeted audit of spec
+13.3/15.7 (Schedule Exceptions) against `Schedule.tsx`/`schedule.ts` and spec
+21 (Notification/Reminder Logic) against `reminders.ts` — see
+`SPEC_CHANGE_LOG.md` 2026-08-07 for the audit's full scope and the mechanical
+audit-log "actor" display fix it made along the way.
 
 ### 30. Removing a household member hard-deletes the `household_users` row instead of using the schema's `'removed'` status (spec 10/15.3) — and fixing that collides with the join-code rejoin flow
 
@@ -573,6 +578,116 @@ to navigate in practice — same shape as items 22/23's calendar/Home-screen
 precedent, this is a screen-structure change worth doing deliberately, and
 two-thirds of the spec's literal ask (the Corrections tab) is blocked on item
 25 regardless of what's decided here.
+
+### 33. `schedule_exceptions.affects_pto` is a dead column — what should "does this exception affect PTO" mean, if anything, for the 8 non-leave exception types (spec 13.3/15.7)?
+
+`schedule_exceptions` has an `affects_pto` boolean (spec 15.7) sitting alongside
+`affects_pay` and `counts_toward_guaranteed_hours` — both of those two are
+fully wired into pay/guarantee math (`schedule.ts`'s
+`sumExceptionHoursByType`/`scheduleExceptionHoursDelta`/
+`computeGuaranteedHoursBase`), but `affects_pto` is never set on insert
+(`Schedule.tsx`'s only `schedule_exceptions` insert, ~line 430-447, sets the
+other two flags but not this one) and never read anywhere — confirmed by
+`grep -rn affects_pto src`, whose only hit outside `types.ts` is the column
+itself sitting unused at its DB default (`false`).
+
+This isn't the same shape as resolved item 27's `paid_if_family_canceled`
+cleanup, where the column had an obvious meaning waiting to be wired up. The
+already-resolved decision to keep `pto`/`sick`/`unpaid_time_off` entirely out
+of the Schedule Exceptions UI (see "Resolved items — 2026-07-02" below) means
+the 8 exception types this UI *does* create
+(`added_shift`/`removed_shift`/`shortened_shift`/`extended_shift`/
+`family_cancellation`/`holiday`/`weather_emergency`/`other`) have no obvious
+relationship to a PTO/sick balance at all — "does a weather-emergency day off
+affect PTO?" doesn't have an obvious yes/no the way "does it affect pay?"
+does. The column's presence explains *why* it was defined (spec 15.7 lists it
+generically alongside its two siblings), not what it should *do* for the
+exception types that actually reach this table.
+
+- **Option A — leave it dead, document as intentionally unused.** The
+  PTO/sick/unpaid exclusion decision already means no exception type created
+  through this UI has an obvious PTO interaction; the column simply doesn't
+  apply to any of the 8 live exception types. Zero work.
+- **Option B — drop the column.** Same reasoning as A, taken one step further:
+  since nothing plausible would ever set it, a migration removing it (and the
+  matching `types.ts` field) is more honest than leaving a schema column that
+  will never be exercised, and avoids a future reader assuming it's just
+  unwired rather than unwireable.
+- **Option C — give it a real meaning for a specific exception type.** E.g. a
+  `holiday` exception marked "affects PTO" could mean "counts as a paid
+  holiday against the household's holiday allowance" instead of routing
+  through `leave_requests`'s separate `holiday` leave type — but that would
+  create a second path to the same outcome the already-resolved holiday-leave
+  decision (2026-07-02 batch 2) deliberately kept singular ("holiday
+  exceptions remain calendar-only markers... paid holidays continue to flow
+  through the existing `leave_requests` holiday leave type"). Reopens a
+  question this project already closed once.
+
+**Recommendation: A**, functionally identical to B in terms of user-visible
+behavior (nothing changes either way) but zero migration risk; only worth B
+if a future column-hygiene pass wants to shed truly dead schema surface.
+**C is not recommended** — it re-opens a leave-tracking design question this
+project deliberately settled on a single source of truth for.
+
+### 34. `unsubmitted_timesheet` reminder can never fire in normal use — no `timesheets` row is ever left in `'draft'` status for it to detect (spec 21)
+
+Spec 21's Timesheet Submission rule is explicit: *"If pay period ended and
+timesheet not submitted: Show nanny alert; Optionally show parent alert."*
+`reminders.ts` (~line 163-171) implements this as `ts.status === 'draft' &&
+period has ended` over the household's existing `timesheets` rows — but no
+code path in the app ever leaves a row in `'draft'`. Every insert overrides
+the column explicitly: the parent's "generate" flow inserts `'approved'`
+(`Pay.tsx:444`), the nanny's "submit" flow inserts `'submitted'`
+(`Pay.tsx:879`), and CSV import takes whatever status the imported file says.
+`'draft'` is only ever the column's bare DB default, and nothing in the app
+ever creates a row and *stops* there. So when a pay period ends with the
+nanny having logged nothing at all, the correct case this reminder exists
+for, there is no `timesheets` row of any status for that period — the
+reminder's loop has nothing to iterate over, and the alert never fires. The
+same `status === 'draft'` check also drives `Home.tsx`'s `pendingTimesheetCount`
+badge, so the parent-facing "you have N pending timesheets" count shares the
+identical blind spot.
+
+The spec's intent reads as absence-based ("a period ended with nothing
+submitted for it"), not row-status-based ("a row exists and says draft") —
+but detecting that requires computing each caregiver's actual pay period
+boundaries (`payPeriod.ts`'s `currentPayPeriod`/`catchUpPayPeriod`, already
+used by `Pay.tsx` for the analogous "did we miss a period" logic) inside
+`reminders.ts`, which today only receives raw `timesheets` rows with no
+caregiver pay-frequency context threaded in. That's a real design surface,
+not a one-line status-check fix, and this project has been consistently
+cautious about reminder false-positives before (the 2026-07-01 missing-clock-
+out fix was rewritten specifically to stop over-triggering) — a naive
+"flag every ended period with no submitted-or-later row" risks nagging a
+brand-new caregiver with no timesheet history yet, or re-flagging a period
+the household simply hasn't gotten to.
+
+- **Option A — leave as-is, document as a known limitation.** The reminder
+  code is correct for the (never-occurring) case it checks; a household that
+  wants a "you haven't logged anything" nudge doesn't get one today. Zero
+  work, but the spec's most common nag case is silently inert.
+- **Option B — absence-based detection, scoped to the most recent ended
+  period only.** Thread each caregiver's current/most-recently-ended pay
+  period (via `payPeriod.ts`, already imported by `Pay.tsx`) into
+  `computeReminders`; fire the nanny alert (and optionally parent alert) when
+  that period has ended and no `timesheets` row exists for it at all, or one
+  exists but never advanced past `'draft'`/`'submitted'` with zero hours.
+  Bounding it to just the most recent period (not every ever-missed period)
+  avoids re-surfacing history and matches how the rest of the reminders
+  engine already treats "now" as the only relevant moment.
+- **Option C — same as B, but also correct `Home.tsx`'s `pendingTimesheetCount`**
+  to use the same absence-based logic, so the dashboard badge and the
+  reminder card agree. Superset of B; slightly more surface area touched for
+  consistency between the two places that currently share the same blind
+  spot.
+
+**No recommendation given** — unlike the audit-log actor fix built this
+session, this changes when a nanny/parent gets nagged about missing pay data,
+which is exactly the kind of over/under-triggering judgment call this
+project has repeatedly deferred to a live decision rather than guessed at
+(see the 2026-07-01 missing-clock-out precedent). Worth a deliberate choice,
+including whether "most recent period only" (option B/C) or some other
+bound is the right scope.
 
 ---
 

@@ -8,6 +8,109 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-07 — Audit log now shows who made each change (spec 20, mechanical); targeted audit of spec 13.3/15.7 (Schedule Exceptions) and 21 (Reminder Logic) finds two new judgment calls (Q&A items 33-34, one a real "reminder never fires" bug); time-entry pre-fill re-verified; items 22-26/28-32 re-presented
+
+**This session's scope, per the standing recurring-task instructions:** make
+progress against the spec in phases, re-verify the time-entry schedule
+pre-fill (asked for again by name in this run's prompt — "pre-set to the
+schedule hours, can still default to current day"), and present open
+judgment calls rather than deciding them unilaterally. Ran a fresh, targeted
+audit of two areas prior sessions hadn't covered by name: spec 13.3/15.7
+(Schedule Exceptions, fields and behavior) against `Schedule.tsx`/`schedule.ts`,
+and spec 21 (Notification/Reminder Logic, exact trigger conditions) against
+`reminders.ts`, plus a dead-column sweep of the `reminders` and `audit_events`
+tables.
+
+**Audit log now displays the actor of each event (spec 20, mechanical,
+built).** `audit_events.actor_user_id` has been written on every insert since
+the audit log existed (`src/lib/audit.ts`), and spec 20 explicitly lists
+"Actor" among what an audit event should capture — but nothing ever read it
+back. `AuditLog.tsx`'s own on-screen copy promises *"A record of sensitive
+changes made in this household: who, what, and when"*, yet the rendered list
+only ever showed the "what" (`describeEvent`) and "when" (`created_at`) — the
+"who" was captured but never surfaced, undercutting the screen's stated
+purpose. Fixed by copying the exact `user_id → {full_name, email}` resolution
+pattern `More.tsx`'s `loadMembers` already uses for the same
+`household_users`/`users` join (same RLS coverage applies —
+`users_select_self_or_household_peer` already lets any household member read
+peer `users` rows, confirmed in migration `0002_rls.sql`, so no RLS change was
+needed): `AuditLog.tsx` now resolves every event's `actor_user_id` to a name
+in one batched query after loading events, and each row shows "Actor ·
+timestamp" instead of just the timestamp.
+
+**Two new judgment calls found, not built — see
+`QUESTIONS_AND_CLARIFICATIONS.md` items 33-34.**
+
+- **Item 33 — `schedule_exceptions.affects_pto` is a dead column.** Unlike
+  its siblings `affects_pay`/`counts_toward_guaranteed_hours` (both fully
+  wired into pay/guarantee math), `affects_pto` is never set on insert and
+  never read anywhere. Not a mechanical wire-up like resolved item 27's
+  `paid_if_family_canceled`, because the already-resolved decision to route
+  PTO/sick/unpaid leave exclusively through `leave_requests` (not this table)
+  means none of the 8 exception types this UI actually creates
+  (added/removed/shortened/extended shift, family cancellation, holiday,
+  weather emergency, other) has an obvious "does this affect PTO" meaning to
+  wire the column to. Recommendation given (leave it dead, document as
+  intentionally unused) but not built unilaterally, since one option
+  considered (giving `holiday` exceptions a PTO effect) would reopen the
+  already-settled single-source-of-truth decision for holiday leave.
+- **Item 34 (the significant one) — the `unsubmitted_timesheet` reminder can
+  never actually fire.** Spec 21 says to alert when a pay period ends with no
+  timesheet submitted; `reminders.ts` checks for a `timesheets` row with
+  `status === 'draft'`, but no code path in the app ever leaves a row in that
+  status — every insert (`Pay.tsx`'s generate flow, its submit flow, CSV
+  import) explicitly sets a different status, so `'draft'` only ever exists
+  as an unused DB default. The result: when a period ends with the nanny
+  having logged nothing at all — the single most common case this reminder
+  exists to catch — no `timesheets` row exists for that period at all, so the
+  reminder's loop has nothing to flag. `Home.tsx`'s `pendingTimesheetCount`
+  badge shares the identical blind spot via the same status check. Not fixed
+  directly: correcting it means switching to absence-based detection (a
+  period ended with no submitted-or-further row for it), which needs each
+  caregiver's actual pay-period boundaries threaded into `reminders.ts` (the
+  building block, `payPeriod.ts`, already exists and is used by `Pay.tsx` for
+  the analogous problem) plus a scoping decision (how many missed periods
+  back to flag) this project has been deliberately cautious about before —
+  the 2026-07-01 missing-clock-out reminder was rewritten specifically to
+  stop over-triggering, the same failure mode a naive fix here risks
+  reintroducing. No recommendation given, given the stakes (this changes when
+  a nanny/parent gets nagged about missing pay data) and the open scoping
+  question.
+
+**Audit also checked and found no new issues in:** every other
+`schedule_exceptions` column (all live except `updated_at`, which is unread
+repo-wide across every table, not specific to this one); every "Exception
+Behavior" bullet in spec 13.3 (the PTO/sick/unpaid routing and
+direct-insert-as-approved patterns are both already-documented deliberate
+decisions, not re-flagged); every other spec 21 reminder type (Payment Due/
+Overdue, Timesheet Approval, Missing Clock-Out, PTO Request, Upcoming PTO,
+and role-scoping) against the spec's exact wording — all correct, no
+mismatches; the `reminders` table's other unused columns
+(`channel`/`trigger_rule`/`last_sent_at`/`caregiver_id`) — already an
+explicitly documented deferral (Q&A item 17), not a new finding.
+
+**Time-entry schedule pre-fill — re-verified, no change.** Same behavior
+confirmed every session since 2026-06-30: `Time.tsx` defaults the manual-
+entry date to today (`useState(new Date().toISOString().slice(0, 10))`,
+`Time.tsx:50`) and pre-fills start/end/break from the caregiver's scheduled
+shift for whichever date is selected via the effect at `Time.tsx:120-135`,
+falling back to `09:00`–`17:00` when nothing's scheduled that day. This
+session's prompt phrased the same request slightly differently ("pre-set to
+the schedule hours, can still default to current day") — read as the same
+already-built behavior, not a new ask; nothing needed building.
+
+**Health check:** `npm install`, `npx tsc -b`, `npx oxlint`, and `npx vite
+build` all clean — no new TypeScript errors, no new lint warnings beyond the
+same pre-existing handful (`react-hooks/exhaustive-deps` in `Schedule.tsx`,
+`react-refresh/only-export-components` in the context files and `Card.tsx`)
+prior sessions have already noted.
+
+Q&A items 22-26 and 28-32 were not resolved unilaterally (unchanged from
+prior sessions) — re-presented in `QUESTIONS_AND_CLARIFICATIONS.md` alongside
+the two new items above (33-34) for a decision.
+
+---
+
 ## 2026-08-06 — Archiving a timesheet didn't actually free its period for a redo (bug fix, no spec change)
 
 `timesheets` carries a plain `unique (caregiver_id, period_start, period_end)`

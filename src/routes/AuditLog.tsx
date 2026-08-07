@@ -24,6 +24,7 @@ function describeEvent(event: AuditEvent): string {
 export function AuditLog() {
   const { household, isParentOrCoAdmin } = useHousehold()
   const [events, setEvents] = useState<AuditEvent[]>([])
+  const [actors, setActors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
@@ -39,10 +40,22 @@ export function AuditLog() {
         .eq('household_id', household!.id)
         .order('created_at', { ascending: false })
         .limit(100)
-      if (!cancelled) {
-        setEvents((data ?? []) as AuditEvent[])
-        setLoading(false)
-      }
+      const rows = (data ?? []) as AuditEvent[]
+      if (cancelled) return
+      setEvents(rows)
+
+      // Spec 20 lists "Actor" as a captured field, and this screen's own copy
+      // promises "who, what, and when" -- actor_user_id was written on every
+      // event but never resolved to a displayable name until now.
+      const ids = [...new Set(rows.map((e) => e.actor_user_id).filter((id): id is string => Boolean(id)))]
+      const { data: us } = ids.length
+        ? await supabase.from('users').select('id, full_name, email').in('id', ids)
+        : { data: [] as { id: string; full_name: string | null; email: string | null }[] }
+      if (cancelled) return
+      setActors(
+        Object.fromEntries((us ?? []).map((u) => [u.id, u.full_name || u.email || 'Unknown user']))
+      )
+      setLoading(false)
     }
     load()
     return () => {
@@ -79,7 +92,10 @@ export function AuditLog() {
                 >
                   <div>
                     <p className="text-sm font-semibold capitalize text-gray-900 dark:text-gray-100">{describeEvent(event)}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{new Date(event.created_at).toLocaleString()}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {(event.actor_user_id && actors[event.actor_user_id]) || 'Unknown user'} ·{' '}
+                      {new Date(event.created_at).toLocaleString()}
+                    </p>
                   </div>
                   {hasDetail && <span className="text-xs text-gray-400 dark:text-gray-500">{expanded ? 'Hide' : 'Details'}</span>}
                 </button>
