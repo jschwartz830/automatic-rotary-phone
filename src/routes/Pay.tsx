@@ -96,7 +96,7 @@ function HoursBreakdown({
 
 function timesheetErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && (err as { code?: string }).code === '23505') {
-    return 'A timesheet for this exact date range already exists (it may be in Archived below). Adjust the dates instead of regenerating the same period.'
+    return 'A timesheet for this exact date range already exists. Archive it first (see Archived below), or adjust the dates.'
   }
   return errorMessage(err, fallback)
 }
@@ -182,9 +182,11 @@ export function Pay() {
   const trashedTimesheets = timesheets.filter((t) => t.deleted_at)
   const activePayments = payments.filter((p) => !p.deleted_at)
   const trashedPayments = payments.filter((p) => p.deleted_at)
-  // Includes archived timesheets too -- the unique (caregiver, period_start,
-  // period_end) constraint still blocks regenerating an archived period, so
-  // catch-up must resume after it, not before.
+  // Includes archived timesheets too, so catch-up still suggests resuming
+  // after the most recent period even if it was later archived (an archived
+  // period's period_end no longer blocks regenerating that same period --
+  // see 0017_timesheet_period_unique_excludes_archived.sql -- but it's still
+  // the most recent period for suggesting the next one).
   const lastPeriodEnd = timesheets.reduce<string | null>(
     (latest, t) => (!latest || t.period_end > latest ? t.period_end : latest),
     null
