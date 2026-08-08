@@ -24,6 +24,7 @@ function describeEvent(event: AuditEvent): string {
 export function AuditLog() {
   const { household, isParentOrCoAdmin } = useHousehold()
   const [events, setEvents] = useState<AuditEvent[]>([])
+  const [actorsById, setActorsById] = useState<Record<string, { full_name: string | null; email: string | null }>>({})
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
@@ -39,8 +40,14 @@ export function AuditLog() {
         .eq('household_id', household!.id)
         .order('created_at', { ascending: false })
         .limit(100)
+      const rows = (data ?? []) as AuditEvent[]
+      const actorIds = [...new Set(rows.map((e) => e.actor_user_id).filter((id): id is string => Boolean(id)))]
+      const { data: actors } = actorIds.length
+        ? await supabase.from('users').select('id, full_name, email').in('id', actorIds)
+        : { data: [] as { id: string; full_name: string | null; email: string | null }[] }
       if (!cancelled) {
-        setEvents((data ?? []) as AuditEvent[])
+        setEvents(rows)
+        setActorsById(Object.fromEntries((actors ?? []).map((u) => [u.id, { full_name: u.full_name, email: u.email }])))
         setLoading(false)
       }
     }
@@ -49,6 +56,11 @@ export function AuditLog() {
       cancelled = true
     }
   }, [household, isParentOrCoAdmin])
+
+  function actorLabel(event: AuditEvent): string {
+    const actor = event.actor_user_id ? actorsById[event.actor_user_id] : undefined
+    return actor?.full_name || actor?.email || 'Unknown user'
+  }
 
   if (!isParentOrCoAdmin) return <Navigate to="/" replace />
 
@@ -79,7 +91,9 @@ export function AuditLog() {
                 >
                   <div>
                     <p className="text-sm font-semibold capitalize text-gray-900 dark:text-gray-100">{describeEvent(event)}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{new Date(event.created_at).toLocaleString()}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {actorLabel(event)} · {new Date(event.created_at).toLocaleString()}
+                    </p>
                   </div>
                   {hasDetail && <span className="text-xs text-gray-400 dark:text-gray-500">{expanded ? 'Hide' : 'Details'}</span>}
                 </button>

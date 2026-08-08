@@ -17,11 +17,77 @@ sub-decisions, unlike 22-26. Items 28-29 were added 2026-08-01, found via a
 targeted spec-vs-code audit of sections not closely covered by prior sessions
 (onboarding, PTO deduction timing). Item 30 was added 2026-08-04, found via a
 targeted audit of spec sections 6/8/18/24 and a fresh data-model column sweep
-of `households`/`household_users`. Items 31-32 are new this session
-(2026-08-05), found via a targeted audit of spec section 16 (Calculation
-Rules) against `src/lib/calc.ts`/`Pay.tsx`, and spec 14.3/14.4/14.7 against
-`Time.tsx`/`Schedule.tsx`/`More.tsx` — see `SPEC_CHANGE_LOG.md` 2026-08-05 for
-the audit's full scope and what it fixed mechanically along the way.
+of `households`/`household_users`. Items 31-32 were added 2026-08-05, found
+via a targeted audit of spec section 16 (Calculation Rules) against
+`src/lib/calc.ts`/`Pay.tsx`, and spec 14.3/14.4/14.7 against
+`Time.tsx`/`Schedule.tsx`/`More.tsx`. The 2026-08-08 session's audit (spec
+15.9-15.15/17/19) found no new judgment calls — its findings were either
+unambiguous enough to build directly (see `SPEC_CHANGE_LOG.md` 2026-08-08:
+two real RLS gaps, payment status display, audit log actor, a payment-note
+field correction) or were mitigations for item 31 (a UI warning) that don't
+resolve the underlying judgment call.
+
+### Recommendations added 2026-08-08, per explicit request
+
+The recurring-task owner asked this session for an explicit recommendation
+on every open item below, including the four (24, 25, 29, 31) prior sessions
+deliberately left unrecommended given their stakes. Each item's own section
+still has the full reasoning and option list; this is a compact index so
+they can be answered without reading the whole file. Nothing below changes
+what a prior session already recommended for items 22/23/26/28/30/32 — those
+recommendations are simply reaffirmed here since they're still unbuilt.
+
+- **22 (Calendar month view):** B — lightweight read-only month heat-strip.
+- **23 (Home screen literal layout):** A — stop here, current cards + reminder feed cover it.
+- **24 (Leave policy accrual automation):** B — add settings UI for the
+  fields already enforced in code (`negative_balance_allowed`,
+  `waiting_period_days`, `balance_cap_hours`, `carryover_cap_hours`); hold
+  off on new accrual methods and the `counts_toward_guarantee`/
+  `visible_to_nanny` redundancy until a household actually needs
+  non-front-loaded accrual — building a serverless "catch up missed months"
+  rule speculatively risks getting the untested edge cases wrong.
+- **25 (Timesheet reject/correction workflow):** C — add "Request
+  correction" as a side channel on the nanny's submitted marker row
+  (`needs_correction` + the already-unused `correction_note` column,
+  nanny edits and resubmits) while leaving "Generate" as the actual
+  pay-computation path. Closes the spec's literal correction-request/
+  resubmit gap without B's full rearchitecture of the core pay-approval
+  data flow — that's real surgery on money-computing code that's been
+  stable across 30+ sessions, and isn't worth the risk without a household
+  actually needing to reject and correct a submission.
+- **26 (Payment attachment/photo):** A — skip until a household asks for it.
+- **28 (Onboarding checklist):** B — dismissible "Finish setup" card on Home.
+- **29 (PTO deduction timing):** A — leave deduct-on-approval as-is. This
+  moves an already-relied-upon balance number differently than the spec's
+  literal recommendation, but every household using the app today has
+  calibrated around today's immediate-deduction behavior; changing it
+  without a household asking for "on timesheet approval" semantics risks
+  breaking an expectation nobody's flagged as wrong, for a benefit
+  (balance "pending" until payroll processes it) that's a nice-to-have, not
+  a correctness fix — unlike item 31, nothing about the current behavior is
+  computing a wrong number.
+- **30 (Hard-delete on member removal):** C — soft-delete plus require an explicit re-invite.
+- **31 (Overtime/guaranteed-hours miscalculation for non-weekly pay):**
+  **C, but don't build it unsupervised.** Unlike the other items on this
+  list, B (period-length scaling) isn't just an approximation that's
+  sometimes imprecise — it can average overtime down to zero across two
+  real 70-hour/10-hour weeks in a biweekly period, which isn't just a
+  display nit if this app is being used for real payroll: overtime pay is
+  typically a per-workweek legal obligation (in the US, the FLSA generally
+  requires overtime to be computed on a fixed, recurring 7-day workweek,
+  not averaged across a longer pay period), so B risks trading today's
+  overpayment-shaped bug for an underpayment-shaped one, which is worse. A
+  defensible version of C: treat each household's workweek as a fixed 7-day
+  window anchored to `household.week_start_day`, independent of pay-period
+  boundaries (this is exactly how real payroll systems reconcile
+  non-weekly pay against weekly-mandated overtime); a workweek's hours are
+  evaluated together for overtime wherever its start date falls, even if
+  that means a few days near a pay-period boundary get counted in a
+  different period's overtime math than the one they're paid in. That's a
+  real, if standard, engineering task — not a one-line fix — and it changes
+  a live, already-relied-upon money calculation, so it should not be built
+  without an explicit go-ahead even though a recommendation is being given.
+- **32 (Time screen tab structure):** B — This Week/Previous Weeks grouping, skip Corrections until item 25 lands.
 
 ### 30. Removing a household member hard-deletes the `household_users` row instead of using the schema's `'removed'` status (spec 10/15.3) — and fixing that collides with the join-code rejoin flow
 

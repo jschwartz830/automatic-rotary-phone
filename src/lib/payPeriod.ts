@@ -1,4 +1,4 @@
-import { addDays, endOfMonth, format, getDate, getDay, setDate, startOfMonth, subDays } from 'date-fns'
+import { addDays, differenceInCalendarDays, endOfMonth, format, getDate, getDay, parseISO, setDate, startOfMonth, subDays } from 'date-fns'
 import type { CaregiverProfile, PaymentMethodLabel } from './types'
 
 // Spec 13.8 "Payment method label" -- centralized so the caregiver settings
@@ -17,6 +17,20 @@ const PAYMENT_METHOD_LABELS: Record<PaymentMethodLabel, string> = {
 export function formatPaymentMethod(label: PaymentMethodLabel | null): string | null {
   if (!label) return null
   return PAYMENT_METHOD_LABELS[label] ?? label
+}
+
+// Spec 17 "Payment Status" defines upcoming/due/overdue purely from
+// due_date vs. today -- but every payment_records insert site stores a flat
+// 'due' regardless of date, so those three are computed for display here
+// rather than trusted from the stored column. Statuses outside that trio
+// (partially_paid/paid/corrected/voided) are date-independent and pass
+// through unchanged.
+export function paymentDisplayStatus(status: string, dueDate: string, today: Date = new Date()): string {
+  if (status !== 'due') return status
+  const daysUntilDue = differenceInCalendarDays(parseISO(dueDate), today)
+  if (daysUntilDue > 0) return 'upcoming'
+  if (daysUntilDue < 0) return 'overdue'
+  return 'due'
 }
 
 export interface PayPeriodRange {
