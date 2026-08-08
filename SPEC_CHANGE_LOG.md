@@ -8,6 +8,124 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-08 — RLS gaps closed on nanny inserts and caregiver_profiles read scope (spec 19, security fix); payment status now shows upcoming/overdue (spec 17, mechanical); audit log shows actor (spec 20, mechanical); payment note field corrected to nanny_visible_note (spec 15.13, mechanical); non-weekly pay warning added for item 31; time-entry schedule pre-fill re-verified; items 22-26/28-32 re-presented, no new judgment calls
+
+**This session's scope, per the standing recurring-task instructions plus the
+recurring-task owner's explicit ask this run:** re-verify the time-entry
+schedule pre-fill (already built 2026-06-30, working as intended — see
+below), then a fresh targeted audit of spec 15.9-15.15 (timesheets through
+audit_events), spec 17 (Status Rules), and spec 19 (RLS Requirements)
+against `supabase/migrations/*.sql`, `src/lib/types.ts`, and
+`Pay.tsx`/`PTO.tsx`/`AuditLog.tsx`/`More.tsx` — areas prior sessions hadn't
+closely covered. Full audit method and findings in the session transcript;
+summarized below by what got fixed vs. left open.
+
+**Time entry pre-fill from the caregiver's schedule (the explicit ask this
+run) was already built and has been re-verified working (spec 13.4/13.2).**
+`Time.tsx`'s manual-entry form (`useEffect` around the `date`/`templates`/
+`shiftsByTemplate` state) already looks up the scheduled shift for whatever
+date is selected and pre-fills start time, end time, and break minutes from
+it, falling back to a 09:00-17:00 default only when nothing's scheduled that
+day — and the date field still defaults to today. This has shipped since
+2026-06-30 and been re-verified in five sessions since (2026-08-03, -04,
+-05, and now); no change was needed. See `SPEC_CHANGE_LOG.md`'s 2026-06-30
+entry for the original build.
+
+**Two real RLS gaps closed (spec 19, security fix, built directly — not a
+judgment call).** `time_entries_insert`, `timesheets_insert`, and
+`leave_requests_insert` each restrict a parent/co-admin's insert branch by
+status, but their caregiver-user (nanny) branch had no status restriction at
+all — unlike each table's sibling *update* policy, and unlike
+`schedule_exceptions_insert`, which got this right from the start. In
+practice this meant a nanny calling the Supabase client directly (not
+through the app UI, which never offers this) could insert a `time_entries`
+row already `status: 'approved'`, a `leave_requests` row already
+`status: 'approved'`, or a `timesheets` row already `status: 'paid'` with a
+fabricated `gross_pay_due` — all of which `Pay.tsx`'s payroll calculations
+read via a plain status filter with no other server-side safeguard.
+`0018_rls_nanny_insert_status_and_profile_scope.sql` adds the same
+status allow-list each table's update policy already enforces
+(`'draft'`/`'submitted'` for time_entries/timesheets, `'requested'` for
+leave_requests) to the matching insert policy's caregiver-user branch. The
+same migration also tightens `caregiver_profiles_select_member`, which let
+any household member — nanny included — read every caregiver's full profile
+row (pay rate, guaranteed-hours settings, every `nanny_can_view_*`-gated
+field), not just their own; the app UI never uses another caregiver's row
+for a nanny viewer, so this only closes the network-layer gap to match.
+Parent/co-admin visibility is unchanged in both cases.
+
+**Payment status now correctly shows upcoming/due/overdue instead of always
+"due" (spec 15.13/17, mechanical).** Every `payment_records` insert site
+hardcoded `status: 'due'` regardless of how far off `due_date` was — so a
+payment three weeks out and one three weeks overdue showed the identical
+amber "Due" chip, and `'upcoming'`/`'overdue'` (two of spec 17's seven
+statuses) were dead values nothing ever wrote. Added
+`paymentDisplayStatus()` to `src/lib/payPeriod.ts` (reuses the same
+`due_date`-vs-today comparison `reminders.ts` already does for the reminder
+feed) and applied it wherever a payment's `StatusChip` renders in `Pay.tsx`.
+Purely a display fix — the stored `status` column and the `PAYABLE_STATUSES`
+gating logic are unchanged, since `'due'` was already in that set.
+
+**Audit log now shows who took each action, not just what and when (spec
+15.15/20, mechanical).** `AuditLog.tsx` already had `actor_user_id` on every
+row (every `logAuditEvent()` call site writes it faithfully) but never
+displayed it, despite the screen's own subtitle claiming to show "who, what,
+and when." Now joins against `users` (same `id`/`full_name`/`email` lookup
+pattern `More.tsx`'s member list already uses) and shows the actor's name or
+email next to the timestamp.
+
+**Payment void/correction notes moved from `parent_note` to
+`nanny_visible_note` (spec 15.13, mechanical, zero behavior change).** The
+void-reason and correction-reason text was being written into `parent_note`
+but displayed unconditionally on the Payments list and detail sheet with no
+role gate — i.e., already nanny-visible in practice, just under the field
+name meant for internal-only notes. Switched the two write sites in
+`Pay.tsx` to `nanny_visible_note` (matches what was already happening) and
+the two display sites to prefer `nanny_visible_note`, falling back to
+`parent_note` so notes written before this change still show. `parent_note`
+is now free to become a genuinely internal-only field if that UI gets built
+later.
+
+**Non-weekly-pay-frequency warning added to the timesheet-generation form
+(mitigates item 31's impact, doesn't fix the underlying bug).** Item 31
+(overtime/`fixed_weekly` guaranteed hours computed once per whole pay
+period instead of per calendar week — a real miscalculation for any
+caregiver not on weekly pay) was found and left unbuilt last session
+pending a product decision on partial-week handling (see
+`QUESTIONS_AND_CLARIFICATIONS.md`). Rather than leave a household silently
+trusting a wrong number in the meantime, `Pay.tsx`'s "Generate timesheet"
+form now shows an amber warning whenever the active caregiver's
+`pay_frequency` isn't `'weekly'`, telling the parent to double-check any
+week over 40 hours before approving. This is a pure UI addition — it
+doesn't touch `calc.ts`, `schedule.ts`, or the stored calculation at all, so
+it carries none of the risk a real fix would.
+
+**Audit also checked and found no new issues in:** every spec 15.9-15.12
+field (timesheets, leave_policies, leave_requests, leave_ledger) against
+`0001_schema.sql` plus every later migration that touches those tables —
+schema matches spec's literal field list, with the only additions being
+already-documented soft-delete/archive columns from prior sessions;
+`leave_ledger.event_type` coverage (already-open item 24, not re-described);
+the `reminders` table's read/write usage; spec 17's time-entry/timesheet
+status transitions elsewhere (the only two never-reached values,
+`'corrected'` and `'locked'`, are fully subsumed by already-open item 25);
+and the remaining spec 19 RLS bullets (household-boundary scoping,
+parent-admin/co-admin full access, payment_records nanny-read/no-write,
+leave_requests nanny-create-only-for-self) all matched actual policy on
+inspection.
+
+**Health check:** `npm install`, `npx tsc -b`, `npx oxlint`, and `npx vite
+build` all clean — no new TypeScript errors, no new lint warnings beyond the
+same pre-existing handful prior sessions have already noted.
+
+Q&A items 22-26 and 28-32 were not resolved unilaterally (unchanged from
+prior sessions) — re-presented in `QUESTIONS_AND_CLARIFICATIONS.md`, this
+time with an explicit recommendation attached to every open item per this
+session's request, including ones prior sessions deliberately left
+unrecommended given the stakes (items 24/25/29/31).
+
+---
+
 ## 2026-08-06 — Archiving a timesheet didn't actually free its period for a redo (bug fix, no spec change)
 
 `timesheets` carries a plain `unique (caregiver_id, period_start, period_end)`

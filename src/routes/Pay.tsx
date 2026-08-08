@@ -12,7 +12,7 @@ import { calculateTimesheet, round2 } from '../lib/calc'
 import { downloadCsv, downloadJson } from '../lib/csv'
 import { buildDailyPayExportRows } from '../lib/payExport'
 import { parseTimesheetImport } from '../lib/timesheetImport'
-import { catchUpPayPeriod, computeCurrentPayPeriod, formatPaymentMethod } from '../lib/payPeriod'
+import { catchUpPayPeriod, computeCurrentPayPeriod, formatPaymentMethod, paymentDisplayStatus } from '../lib/payPeriod'
 import {
   computeGuaranteedHoursBase,
   generateShiftsForRange,
@@ -655,7 +655,12 @@ export function Pay() {
         .from('payment_records')
         .update({
           status: 'voided',
-          parent_note: voidNote,
+          // Spec 15.13 distinguishes parent_note (internal) from
+          // nanny_visible_note (shown to the nanny) -- this note is
+          // rendered unconditionally on the payment row/detail sheet today
+          // (no role gate), so it belongs in the nanny-visible field, not
+          // the internal one.
+          nanny_visible_note: voidNote,
         })
         .eq('id', voidingPayment.id)
       if (voidError) throw voidError
@@ -824,7 +829,9 @@ export function Pay() {
         reimbursements: correctingPayment.reimbursements,
         manual_adjustments: correctingPayment.manual_adjustments,
         payment_method_label: correctingPayment.payment_method_label,
-        parent_note: `Correction of payment from ${correctingPayment.paid_at?.slice(0, 10) ?? correctingPayment.period_end}. Original: $${correctingPayment.gross_pay_due.toFixed(2)}. ${correctionNote}`,
+        // See handleVoidPayment's comment -- this note is nanny-visible
+        // today with no role gate, so it belongs in nanny_visible_note.
+        nanny_visible_note: `Correction of payment from ${correctingPayment.paid_at?.slice(0, 10) ?? correctingPayment.period_end}. Original: $${correctingPayment.gross_pay_due.toFixed(2)}. ${correctionNote}`,
       })
       if (insertError) throw insertError
 
@@ -1193,6 +1200,20 @@ export function Pay() {
 
       {showForm && (
         <Card title="Generate timesheet from time entries">
+          {activeCaregiver && activeCaregiver.pay_frequency !== 'weekly' && (
+            // Known limitation (QUESTIONS_AND_CLARIFICATIONS.md item 31):
+            // overtime and fixed_weekly guaranteed hours are calculated
+            // once across the whole period rather than per calendar week,
+            // which is only correct when pay_frequency is weekly. Flagging
+            // it here rather than silently computing a wrong number for a
+            // household that picked biweekly/semi-monthly/monthly pay.
+            <p className="mb-3 rounded-md bg-amber-50 p-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+              ⚠ Overtime and fixed-weekly guaranteed-hours totals below are
+              calculated across the whole period, not per calendar week —
+              they may be inaccurate for {activeCaregiver.pay_frequency.replace('_', ' ')} pay.
+              Double-check hours worked in any week over 40 before approving.
+            </p>
+          )}
           <form onSubmit={handleGenerateTimesheet} className="space-y-3">
             <div className="space-y-3">
               <Field label="Period start">
@@ -1533,12 +1554,14 @@ export function Pay() {
                       Due {p.due_date}{showGrossPay ? ` · $${p.gross_pay_due.toFixed(2)}` : ' · amount hidden'}
                       {showPaymentMethod && formatPaymentMethod(p.payment_method_label) ? ` · ${formatPaymentMethod(p.payment_method_label)}` : ''}
                     </p>
-                    {p.parent_note && (
-                      <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">{p.parent_note}</p>
+                    {(p.nanny_visible_note || p.parent_note) && (
+                      <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
+                        {p.nanny_visible_note || p.parent_note}
+                      </p>
                     )}
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
-                    <StatusChip status={p.status} />
+                    <StatusChip status={paymentDisplayStatus(p.status, p.due_date)} />
                     {canMarkPaid(p) && (
                       <button
                         className="text-xs text-green-600 underline dark:text-green-400"
@@ -1811,7 +1834,7 @@ export function Pay() {
                 )}
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1">
-                <StatusChip status={detailPayment.status} />
+                <StatusChip status={paymentDisplayStatus(detailPayment.status, detailPayment.due_date)} />
                 {detailPayment.deleted_at && (
                   <span className="text-[11px] text-gray-400 dark:text-gray-500">
                     Archived {detailPayment.deleted_at.slice(0, 10)}
@@ -1820,8 +1843,10 @@ export function Pay() {
               </div>
             </div>
             <HoursBreakdown record={detailPayment} showGuaranteedHours={showGuaranteedHours} />
-            {detailPayment.parent_note && (
-              <p className="text-xs text-gray-500 dark:text-gray-400">{detailPayment.parent_note}</p>
+            {(detailPayment.nanny_visible_note || detailPayment.parent_note) && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {detailPayment.nanny_visible_note || detailPayment.parent_note}
+              </p>
             )}
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
             {isParentOrCoAdmin && (
