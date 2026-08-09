@@ -25,7 +25,11 @@ via a targeted audit of spec section 16 (Calculation Rules) against
 unambiguous enough to build directly (see `SPEC_CHANGE_LOG.md` 2026-08-08:
 two real RLS gaps, payment status display, audit log actor, a payment-note
 field correction) or were mitigations for item 31 (a UI warning) that don't
-resolve the underlying judgment call.
+resolve the underlying judgment call. The 2026-08-09 session's audit (spec
+13.11, 21, 22, and the remainder of 16 not already covered by items 24/31)
+found no mechanical fixes needed — everything checked already matched spec —
+but surfaced one new judgment call, item 33 (the spec-mandated "timesheet
+submission" reminder never fires in practice).
 
 ### Recommendations added 2026-08-08, per explicit request
 
@@ -88,6 +92,8 @@ recommendations are simply reaffirmed here since they're still unbuilt.
   a live, already-relied-upon money calculation, so it should not be built
   without an explicit go-ahead even though a recommendation is being given.
 - **32 (Time screen tab structure):** B — This Week/Previous Weeks grouping, skip Corrections until item 25 lands.
+- **33 (Dead "timesheet submission" reminder):** No recommendation — same
+  unspecified-period-boundary shape as items 31/32.
 
 ### 30. Removing a household member hard-deletes the `household_users` row instead of using the schema's `'removed'` status (spec 10/15.3) — and fixing that collides with the join-code rejoin flow
 
@@ -639,6 +645,63 @@ to navigate in practice — same shape as items 22/23's calendar/Home-screen
 precedent, this is a screen-structure change worth doing deliberately, and
 two-thirds of the spec's literal ask (the Corrections tab) is blocked on item
 25 regardless of what's decided here.
+
+### 33. The spec-mandated "timesheet submission" reminder never fires — no timesheet row is ever created in the `'draft'` status the check depends on (spec 21)
+
+Spec 21 "Timesheet Submission" says: *"If pay period ended and timesheet not
+submitted: Show nanny alert. Optionally show parent alert."* `reminders.ts`'s
+`unsubmitted_timesheet` card only fires for an existing `timesheets` row
+whose `status === 'draft'` and whose `period_end` has passed. But no normal
+code path ever inserts a `'draft'` timesheet: the nanny's "Submit timesheet"
+button (`Pay.tsx`) creates one with `status: 'submitted'` directly, and the
+parent's "Generate" flow creates one with `status: 'approved'` directly.
+`'draft'` is only reachable via CSV import (`timesheetImport.ts`), an
+admin data-recovery path, not normal usage. So for every household using the
+app normally, this reminder type is dead code — the spec's "pay period
+ended, nothing submitted yet" alert never appears, silently, with no test or
+UI signal that it's missing. (This is distinct from the working
+`pending_timesheet_approval` card, which correctly covers "submitted but not
+yet approved" — it's specifically the "nobody has done anything for this
+closed period" case that has no working detector.) Found via this session's
+targeted audit of spec 21 against `reminders.ts`.
+
+Fixing it isn't mechanical because it needs a real answer to "which pay
+period most recently ended with zero timesheet rows covering it," and the
+two candidate building blocks already in the codebase both fall short:
+`payPeriod.ts`'s `computeCurrentPayPeriod`/`catchUpPayPeriod` are built to
+return the period *currently underway or about to close*, so by
+construction their `end` is essentially never in the past — they can't
+answer "which period just ended" directly. And a simpler "days since the
+last timesheet" heuristic runs into the same variable-period-length problem
+items 31/32 already flag for non-weekly `pay_frequency`: `semi_monthly`/
+`monthly` periods don't have a fixed day count to compare against, and
+biweekly periods drift the same way `payPeriod.ts`'s own existing comments
+already note.
+
+- **Option A — leave as-is.** `unsubmitted_timesheet` stays in the schema
+  and reminder-settings UI (`REMINDER_TYPE_INFO`) but never actually fires.
+  Zero work, but a spec-mandated alert type is effectively vestigial, and a
+  household that's fallen behind on timesheet submission gets no nudge.
+- **Option B — per-caregiver "previous period" computation.** Add a
+  `previousPayPeriod(caregiver, today)` helper to `payPeriod.ts` (mirroring
+  `computeCurrentPayPeriod`'s anchor logic, stepped back one period; for
+  `semi_monthly`/`monthly`, the actual previous calendar half-month/month),
+  then in `reminders.ts` check whether *any* timesheet (any status) covers
+  that caregiver's most-recently-ended period — if none does, fire the
+  alert once per caregiver instead of keying off an unreachable `'draft'`
+  status. Closest to the spec's literal intent; needs an explicit decision
+  on partial-period edge cases at pay-frequency boundaries.
+- **Option C — simpler proxy.** Flag a caregiver who has approved time
+  entries older than N days with no timesheet covering them, sidestepping
+  exact period-boundary math. Looser approximation — a caregiver on a
+  slow-to-fill-in schedule could trip it mid-period, not just after a period
+  genuinely closes.
+
+**No recommendation given** — same shape as items 31/32: the "right"
+period-boundary rule for non-weekly pay frequencies isn't specified
+anywhere in the spec, and guessing at a heuristic risks either false-positive
+nagging or continuing to silently miss real gaps, which is the status quo
+today.
 
 ---
 

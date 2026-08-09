@@ -8,6 +8,73 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-09 — Targeted audit of spec 13.11/16/21/22/24 finds no mechanical gaps, one new judgment call (item 33: dead "timesheet submission" reminder); time-entry schedule pre-fill re-verified; items 22-26/28-33 re-presented
+
+**This session's scope, per the standing recurring-task instructions plus the
+recurring-task owner's explicit ask this run:** re-verify the time-entry
+schedule pre-fill (already built 2026-06-30, working as intended — see
+below), then a fresh targeted audit of spec 13.11 (Exports), 21
+(Notification/Reminder Logic), 22 (UX Requirements), the parts of section 16
+(Calculation Rules) not already covered by open items 24/31 (16.1/16.2/16.4/
+16.5/16.7/16.8), and a spot-check of section 24 (Acceptance Criteria) —
+against `src/lib/reminders.ts`, `src/lib/calc.ts`, `src/lib/payPeriod.ts`,
+`Pay.tsx`, `PTO.tsx`, and `StatusChip.tsx`. These areas hadn't been closely
+covered by prior sessions (2026-08-08 covered 15.9-15.15/17/19; 2026-08-05
+covered the rest of section 16 and 14.3/14.4/14.7).
+
+**Time entry pre-fill from the caregiver's schedule (the explicit ask this
+run) was already built and has been re-verified working (spec 13.4/13.2), no
+change made.** `Time.tsx`'s manual-entry form defaults its date field to
+today and looks up the scheduled shift for whatever date is selected,
+pre-filling start time, end time, and break minutes from it (falling back to
+a 09:00-17:00 default only when nothing's scheduled that day). This has
+shipped since 2026-06-30 and been re-verified in six sessions since
+(2026-08-03, -04, -05, -08, and now); no change was needed.
+
+**No mechanical fixes were made this session.** Every discrepancy the audit
+turned up either resolved to spec and code already matching (see the list
+below) or was a single genuine judgment call that isn't safely containable
+as a mechanical fix (below). Confirmed via `git status` that the working
+tree was unchanged after the audit; `npx tsc -b` and `npx oxlint` both ran
+clean (same pre-existing lint warnings prior sessions have already noted,
+none new).
+
+**New judgment call found: the spec-mandated "timesheet submission" reminder
+never fires in practice (spec 21) — added as item 33 in
+`QUESTIONS_AND_CLARIFICATIONS.md`, not built.** `reminders.ts`'s
+`unsubmitted_timesheet` card only fires for a `timesheets` row with
+`status === 'draft'`, but no normal flow (nanny submit, parent generate)
+ever creates a timesheet in that status — both write `'submitted'` or
+`'approved'` directly, leaving `'draft'` reachable only via CSV import. So
+the spec's "pay period ended, nothing submitted" alert is effectively dead
+code today. Fixing it needs a real "which pay period most recently ended
+uncovered" computation, which runs into the same non-weekly-pay-frequency
+period-boundary ambiguity already flagged (unresolved) by items 31 and 32 —
+`payPeriod.ts`'s existing period helpers are built to describe the *current*
+period, not detect a past one that closed uncovered, and `semi_monthly`/
+`monthly` periods have no fixed day-count to key a heuristic off of. Full
+options (A/B/C) and reasoning in `QUESTIONS_AND_CLARIFICATIONS.md`.
+
+**Audit also checked and found no discrepancies in:** spec 13.11 Exports —
+all six export types (`exportDetailedRecords`, `exportAnnualSummary`,
+`exportFullRecords` in `Pay.tsx`; `exportLedger` in `PTO.tsx`) present,
+matching field lists, and correctly permission-gated
+(`isParentOrCoAdmin && coadminAllowed('export_records')`); spec 21's other
+five reminder types (Payment Due, Timesheet Approval, Missing Clock-Out, PTO
+Request, Upcoming PTO) all match spec's alert-audience rules; spec 22 UX
+Requirements (status chip vocabulary, Parent/Nanny UX priorities) all
+satisfied by existing screens; spec 16.1/16.2/16.4/16.5/16.7/16.8
+(everything in Calculation Rules except the already-open items 24/31/16.9)
+implemented literally and correctly in `calc.ts`; a spot-check of section 24
+Acceptance Criteria bullets not already covered by open items 22-32, all
+satisfied.
+
+Q&A items 22-26 and 28-32 were not resolved unilaterally (unchanged from the
+2026-08-08 session, no new information to change any of them) — re-presented
+in `QUESTIONS_AND_CLARIFICATIONS.md` alongside the new item 33.
+
+---
+
 ## 2026-08-08 — RLS gaps closed on nanny inserts and caregiver_profiles read scope (spec 19, security fix); payment status now shows upcoming/overdue (spec 17, mechanical); audit log shows actor (spec 20, mechanical); payment note field corrected to nanny_visible_note (spec 15.13, mechanical); non-weekly pay warning added for item 31; time-entry schedule pre-fill re-verified; items 22-26/28-32 re-presented, no new judgment calls
 
 **This session's scope, per the standing recurring-task instructions plus the
