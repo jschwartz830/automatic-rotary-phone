@@ -29,7 +29,13 @@ resolve the underlying judgment call. The 2026-08-09 session's audit (spec
 13.11, 21, 22, and the remainder of 16 not already covered by items 24/31)
 found no mechanical fixes needed — everything checked already matched spec —
 but surfaced one new judgment call, item 33 (the spec-mandated "timesheet
-submission" reminder never fires in practice).
+submission" reminder never fires in practice). The 2026-08-10 session's
+audit deliberately shifted scope to the infra/meta sections (3, 5, 6, 7, 9,
+12, 18, 23 — deployment, Supabase config, GitHub Actions, the serverless
+constraint, navigation, authorization, and the MVP build plan) rather than
+re-covering the functional workflow sections again, since those had returned
+no new findings for several sessions running. It found zero gaps and opened
+no new items — everything checked already matched spec.
 
 ### Recommendations added 2026-08-08, per explicit request
 

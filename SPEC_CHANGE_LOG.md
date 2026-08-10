@@ -8,6 +8,62 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-10 — Targeted audit of spec 3/5/6/7/9/12/18/23 (infra/deployment/authorization/build-plan) finds no gaps; time-entry schedule pre-fill re-verified; items 22-33 re-presented
+
+**This session's scope, per the standing recurring-task instructions:** verify
+the app still builds/lints cleanly, re-confirm the explicitly-requested
+time-entry schedule pre-fill behavior once more, and audit spec sections that
+hadn't previously gotten an explicit pass of their own. Prior sessions
+(2026-07-30 through 2026-08-09) have repeatedly covered the functional
+workflow sections (10, 11, 13.1-13.11, 14.1-14.7, 15.1-15.15, 16, 17, 19, 20,
+21, 22, 24) close to exhaustively with no new findings in the last several
+passes, so this session deliberately targeted the infra/meta sections that
+hadn't: 3 (GitHub Pages deployment constraint), 5 (GitHub Pages config), 6
+(Supabase requirements), 7 (GitHub Actions deployment), 9 (backend/reminder
+serverless constraint), 12 (core app navigation), 18 (authorization
+requirements), and 23 (MVP build plan).
+
+**Health check:** `npm run build` (tsc -b && vite build) and `npm run lint`
+both clean — no new TypeScript or lint errors; the existing handful of
+`react-hooks/exhaustive-deps` / fast-refresh warnings predate this session
+and are unrelated to spec compliance.
+
+**Audit — zero new gaps found.** Section 12 (nav): `Layout.tsx`'s 5-tab
+parent (Home/Time/Calendar/Pay/More) and 4-tab nanny (Home/Time/PTO/Pay)
+bottom docks match spec 12's "if six tabs are too many" alternative exactly.
+Sections 3/5/6/7/9/18/23 (delegated to a full audit pass, cross-checked
+against an actual production `vite build`, `.github/workflows/deploy.yml`,
+`supabase/migrations/*`, and `src/lib/supabase.ts`): all match spec —
+GitHub-Pages-only static hosting with no server/Edge Function/cron anywhere;
+`vite.config.ts`'s `base` path and `HashRouter` routing correct; only the
+anon key ships client-side; the deploy workflow matches spec's action list;
+no email-provider keys or Edge Functions (reminders stay in-app only, per
+already-resolved Q&A item 5); RLS helper functions
+(`is_household_member`/`is_parent_admin`/`is_parent_or_coadmin`/
+`is_caregiver_user`/`can_manage_household_setting`) exist and are used
+exactly where spec 18 requires (e.g. `caregiver_private_notes` parent-only,
+audit log gated by the `view_audit_log` permission key); the MVP build
+plan's phases are all built, with the two known-unbuilt optional items
+(payment attachments, email reminders) already tracked as Q&A item 26 and
+the resolved item 5. No new Q&A items opened this session.
+
+**Time-entry schedule pre-fill — re-confirmed once more, still no change
+needed.** `Time.tsx:50` defaults the date field to today; the effect at
+`Time.tsx:120-135` pre-fills start time, end time, break minutes, and
+`schedule_shift_id` from the caregiver's scheduled shift for whatever date
+is selected, falling back to a 9-5 default when nothing's scheduled. This
+has been in place and re-verified every session since it was first built
+2026-06-30 — this run's prompt asked for it by name again ("time entry was
+pre-set to the schedule hours, can still default to current day"), and it
+already does exactly that; no code change was needed.
+
+No code changes this session beyond documentation (this entry). The 12
+already-open Q&A items (22-33) were not resolved unilaterally — see
+`QUESTIONS_AND_CLARIFICATIONS.md` and the notification sent this session for
+the decisions still needed.
+
+---
+
 ## 2026-08-09 — Targeted audit of spec 13.11/16/21/22/24 finds no mechanical gaps, one new judgment call (item 33: dead "timesheet submission" reminder); time-entry schedule pre-fill re-verified; items 22-26/28-33 re-presented
 
 **This session's scope, per the standing recurring-task instructions plus the
