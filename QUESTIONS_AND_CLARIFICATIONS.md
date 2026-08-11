@@ -36,6 +36,16 @@ constraint, navigation, authorization, and the MVP build plan) rather than
 re-covering the functional workflow sections again, since those had returned
 no new findings for several sessions running. It found zero gaps and opened
 no new items — everything checked already matched spec.
+submission" reminder never fires in practice). The 2026-08-11 session's audit
+(spec 15.5/15.7/15.8 field-by-field against the schema and `src`, plus 22 and
+25) found `schedule_templates`' `notes`/`recurrence_rule`/`effective_end_date`
+dead-column pattern was already explained by resolved item 14 (no new
+decision needed), found sections 22 and 25 fully match the current UI and
+defaults with no gaps, mechanically fixed two more `schedule_shifts` dead
+columns (`paid_break`, `counts_toward_guaranteed_hours`) using the same
+checkbox pattern resolved item 27 already established, and surfaced one new
+judgment call, item 34 (`time_entries.schedule_exception_id` is a dead
+column with no wiring at all).
 
 ### Recommendations added 2026-08-08, per explicit request
 
@@ -100,6 +110,10 @@ recommendations are simply reaffirmed here since they're still unbuilt.
 - **32 (Time screen tab structure):** B — This Week/Previous Weeks grouping, skip Corrections until item 25 lands.
 - **33 (Dead "timesheet submission" reminder):** No recommendation — same
   unspecified-period-boundary shape as items 31/32.
+- **34 (`time_entries.schedule_exception_id` dead column):** B, if built at
+  all — wire it as an audit-trail-only link (no pre-fill/calculation
+  change); A (leave unbuilt) is also defensible since nothing reads the
+  column today.
 
 ### 30. Removing a household member hard-deletes the `household_users` row instead of using the schema's `'removed'` status (spec 10/15.3) — and fixing that collides with the join-code rejoin flow
 
@@ -708,6 +722,67 @@ period-boundary rule for non-weekly pay frequencies isn't specified
 anywhere in the spec, and guessing at a heuristic risks either false-positive
 nagging or continuing to silently miss real gaps, which is the status quo
 today.
+
+### 34. `time_entries.schedule_exception_id` is a dead column — no time entry is ever linked back to the schedule exception it corresponds to (spec 13.4/15.8)
+
+Spec 15.8 lists `schedule_exception_id uuid nullable references
+schedule_exceptions(id)` on `time_entries`, parallel to `schedule_shift_id`.
+The shift link is fully wired up: `Time.tsx` loads the day's generated shift
+occurrences, pre-fills the manual-entry form from whichever one matches the
+selected date, and stores its id (`scheduledShiftId`) on both manual entries
+and clock-ins. Nothing analogous exists for `schedule_exception_id` — `Time.tsx`
+never queries `schedule_exceptions` at all, no insert or update anywhere in
+`src` sets the column, and no downstream reader (`calc.ts`, `Pay.tsx`,
+`reminders.ts`) ever selects it. It's a pure dead column, found via this
+session's field-by-field sweep of spec 15.8 against `src`.
+
+This isn't a mechanical fill-in like the `schedule_shifts.paid_break`/
+`counts_toward_guaranteed_hours` checkboxes this session *did* build (which
+had item 27's `paid_if_family_canceled` fix as an exact, unambiguous
+precedent to copy). Wiring this one up needs a real policy decision:
+
+- Unlike a day's shift occurrences (bounded to whatever the recurring
+  template generates, normally 0 or 1 for a given caregiver/date),
+  `schedule_exceptions` isn't similarly bounded — a date could have more than
+  one approved exception (e.g. a `holiday` marker plus an unrelated
+  `added_shift`), so "which one does this time entry belong to" isn't always
+  a single obvious answer the way the shift link's `occurrences[0]` is.
+- Whether linking should also drive pre-fill (defaulting a manual entry's
+  start/end from an `added_shift`/`shortened_shift`/`extended_shift`
+  exception's own `start_time`/`end_time`, the way `schedule_shift_id`
+  already pre-fills from the recurring shift) is a separate question from
+  just storing the link for audit-trail purposes — the former changes what
+  values populate the live time-entry creation form on exception days, the
+  latter doesn't change any calculated number or form default at all.
+- Whether a time entry on a day with a `family_cancellation`/`holiday`/
+  `weather_emergency` exception (hours the caregiver is paid without
+  working) should link to it at all, since those aren't "the shift that got
+  worked" in the same sense an `added_shift` is.
+
+- **Option A — leave unbuilt.** The column stays in place, unused, until
+  there's an actual use for it — mirrors the precedent already set for
+  `schedule_shifts.default_category` in resolved item 27.
+- **Option B — wire it as an audit-trail link only, no behavior change.**
+  When a time entry is saved for a date, look up that date's approved
+  `schedule_exceptions` restricted to the shift-affecting types
+  (`added_shift`/`shortened_shift`/`extended_shift`/`family_cancellation`);
+  if exactly one matches, store its id, mirroring `scheduledShiftId`'s
+  plumbing but without touching pre-fill or any calculation. Skip storing
+  anything when zero or multiple exceptions match that date, rather than
+  guessing which one a time entry belongs to.
+- **Option C — wire it up and let it drive pre-fill too**, closest to how
+  `schedule_shift_id` already works end-to-end, but changes what start/end
+  values populate the manual-entry form on exception days.
+
+**Recommendation: B, if built at all.** It closes the literal "dead column"
+gap with the smallest possible surface — a pure link, no changed numbers, no
+changed form defaults — while C's pre-fill change is closer to a live
+time-entry-flow behavior change that deserves its own deliberate look rather
+than riding along with a "wire up the FK" fix. But given nothing today reads
+this column for anything (no calculation, no display, no export), A is a
+perfectly defensible choice too if there's no concrete need for the
+audit-trail link yet; this is why it's flagged here rather than built
+unilaterally.
 
 ---
 

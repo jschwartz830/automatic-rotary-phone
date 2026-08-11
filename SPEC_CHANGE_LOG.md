@@ -61,6 +61,123 @@ No code changes this session beyond documentation (this entry). The 12
 already-open Q&A items (22-33) were not resolved unilaterally — see
 `QUESTIONS_AND_CLARIFICATIONS.md` and the notification sent this session for
 the decisions still needed.
+## 2026-08-11 — Field-by-field sweep of spec 15.5/15.7/15.8 against schema and `src`; sections 22 and 25 fully match with no gaps; two `schedule_shifts` dead columns wired up (`paid_break`, `counts_toward_guaranteed_hours`, mechanical); one new judgment call (item 34: dead `schedule_exception_id` column); items 22-33 re-presented
+
+**This session's scope:** a fresh, targeted audit of the areas least
+recently/closely covered per the standing recurring-task instructions —
+(1) a full field-by-field sweep of spec 15.5 (`schedule_templates`), 15.7
+(`schedule_exceptions`), and 15.8 (`time_entries`) against the actual
+Supabase schema (`supabase/migrations/0001_schema.sql`) and against how each
+field is actually read/written in `src` (`Schedule.tsx`, `Time.tsx`,
+`lib/schedule.ts`, `lib/types.ts`); (2) spec 22 (UX Requirements) read in
+full and checked against `Home.tsx`, `Time.tsx`, `Schedule.tsx`, and
+`StatusChip.tsx`; (3) spec 25 (Recommended Defaults) checked against the
+`caregiver_profiles`/`households` column defaults in migration 0001 and the
+frontend stack (`package.json`, `App.tsx`).
+
+**Mechanical fix: `schedule_shifts.paid_break` and
+`.counts_toward_guaranteed_hours` were dead columns — both are read in
+calculations (`lib/schedule.ts`'s `shiftHours()` and
+`computeGuaranteedHoursBase()`) but no insert anywhere in `Schedule.tsx` ever
+set them, so every shift ever created via the UI was permanently stuck at
+the DB defaults (`paid_break = false`, `counts_toward_guaranteed_hours =
+true`) with no way for a household to override either per spec 13.2's Shift
+Fields list ("Paid break yes/no", "Counts toward guaranteed hours yes/no").**
+This is the same shape of gap resolved item 27 (2026-07-31) already fixed
+once for the sibling field `paid_if_family_canceled` — a checkbox added to
+the Add Shift form, wired into all four `schedule_shifts` insert call sites
+(weekly/biweekly/monthly/custom), skipped for the one-time (`once`) path
+since that creates a `schedule_exceptions` row instead. Applied the identical
+pattern here: two new checkboxes ("Break is paid", "Counts toward guaranteed
+hours", the latter defaulting checked to match the column's DB default) in
+`src/routes/Schedule.tsx`, wired into the same four insert sites. The
+"Unpaid break (minutes)" field label was also corrected to "Break (minutes)"
+since the break is no longer unconditionally unpaid. `default_category`
+remains intentionally unbuilt per resolved item 27 (option A) — no
+calculation or display reads shift category, unchanged this session.
+
+**Audit found `schedule_templates.notes`, `.recurrence_rule`, and
+`.effective_end_date` are effectively dead (never meaningfully read/written
+outside `lib/schedule.ts`'s prospective-range respecting of
+`effective_end_date`, which is never actually set by any UI path) — but this
+is not a new gap.** It's the direct, already-understood consequence of
+resolved item 14 (2026-07-01, "Schedule template editing model"), which
+deliberately kept the simple add/remove shift model instead of building
+effective-dated template versioning ("end the old schedule, start a new
+one"). Templates are an implicit, auto-managed-by-recurrence-type concept in
+the UI, not a first-class object a household edits directly, so a template's
+own `notes`/`recurrence_rule` having no editor and `effective_end_date`
+having no "end this schedule" action is expected under that decision, not a
+new judgment call. No `QUESTIONS_AND_CLARIFICATIONS.md` entry added for this.
+
+**New judgment call found: `time_entries.schedule_exception_id` is a dead
+column with zero wiring anywhere — added as item 34 in
+`QUESTIONS_AND_CLARIFICATIONS.md`, not built.** Spec 15.8 lists it parallel
+to `schedule_shift_id`, which *is* fully wired (`Time.tsx` pre-fills the
+manual-entry form from the day's generated shift occurrence and stores its
+id on save/clock-in). Nothing analogous exists for schedule exceptions —
+`Time.tsx` never queries `schedule_exceptions`, and no insert/update
+anywhere sets the column. Unlike the `paid_break`/`counts_toward_guaranteed_
+hours` fix above, this isn't a copy-the-precedent mechanical fill-in: a
+day's shift occurrences are naturally bounded to 0-or-1 for pre-fill
+purposes, but `schedule_exceptions` isn't similarly bounded (a date can have
+more than one approved exception), and it's a real design question whether
+wiring the link should also change manual-entry pre-fill defaults on
+exception days (a live time-entry-flow behavior change) or stay a pure
+audit-trail link with no calculation/display impact. Full background,
+options (A/B/C), and a recommendation (B — audit-trail-only link, if built
+at all) are in `QUESTIONS_AND_CLARIFICATIONS.md` item 34.
+
+**Audit also checked and found no gaps in:**
+
+- `schedule_exceptions` (spec 15.7) field-by-field — every column matches
+  the schema exactly (including default statuses/types), and `affects_pto`
+  being effectively unused is expected, not a gap: the three leave-type
+  exception types it would apply to (`pto`/`sick`/`unpaid_time_off`) are
+  deliberately excluded from the Schedule Exceptions UI per the 2026-07-02
+  resolved decision to route all leave through `leave_requests` instead, so
+  `affects_pto` never gets exercised by construction.
+- `time_entries` (spec 15.8) otherwise — every other field matches
+  read/write behavior in `Time.tsx`/`Pay.tsx` correctly (method transitions,
+  status defaults, `created_by`/`updated_by`, nanny/parent note routing).
+  The `'correction'` method and `'corrected'`/`'rejected'` statuses being
+  never set is real but already fully covered by open item 25's timesheet
+  reject/correction workflow gap — no separate item added for it. Spec
+  13.4's prose "Entry method: ... imported" vs. spec 15.8's formal
+  `method` check constraint (`clock`/`manual`/`parent_adjustment`/
+  `correction`) is a minor spec-internal wording mismatch with zero
+  functional impact since the schema correctly implements 15.8, the
+  authoritative data-model section; not worth a Q&A entry.
+- Section 22 (UX Requirements) — full status-chip vocabulary present in
+  `StatusChip.tsx` (`missing_clock_out`, `needs_correction`, `payment_due`,
+  `paid`, `requested`/`approved` for PTO, `overdue`, etc.); Parent UX
+  priorities (clocked-in status, missing hours, timesheet waiting, amount
+  owed, payment-marked-paid, PTO balance) and Nanny UX priorities (scheduled
+  today, clock in/out prompt, submission/approval status, payment status,
+  PTO balance) all covered by `Home.tsx`'s Today/This Week/dashboard
+  cards and reminder feed — matches the "stop here" conclusion of resolved
+  item 23. No gaps found.
+- Section 25 (Recommended Defaults) — every default checked matches: Vite +
+  React + TypeScript (`package.json`), `HashRouter` (`App.tsx`), timezone
+  `America/New_York` and week-start Monday (`households` table defaults),
+  weekly pay frequency with `pay_period_start_day = 1` (Monday) and
+  `payday_days_after_period_end = 5` (correctly yields "Friday after period
+  ends" from a Monday-Sunday period), overtime threshold 40h at 1.5x,
+  guaranteed hours enabled/linked-to-schedule, family cancellations and
+  unpaid-time-off guarantee defaults, PTO/sick as separate `leave_type`
+  values, PTO balance and gross pay visible to nanny by default, pay rate
+  hidden from nanny by default, no time-rounding logic anywhere in
+  `calc.ts` (only float-precision `round2`). No gaps found.
+
+**Verification:** `npm install` (fresh checkout had no `node_modules`), then
+`npx tsc -b` and `npx oxlint` both ran clean — same pre-existing warnings
+prior sessions have already noted (Fast Refresh export warnings, one
+`exhaustive-deps` warning in `Schedule.tsx` unrelated to this session's
+changes), no new errors or warnings introduced.
+
+Q&A items 22-33 were not resolved unilaterally (no new information to change
+any of them) — re-presented in `QUESTIONS_AND_CLARIFICATIONS.md` alongside
+the new item 34.
 
 ---
 
