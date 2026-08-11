@@ -96,6 +96,8 @@ export function Schedule() {
   const [startTime, setStartTime] = useState('09:00')
   const [endTime, setEndTime] = useState('17:00')
   const [breakMinutes, setBreakMinutes] = useState('0')
+  const [paidBreak, setPaidBreak] = useState(false)
+  const [countsTowardGuaranteedHours, setCountsTowardGuaranteedHours] = useState(true)
   const [paidIfFamilyCanceled, setPaidIfFamilyCanceled] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -223,6 +225,8 @@ export function Schedule() {
     setStartTime('09:00')
     setEndTime('17:00')
     setBreakMinutes('0')
+    setPaidBreak(false)
+    setCountsTowardGuaranteedHours(true)
     setPaidIfFamilyCanceled(true)
     setError(null)
   }
@@ -295,6 +299,8 @@ export function Schedule() {
             start_time: startTime,
             end_time: endTime,
             break_minutes: Number(breakMinutes) || 0,
+            paid_break: paidBreak,
+            counts_toward_guaranteed_hours: countsTowardGuaranteedHours,
             paid_if_family_canceled: paidIfFamilyCanceled,
           })
           if (shiftError) throw shiftError
@@ -318,6 +324,8 @@ export function Schedule() {
             start_time: startTime,
             end_time: endTime,
             break_minutes: Number(breakMinutes) || 0,
+            paid_break: paidBreak,
+            counts_toward_guaranteed_hours: countsTowardGuaranteedHours,
             paid_if_family_canceled: paidIfFamilyCanceled,
           })
           if (shiftError) throw shiftError
@@ -342,6 +350,8 @@ export function Schedule() {
           start_time: startTime,
           end_time: endTime,
           break_minutes: Number(breakMinutes) || 0,
+          paid_break: paidBreak,
+          counts_toward_guaranteed_hours: countsTowardGuaranteedHours,
           paid_if_family_canceled: paidIfFamilyCanceled,
         })
         if (shiftError) throw shiftError
@@ -362,6 +372,8 @@ export function Schedule() {
           start_time: startTime,
           end_time: endTime,
           break_minutes: Number(breakMinutes) || 0,
+          paid_break: paidBreak,
+          counts_toward_guaranteed_hours: countsTowardGuaranteedHours,
           notes: otherNote || null,
           paid_if_family_canceled: paidIfFamilyCanceled,
         })
@@ -1047,7 +1059,7 @@ export function Schedule() {
             <Field label="End time">
               <input type="time" className={timeInputClass} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
             </Field>
-            <Field label="Unpaid break (minutes)">
+            <Field label="Break (minutes)">
               <input
                 type="number"
                 min="0"
@@ -1056,6 +1068,22 @@ export function Schedule() {
                 onChange={(e) => setBreakMinutes(e.target.value)}
               />
             </Field>
+            {recurrenceChoice !== 'once' && (
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input type="checkbox" checked={paidBreak} onChange={(e) => setPaidBreak(e.target.checked)} />
+                Break is paid
+              </label>
+            )}
+            {recurrenceChoice !== 'once' && (
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={countsTowardGuaranteedHours}
+                  onChange={(e) => setCountsTowardGuaranteedHours(e.target.checked)}
+                />
+                Counts toward guaranteed hours
+              </label>
+            )}
             {recurrenceChoice !== 'once' && (
               <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
                 <input
