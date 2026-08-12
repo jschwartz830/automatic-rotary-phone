@@ -23,8 +23,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false)
     })
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession)
+      // Spec 15.1: users.last_login_at. Fire-and-forget -- the users_update_self
+      // RLS policy already allows a user to update their own row, and this is
+      // pure bookkeeping, not something any screen blocks on.
+      if (event === 'SIGNED_IN' && newSession?.user) {
+        supabase
+          .from('users')
+          .update({ last_login_at: new Date().toISOString() })
+          .eq('id', newSession.user.id)
+          .then(
+            () => {},
+            () => {}
+          )
+      }
     })
 
     return () => listener.subscription.unsubscribe()

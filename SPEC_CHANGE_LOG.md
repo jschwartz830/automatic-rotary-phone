@@ -8,6 +8,116 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-12 — Field-by-field sweep of spec 15.1-15.4 (users/households/household_users/caregiver_profiles) against schema and `src`; two dead `users` columns wired up (`last_login_at`, `full_name`/`phone` self-edit, mechanical); sections 1/2/4/8/26 audited with no gaps; items 22-34 re-presented, no new judgment calls
+
+**This session's scope, per the standing recurring-task instructions:** the
+data-model sections that hadn't yet gotten their own dedicated field-by-field
+pass — 15.1 `users`, 15.2 `households`, 15.3 `household_users`, 15.4
+`caregiver_profiles` — checked column-by-column against
+`supabase/migrations/*.sql` and against read/write usage in `src`
+(`src/lib/types.ts`, `AuthContext.tsx`, `More.tsx`, `CaregiverDetail.tsx`,
+`Onboarding.tsx`); plus section 1 (Product Overview), section 2 (Product
+Scope, in-scope and out-of-scope), section 4 (Recommended Tech Stack),
+section 8 (PWA Requirement, last touched 2026-06-30), and section 26
+(Implementation Notes for Coding Agent). Time-entry schedule pre-fill was
+confirmed already covered by the task owner's context this run (working as
+of 2026-08-10) and not re-touched.
+
+**Mechanical fix: `users.last_login_at` was a dead column — now written on
+every sign-in.** Spec 15.1 lists it, the column has existed since
+`0001_schema.sql`, and the `users_update_self` RLS policy (migration 0002)
+already permits a user to update their own row — but nothing ever wrote to
+it. A prior session's 2026-07-30 audit had already found this exact gap and
+explicitly left it alone as "too minor to warrant a Q&A item" (see this
+file's 2026-07-30 entry); revisited it this session since a one-line,
+zero-ambiguity fix was sitting right there. `AuthContext.tsx`'s
+`onAuthStateChange` listener now fires a fire-and-forget
+`update({last_login_at: now()})` on the `SIGNED_IN` event, scoped to the
+signed-in user's own id. No UI currently surfaces this value (nothing in the
+spec's screens asks for it to be shown), so this is pure bookkeeping —
+matches spec 15.1's field list with no behavior change elsewhere.
+
+**Mechanical fix: `users.full_name` and `.phone` had no self-service editor
+anywhere — added a "Your name" / "Your phone" form to More.tsx's existing
+Account card.** Both columns are read elsewhere (`full_name` in
+`AuditLog.tsx`'s actor display and `More.tsx`'s household-member list;
+`phone` only in `types.ts`), but `full_name` is only ever set once, at
+signup (`handle_new_auth_user()`'s trigger copies
+`raw_user_meta_data ->> 'full_name'`), and `phone` was never set at all — a
+typo'd name at signup, or a phone number a household wants on file per spec
+15.1, had no way to be fixed or added after the fact. Added a small form to
+the "Account" card (loads the current user's `full_name`/`phone` on mount,
+saves via the same `users_update_self` RLS policy the `last_login_at` fix
+above relies on) — matches the `Field`/`inputClass`/save-confirmation
+pattern already used for `CaregiverDetail.tsx`'s profile form and
+`More.tsx`'s own household-settings form. Does not touch `email` (tied to
+Supabase Auth identity, out of scope for a plain profile field).
+
+**Audit — everything else in 15.1-15.4 checked and found no other gaps.**
+`households` (id/name/timezone/week_start_day/created_by/timestamps) matches
+the schema exactly; `created_by` has no display anywhere but is genuinely
+used (the household `select` RLS policy's `or created_by = auth.uid()`
+branch), so it isn't dead, just audit/authorization-only.
+`household_users.status`'s `'invited'` value and `.invited_at` are real but
+permanently unused — not a new finding: this is the direct, already-resolved
+consequence of Q&A item 7 (resolved 2026-07-01, "Household join code"),
+which replaced spec's implied invite-then-accept model with self-service
+join-by-code, so every membership row goes straight to `'active'` with no
+pending-invite state to populate. Already noted once before (this file's
+2026-07-30 entry) as too minor for a Q&A item; re-confirmed, not re-opened.
+`caregiver_profiles` — every spec-listed column (identity/contact fields,
+pay-visibility flags including `nanny_can_view_payment_method` added
+2026-07-29, all nine guaranteed-hours-settings columns) exists and is
+read/written correctly in `CaregiverDetail.tsx`; `notes_private` remains
+implemented as the separate `caregiver_private_notes` table rather than a
+column (documented, RLS-motivated deviation from a prior session, not a new
+issue); the additional pay-settings columns (`pay_frequency`,
+`pay_period_start_day`, `payday_rule`, etc.) that live on this table but
+aren't literally in spec 15.4's field list are a long-standing,
+many-times-reviewed home for spec 13.8's Pay Settings, not a new finding.
+
+**Sections 1/2/4/8/26 — no gaps found.** Section 2's Out of Scope list (no
+direct deposit/payment-rail integration, no tax/W-2/EIN logic, no
+background-check/contract features, no multi-family share, no baby-activity
+logging, no GPS/geofencing, no in-app chat) was grepped for across `src/`
+and `supabase/` — nothing out-of-scope has been built. Section 1's "what was
+scheduled → worked → owed → paid → PTO changed" ledger concept and section
+2's full In Scope list are each present as real, working features (already
+covered exhaustively by prior sessions' functional audits). Section 4's tech
+stack matches `package.json` exactly (Vite 8 + React 19 + TypeScript,
+Tailwind 4, `@supabase/supabase-js`, `date-fns`, GitHub Actions deploy,
+`vite-plugin-pwa`). Section 8 was re-verified against a real production
+`vite build` output rather than just reading config: `dist/index.html`'s
+icon/apple-touch-icon/script/stylesheet/manifest links and
+`dist/manifest.webmanifest`'s `start_url`/`scope` all correctly carry the
+`/automatic-rotary-phone/` base path (Vite's HTML asset rewriting handles
+this automatically), `dist/sw.js` and workbox precache are generated, and
+`index.html`'s viewport/theme-color/apple-mobile-web-app-* meta tags all
+match spec 8's list — no regression since the 2026-06-30 bug fix. Section
+26's build-order and implementation-principle list (static-hostable, no
+service-role/email-provider keys client-side, correction-records over
+destructive edits, RLS-enforced permissions, timestamptz everywhere,
+guaranteed hours as a visible line item, sensitive changes audited) was
+checked against the current codebase structure with nothing violating it —
+the one known exception (household-member removal is a hard delete, not a
+correction record) is already tracked as open Q&A item 30, not a new
+finding.
+
+**Health check:** `npm run build` (`tsc -b && vite build`) and `npm run
+lint` (`oxlint`) both clean — no new TypeScript or lint errors; the same
+pre-existing `react-hooks/exhaustive-deps` and Fast Refresh
+`only-export-components` warnings prior sessions have already noted, none
+new from this session's changes.
+
+No new `QUESTIONS_AND_CLARIFICATIONS.md` items this session — everything
+found either resolved to spec/code already matching, was already-explained
+by a previously-resolved decision, or was fixable directly as a low-risk,
+unambiguous mechanical change (both above). Q&A items 22-34 were not
+resolved unilaterally (no new information to change any of them) —
+re-presented in `QUESTIONS_AND_CLARIFICATIONS.md`.
+
+---
+
 ## 2026-08-10 — Targeted audit of spec 3/5/6/7/9/12/18/23 (infra/deployment/authorization/build-plan) finds no gaps; time-entry schedule pre-fill re-verified; items 22-33 re-presented
 
 **This session's scope, per the standing recurring-task instructions:** verify
