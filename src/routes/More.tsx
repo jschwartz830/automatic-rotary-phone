@@ -91,6 +91,11 @@ export function More() {
   const [reminderSettings, setReminderSettings] = useState<ReminderSetting[]>([])
   const [reminderSettingsError, setReminderSettingsError] = useState<string | null>(null)
   const [savingReminderType, setSavingReminderType] = useState<string | null>(null)
+  const [myFullName, setMyFullName] = useState('')
+  const [myPhone, setMyPhone] = useState('')
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileSavedAt, setProfileSavedAt] = useState<number | null>(null)
+  const [profileError, setProfileError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!household || !isParentOrCoAdmin) return
@@ -105,6 +110,43 @@ export function More() {
         setParentJoinCode(row?.parent_join_code ?? null)
       })
   }, [household, isParentOrCoAdmin])
+
+  // Spec 15.1: users.full_name/phone. Both were readable elsewhere (member
+  // lists, audit log) but had no self-service editor anywhere -- a typo at
+  // signup, or a phone number the household wants on file, had no fix.
+  useEffect(() => {
+    if (!user) return
+    supabase
+      .from('users')
+      .select('full_name, phone')
+      .eq('id', user.id)
+      .single()
+      .then(({ data }) => {
+        const row = data as { full_name: string | null; phone: string | null } | null
+        setMyFullName(row?.full_name ?? '')
+        setMyPhone(row?.phone ?? '')
+      })
+  }, [user])
+
+  async function saveMyProfile(e: FormEvent) {
+    e.preventDefault()
+    if (!user) return
+    setProfileSaving(true)
+    setProfileError(null)
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ full_name: myFullName.trim() || null, phone: myPhone.trim() || null })
+        .eq('id', user.id)
+      if (error) throw error
+      setProfileSavedAt(Date.now())
+      if (isParentAdmin) await loadMembers()
+    } catch (err) {
+      setProfileError(errorMessage(err, 'Could not save profile.'))
+    } finally {
+      setProfileSaving(false)
+    }
+  }
 
   const loadMembers = useCallback(async () => {
     if (!household) return
@@ -749,6 +791,33 @@ export function More() {
         <p className="mb-3 text-xs text-gray-400 dark:text-gray-500">
           {isParentAdmin ? 'Parent admin' : isParentOrCoAdmin ? 'Parent co-admin' : 'Nanny'}
         </p>
+        <form onSubmit={saveMyProfile} className="mb-4 space-y-3">
+          <Field label="Your name">
+            <input
+              className={inputClass}
+              value={myFullName}
+              onChange={(e) => setMyFullName(e.target.value)}
+              placeholder="Full name"
+            />
+          </Field>
+          <Field label="Your phone (optional)">
+            <input
+              type="tel"
+              className={inputClass}
+              value={myPhone}
+              onChange={(e) => setMyPhone(e.target.value)}
+            />
+          </Field>
+          {profileError && <p className="text-sm text-red-600 dark:text-red-400">{profileError}</p>}
+          <div className="flex items-center gap-3">
+            <Button type="submit" variant="secondary" disabled={profileSaving}>
+              {profileSaving ? 'Saving…' : 'Save profile'}
+            </Button>
+            {profileSavedAt && !profileError && (
+              <span className="text-xs text-green-600 dark:text-green-400">Saved.</span>
+            )}
+          </div>
+        </form>
         <Button variant="secondary" onClick={() => signOut()}>
           Sign out
         </Button>

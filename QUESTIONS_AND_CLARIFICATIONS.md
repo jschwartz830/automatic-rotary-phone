@@ -35,17 +35,23 @@ audit deliberately shifted scope to the infra/meta sections (3, 5, 6, 7, 9,
 constraint, navigation, authorization, and the MVP build plan) rather than
 re-covering the functional workflow sections again, since those had returned
 no new findings for several sessions running. It found zero gaps and opened
-no new items — everything checked already matched spec.
-submission" reminder never fires in practice). The 2026-08-11 session's audit
-(spec 15.5/15.7/15.8 field-by-field against the schema and `src`, plus 22 and
-25) found `schedule_templates`' `notes`/`recurrence_rule`/`effective_end_date`
-dead-column pattern was already explained by resolved item 14 (no new
-decision needed), found sections 22 and 25 fully match the current UI and
-defaults with no gaps, mechanically fixed two more `schedule_shifts` dead
-columns (`paid_break`, `counts_toward_guaranteed_hours`) using the same
-checkbox pattern resolved item 27 already established, and surfaced one new
-judgment call, item 34 (`time_entries.schedule_exception_id` is a dead
-column with no wiring at all).
+no new items — everything checked already matched spec. The 2026-08-11
+session's audit (spec 15.5/15.7/15.8 field-by-field against the schema and
+`src`, plus 22 and 25) found `schedule_templates`' `notes`/`recurrence_rule`/
+`effective_end_date` dead-column pattern was already explained by resolved
+item 14 (no new decision needed), found sections 22 and 25 fully match the
+current UI and defaults with no gaps, mechanically fixed two more
+`schedule_shifts` dead columns (`paid_break`,
+`counts_toward_guaranteed_hours`) using the same checkbox pattern resolved
+item 27 already established, and surfaced one new judgment call, item 34
+(`time_entries.schedule_exception_id` is a dead column with no wiring at
+all). The 2026-08-12 session's audit (spec 15.1-15.4 field-by-field against
+the schema and `src`, plus sections 1/2/4/8/26) found `household_users`'
+`'invited'` status/`.invited_at` dead-column pattern was already explained by
+resolved item 7 (no new decision needed), mechanically wired up two more
+dead `users` columns (`last_login_at`, plus a self-service editor for
+`full_name`/`phone`), and found no new judgment calls — everything else
+checked already matched spec.
 
 ### Recommendations added 2026-08-08, per explicit request
 
