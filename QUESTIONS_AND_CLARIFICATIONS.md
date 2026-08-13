@@ -56,7 +56,14 @@ in this file itself: a duplicate item number 30 (two unrelated items had
 claimed it; the `leave_requests.start_time`/`.end_time` one is renumbered to
 **35** below, the household-member hard-delete one keeps 30) and a stale,
 out-of-date duplicate of this intro paragraph that had been left sitting
-mid-file since 2026-08-03. See `SPEC_CHANGE_LOG.md` 2026-08-13 for detail.
+mid-file since 2026-08-03. The same session then ran a full literal
+bullet-by-bullet audit of spec 24 (Acceptance Criteria) and spec 13.5/13.6
+(Timesheet Display) — it found and mechanically fixed a real gap (a parent
+could archive an already-paid timesheet, bypassing the required Correct/Void
+workflow and silently erasing the paid payment record) and surfaced two new
+judgment calls, items 36-37 (spec 13.5's per-day timesheet breakdown has no
+in-app view; `payment_records.guarantee_override_note` is a dead column). See
+`SPEC_CHANGE_LOG.md` 2026-08-13 for full detail.
 
 ### Recommendations added 2026-08-08, per explicit request
 
@@ -125,6 +132,14 @@ recommendations are simply reaffirmed here since they're still unbuilt.
   all — wire it as an audit-trail-only link (no pre-fill/calculation
   change); A (leave unbuilt) is also defensible since nothing reads the
   column today.
+- **35 (`leave_requests.start_time`/`end_time` dead columns):** A — skip
+  unless a household asks for hour-of-day granularity.
+- **36 (Spec 13.5 per-day timesheet breakdown missing from the UI):** B — a
+  collapsible daily table inside the timesheet detail view, reusing the
+  per-day computation the CSV export already has.
+- **37 (`payment_records.guarantee_override_note` dead column):** No
+  recommendation — the column's intended trigger isn't specified anywhere
+  past its name.
 
 ### 30. Removing a household member hard-deletes the `household_users` row instead of using the schema's `'removed'` status (spec 10/15.3) — and fixing that collides with the join-code rejoin flow
 
@@ -296,6 +311,95 @@ granularity.** Same shape as item 26 (Payment attachment) — an
 explicitly-optional spec field with a working numeric fallback already in
 place, and no signal yet that the missing granularity has actually blocked
 anyone.
+
+### 36. Spec 13.5's per-day timesheet breakdown has no in-app view at all — only the CSV export computes it (spec 13.5)
+
+Spec 13.5's Timesheet Display lists a 10-field per-day breakdown as part of
+what a timesheet screen should show: date, scheduled hours, actual
+start/end, actual worked hours, PTO/sick/unpaid/family-cancellation hours,
+notes, and status. `Pay.tsx` never renders anything at this grain — every
+timesheet, in both the list and its detail view, is a single row/card
+summarizing the *whole period* (`HoursBreakdown`, built 2026-07-27, covers
+spec 13.5's period-level footer fields and spec 13.6's guaranteed-hours
+example table completely, but nothing narrower than a period). The exact
+per-day numbers spec 13.5 asks for already get computed, just not for
+display — `payExport.ts`'s `buildDailyPayExportRows` builds precisely this
+breakdown, one row per calendar day, for the "Daily Detail" CSV export
+(spec 13.11) — but that function's output is only ever handed to a CSV
+Blob, never rendered as a UI table. So today, seeing "what happened on
+Tuesday of this pay period" inside the app itself isn't possible; a parent
+has to export a CSV and open it elsewhere. Found via this session's full
+literal pass over spec 13.5 against `Pay.tsx`.
+
+This isn't a one-line "add a missing field" fix like several previous
+sessions' dead-column wire-ups, because there's no per-day UI surface to add
+a field *to* — building it means a genuinely new view: a table or
+expandable list nested inside the existing period-level timesheet
+detail, with its own mobile-layout decisions (10 columns is a lot for a
+narrow screen — some fields would need to collapse into a row, or the view
+would need to be a per-day card list instead of a literal table).
+
+- **Option A — leave as-is.** The CSV export (`buildDailyPayExportRows`,
+  already spec-13.11-compliant) is the daily view; a parent who wants
+  day-by-day detail exports it. Zero new work, but doesn't match spec
+  13.5's literal "Timesheet Display" list, which frames the per-day
+  breakdown as part of the in-app screen, not just an export.
+- **Option B — add a collapsible daily table inside the timesheet detail
+  view.** Reuse `buildDailyPayExportRows`'s existing per-day computation
+  (it already joins `time_entries`/`leave_requests`/`schedule_exceptions`
+  per day, refactored to be shared between the CSV path and a new render
+  path instead of duplicated) to populate an expandable table/card-list
+  under each timesheet's existing period-level summary. Closes the literal
+  gap without inventing new calculation logic — the hard part (assembling
+  the per-day numbers) is already built and tested via the CSV path.
+- **Option C — full day-by-day inline edit surface.** Same as B, but each
+  day's row is editable inline (jumping to or embedding `Time.tsx`'s
+  edit form), turning the timesheet detail view into a day-by-day editor
+  rather than a read-only breakdown. Spec 13.5 only asks for *display*,
+  not inline editing, so this is a bigger scope increase than the spec
+  itself calls for.
+
+**Recommendation: B, if built.** It's a real, previously-unflagged display
+gap — not just a nice-to-have judgment call — but the UI-layout decisions
+(how to compress 10 columns onto mobile, exactly where the table nests
+inside the existing detail view) are a real design surface worth a
+deliberate look rather than a guess baked into a mechanical fix.
+
+### 37. `payment_records.guarantee_override_note` is a dead column — no workflow ever produces the note it's meant to hold (spec 13.6/15.13)
+
+Spec 13.6's Payment Record Impact section and spec 15.13's `payment_records`
+field list both include `guarantee_override_note`, alongside fields like
+`manual_adjustments` that *are* fully wired (settable on the "Mark paid"/
+correction forms, displayed on the payment detail view). `guarantee_override_note`
+itself is never read or written anywhere in `src` — confirmed by grep,
+the same method used for every other dead-column finding in this file.
+Unlike most of those, though, there's no obvious UI action that would
+naturally produce this note: `manual_adjustments` already exists as the
+general-purpose "the parent typed in an adjustment" field, and the
+guarantee-adjustment math itself (`calculateTimesheet`'s
+`guarantee_adjustment_hours`) is fully automatic — there's no point in the
+current flow where a parent manually *overrides* a guarantee calculation,
+so it's unclear what event this note is even supposed to annotate. Found via
+this session's full literal pass over spec 13.6 against `Pay.tsx`.
+
+- **Option A — leave unbuilt.** Nothing today produces the guarantee
+  override this note would annotate, so there's nothing to wire the field
+  to. Mirrors the precedent already set for `schedule_shifts.default_category`
+  (resolved item 27) and `time_entries.schedule_exception_id` (item 34,
+  still open) — a column with no obvious trigger stays unused until one
+  exists.
+- **Option B — add it as a free-text note on the existing "Mark paid" form,
+  shown only when the generated `guarantee_adjustment_hours` is nonzero.**
+  Closest literal reading of "override note" as "explain why this period's
+  guarantee math came out the way it did" — but this is a guess at intent,
+  since the spec never actually describes an override *action*, only the
+  note field that would result from one.
+
+**No recommendation given** — unlike item 36, this isn't a case of a
+computation existing and just not being displayed; nothing computes or
+triggers a "guarantee override" today, so guessing at what UI action should
+produce this note risks inventing a feature the spec never actually
+describes, just a column name that implies one exists somewhere.
 
 ### 22. Calendar: build a real month view, or keep the week-grid-only simplification (spec 13.10/14.4)?
 
