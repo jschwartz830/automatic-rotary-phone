@@ -8,7 +8,48 @@ items that need your decision rather than ones already resolved.
 
 ---
 
-## 2026-08-12 — Field-by-field sweep of spec 15.1-15.4 (users/households/household_users/caregiver_profiles) against schema and `src`; two dead `users` columns wired up (`last_login_at`, `full_name`/`phone` self-edit, mechanical); sections 1/2/4/8/26 audited with no gaps; items 22-34 re-presented, no new judgment calls
+## 2026-08-13 — `QUESTIONS_AND_CLARIFICATIONS.md` documentation bug fixed (duplicate item numbering, stale leftover paragraph); fresh audit of spec 24 (Acceptance Criteria, full literal pass) and 13.5/13.6 Timesheet Display sections in progress
+
+**This session's scope, per the standing recurring-task instructions:** review
+progress against the spec, keep `SPEC_CHANGE_LOG.md`/`QUESTIONS_AND_CLARIFICATIONS.md`
+current, and present all still-open judgment calls in chat with options and a
+recommendation. Before starting a fresh code audit, a documentation-quality
+pass over `QUESTIONS_AND_CLARIFICATIONS.md` itself turned up two real bugs in
+the tracking file, fixed here first since a future session (or the task
+owner) reading that file for "what's still open" deserves it to be internally
+consistent:
+
+**Duplicate item numbering fixed.** Two unrelated open items were both
+numbered "30" — a household-member hard-delete judgment call (added
+2026-08-04, referenced by number in the "Recommendations added 2026-08-08"
+index and in this file's 2026-08-04 entry) and a
+`leave_requests.start_time`/`.end_time` dead-column judgment call (added
+2026-08-03, referenced by number in this file's 2026-08-03 entry). The
+2026-08-04 session assigned "30" to its new finding without checking that a
+2026-08-03 session had already claimed it, and nobody caught the collision
+since. Renumbered the `start_time`/`end_time` item to **35** (the next free
+number after 34) since it wasn't referenced by number anywhere outside its
+own section, leaving the hard-delete item as 30 (matching every place it's
+cross-referenced from). This file's 2026-08-03 entry above still says "item
+30" for the renumbered item — left as-is since it's a dated historical
+record, not live state; `QUESTIONS_AND_CLARIFICATIONS.md` itself is the
+authoritative current numbering and now has no collision.
+
+**Stale leftover paragraph removed from `QUESTIONS_AND_CLARIFICATIONS.md`.**
+A second, shorter, out-of-date copy of the "Open items" intro paragraph
+(narrating history only through 2026-08-03) had been left sitting mid-file,
+directly above old item 30's section — apparently never deleted when a
+2026-08-04-or-later session extended the real intro paragraph at the top of
+the file instead of editing this copy. Removed; the top paragraph is the only
+one now, and it already carries the full history through 2026-08-12.
+
+**In progress: a fresh, full literal bullet-by-bullet audit of spec 24
+"Acceptance Criteria" (lines 2536-2608) and spec 13.5/13.6's "Timesheet
+Display" subsections against `Pay.tsx`.** Prior sessions (see 2026-07-30 and
+2026-08-09 above) only spot-checked section 24 rather than checking every
+bullet literally; this session is closing that gap. Results — any mechanical
+fixes made, and any new judgment calls found — will be added to this entry
+once complete.
 
 **This session's scope, per the standing recurring-task instructions:** the
 data-model sections that hadn't yet gotten their own dedicated field-by-field

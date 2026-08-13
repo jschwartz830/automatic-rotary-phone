@@ -51,7 +51,12 @@ the schema and `src`, plus sections 1/2/4/8/26) found `household_users`'
 resolved item 7 (no new decision needed), mechanically wired up two more
 dead `users` columns (`last_login_at`, plus a self-service editor for
 `full_name`/`phone`), and found no new judgment calls — everything else
-checked already matched spec.
+checked already matched spec. The 2026-08-13 session found and fixed two bugs
+in this file itself: a duplicate item number 30 (two unrelated items had
+claimed it; the `leave_requests.start_time`/`.end_time` one is renumbered to
+**35** below, the household-member hard-delete one keeps 30) and a stale,
+out-of-date duplicate of this intro paragraph that had been left sitting
+mid-file since 2026-08-03. See `SPEC_CHANGE_LOG.md` 2026-08-13 for detail.
 
 ### Recommendations added 2026-08-08, per explicit request
 
@@ -179,20 +184,6 @@ hard-delete plus audit-log entry is a defensible reading of the spec on its
 own, **A is a legitimate choice too** — flagging this mainly because the
 schema's unused `'removed'` enum value looked, on first read, like a
 one-line mechanical fix, and it's worth documenting why it isn't.
-Items 22-26 below have been carried forward, unresolved, across the last four
-sessions (2026-07-30, 2026-07-31, 2026-08-01, 2026-08-03) — presented again
-in-chat each time rather than decided unilaterally, per the standing
-instruction to surface judgment calls rather than guess. Item 27 was resolved
-2026-07-31 since it had unambiguous recommendations for both of its
-sub-decisions, unlike 22-26. Items 28-29 were added 2026-08-01 via a targeted
-spec-vs-code audit of sections not closely covered by prior sessions
-(onboarding, PTO deduction timing). Item 30 is new this session (2026-08-03),
-found via a targeted audit of the PTO/Pay/Settings screens and reminder copy
-— see `SPEC_CHANGE_LOG.md` 2026-08-03 for what that audit found and fixed
-mechanically (PTO note/comment fields, `leave_policy_id`, an in-app Ledger
-view, and reminder-copy date formatting) versus what it left as a judgment
-call below.
-
 ### 28. Onboarding implements 2 of spec 13.1's 11 setup steps — build it out, or is "everything's reachable, just not funneled" good enough (spec 13.1)?
 
 Spec 13.1 specifies an 11-step guided parent setup: create household → set
@@ -277,7 +268,7 @@ option depends on a product judgment (does a family want the balance to
 update the moment they say yes, or only once payroll actually processes it)
 that isn't mine to make unilaterally.
 
-### 30. `leave_requests.start_time`/`end_time` are dead columns — build partial-day/hourly PTO, or is a whole-day-plus-total-hours request enough (spec 13.7/15.11)?
+### 35. `leave_requests.start_time`/`end_time` are dead columns — build partial-day/hourly PTO, or is a whole-day-plus-total-hours request enough (spec 13.7/15.11)?
 
 Spec 13.7's PTO Request Workflow lists "Start time, optional" / "End time,
 optional" as real request fields alongside start/end date and hours
