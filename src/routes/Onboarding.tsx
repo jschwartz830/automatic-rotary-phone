@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { supabase } from '../lib/supabase'
+import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
 import { Button, Field, inputClass } from '../components/Card'
 
@@ -71,10 +72,23 @@ export function Onboarding() {
     setError(null)
     setSubmitting(true)
     try {
-      const { error: rpcError } = await supabase.rpc('join_household_by_code', {
+      const { data: householdId, error: rpcError } = await supabase.rpc('join_household_by_code', {
         p_code: joinCode.trim().toUpperCase(),
       })
       if (rpcError) throw rpcError
+
+      // Spec 20 requires a "user invited" audit event; this app has no formal
+      // invite step (resolved Q&A item 7), so the moment someone actually
+      // joins via code is the closest real-world equivalent.
+      await logAuditEvent({
+        householdId,
+        actorUserId: user.id,
+        entityType: 'household_user',
+        entityId: user.id,
+        action: 'create',
+        after: { user_id: user.id, email: user.email ?? null },
+      })
+
       await refresh()
       navigate('/', { replace: true })
     } catch (err) {

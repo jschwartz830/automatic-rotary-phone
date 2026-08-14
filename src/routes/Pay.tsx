@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { addDays, format } from 'date-fns'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -182,6 +182,27 @@ export function Pay() {
   const trashedTimesheets = timesheets.filter((t) => t.deleted_at)
   const activePayments = payments.filter((p) => !p.deleted_at)
   const trashedPayments = payments.filter((p) => p.deleted_at)
+  // Spec 14.6 lists the parent's payment view as four distinct sections
+  // (Upcoming/Due/Overdue/Paid history) rather than one flat list; group by
+  // the same paymentDisplayStatus() bucketing already used for each row's
+  // status chip, ordered most-urgent-first per spec 22's "What do I owe?"
+  // parent priority.
+  const groupedPayments = useMemo(() => {
+    const groups: { overdue: PaymentRecord[]; due: PaymentRecord[]; upcoming: PaymentRecord[]; paidHistory: PaymentRecord[] } = {
+      overdue: [],
+      due: [],
+      upcoming: [],
+      paidHistory: [],
+    }
+    for (const p of activePayments) {
+      const displayStatus = paymentDisplayStatus(p.status, p.due_date)
+      if (displayStatus === 'overdue') groups.overdue.push(p)
+      else if (displayStatus === 'due') groups.due.push(p)
+      else if (displayStatus === 'upcoming') groups.upcoming.push(p)
+      else groups.paidHistory.push(p)
+    }
+    return groups
+  }, [activePayments])
   // Includes archived timesheets too, so catch-up still suggests resuming
   // after the most recent period even if it was later archived (an archived
   // period's period_end no longer blocks regenerating that same period --
@@ -1186,6 +1207,62 @@ export function Pay() {
     setCorrectionNote('')
   }
 
+  function renderPaymentRow(p: PaymentRecord) {
+    return (
+      <SwipeRow
+        key={p.id}
+        className="border-b border-gray-100 last:border-0 dark:border-gray-700"
+        contentClassName="bg-white px-4 py-2 dark:bg-gray-800"
+        openLabel={`Open payment for ${p.period_start} to ${p.period_end}`}
+        onOpen={() => setDetailPaymentId(p.id)}
+        leadingAction={canMarkPaid(p) ? { label: 'Mark paid', tone: 'approve', onAction: () => openMarkPaid(p) } : null}
+        trailingActions={
+          isParentOrCoAdmin
+            ? [
+                {
+                  label: 'Archive',
+                  tone: 'archive' as const,
+                  onAction: () => setPaymentArchived(p, true),
+                  disabled: archivingId === p.id,
+                },
+              ]
+            : []
+        }
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+              {p.period_start} – {p.period_end}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Due {p.due_date}{showGrossPay ? ` · $${p.gross_pay_due.toFixed(2)}` : ' · amount hidden'}
+              {showPaymentMethod && formatPaymentMethod(p.payment_method_label) ? ` · ${formatPaymentMethod(p.payment_method_label)}` : ''}
+            </p>
+            {(p.nanny_visible_note || p.parent_note) && (
+              <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
+                {p.nanny_visible_note || p.parent_note}
+              </p>
+            )}
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <StatusChip status={paymentDisplayStatus(p.status, p.due_date)} />
+            {canMarkPaid(p) && (
+              <button
+                className="text-xs text-green-600 underline dark:text-green-400"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  openMarkPaid(p)
+                }}
+              >
+                Mark paid
+              </button>
+            )}
+          </div>
+        </div>
+      </SwipeRow>
+    )
+  }
+
   const detailTimesheet = timesheets.find((t) => t.id === detailTimesheetId) ?? null
   const detailPayment = payments.find((p) => p.id === detailPaymentId) ?? null
 
@@ -1534,67 +1611,30 @@ export function Pay() {
         {activePayments.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">No payment records yet.</p>
         ) : (
-          <div className="-mx-4">
+          <div className="-mx-4 space-y-4">
             {isParentOrCoAdmin && (
-              <p className="px-4 pb-2 text-[11px] text-gray-400 dark:text-gray-500">
+              <p className="px-4 text-[11px] text-gray-400 dark:text-gray-500">
                 Tap for details. Swipe left to archive, swipe right to mark paid.
               </p>
             )}
-            {activePayments.map((p) => (
-              <SwipeRow
-                key={p.id}
-                className="border-b border-gray-100 last:border-0 dark:border-gray-700"
-                contentClassName="bg-white px-4 py-2 dark:bg-gray-800"
-                openLabel={`Open payment for ${p.period_start} to ${p.period_end}`}
-                onOpen={() => setDetailPaymentId(p.id)}
-                leadingAction={
-                  canMarkPaid(p) ? { label: 'Mark paid', tone: 'approve', onAction: () => openMarkPaid(p) } : null
-                }
-                trailingActions={
-                  isParentOrCoAdmin
-                    ? [
-                        {
-                          label: 'Archive',
-                          tone: 'archive' as const,
-                          onAction: () => setPaymentArchived(p, true),
-                          disabled: archivingId === p.id,
-                        },
-                      ]
-                    : []
-                }
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                      {p.period_start} – {p.period_end}
+            {(
+              [
+                ['Overdue', groupedPayments.overdue],
+                ['Due', groupedPayments.due],
+                ['Upcoming', groupedPayments.upcoming],
+                ['Paid history', groupedPayments.paidHistory],
+              ] as const
+            ).map(
+              ([label, group]) =>
+                group.length > 0 && (
+                  <div key={label}>
+                    <p className="px-4 pb-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
+                      {label} ({group.length})
                     </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Due {p.due_date}{showGrossPay ? ` · $${p.gross_pay_due.toFixed(2)}` : ' · amount hidden'}
-                      {showPaymentMethod && formatPaymentMethod(p.payment_method_label) ? ` · ${formatPaymentMethod(p.payment_method_label)}` : ''}
-                    </p>
-                    {(p.nanny_visible_note || p.parent_note) && (
-                      <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
-                        {p.nanny_visible_note || p.parent_note}
-                      </p>
-                    )}
+                    {group.map(renderPaymentRow)}
                   </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <StatusChip status={paymentDisplayStatus(p.status, p.due_date)} />
-                    {canMarkPaid(p) && (
-                      <button
-                        className="text-xs text-green-600 underline dark:text-green-400"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          openMarkPaid(p)
-                        }}
-                      >
-                        Mark paid
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </SwipeRow>
-            ))}
+                )
+            )}
           </div>
         )}
       </Card>

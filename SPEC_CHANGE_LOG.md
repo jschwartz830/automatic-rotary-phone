@@ -8,6 +8,81 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-14 — Time-entry schedule pre-fill re-verified (already correct, no change needed); audit of Calendar/Screens/Audit Log/Recommended Defaults finds two new mechanical gaps, fixes them; all 15 open Q&A items presented in chat
+
+**This session's scope, per the standing recurring-task instructions**, plus a
+specific ask from the task owner: confirm that adding a manual time entry
+pre-fills from the caregiver's scheduled hours for the selected date (with
+the date itself defaulting to today), and continue the spec-vs-code audit
+into sections not recently covered in depth.
+
+**Time-entry schedule pre-fill: already built, verified against spec 13.4,
+no change made.** `Time.tsx`'s manual-entry form already defaults `date` to
+today (`new Date().toISOString().slice(0, 10)`) and a `useEffect` keyed on
+`date`/`templates`/`shiftsByTemplate` looks up that date's scheduled shift
+via `generateShiftsForRange` and pre-fills `startTime`/`endTime`/
+`breakMinutes` from it, falling back to a flat 09:00–17:00 default when
+nothing's scheduled that day. This was built prior to this session (see the
+2026-08-10 log entry, "re-verify time-entry schedule pre-fill") and is
+working as the task owner described wanting; nothing needed to change here.
+
+**A fresh, full literal audit of spec 13.10 (Calendar), 14.1/14.2/14.4/14.5/
+14.6/14.7 (Screens), 20 (Audit Log Requirements), and 25 (Recommended
+Defaults)** against the current codebase. Most of this ground had, despite
+the task framing, already been covered by earlier sessions under different
+section numbers (13.10/14.4 by open item 22, 14.1/14.2 by open item 23,
+14.5/14.7 by the 2026-08-03/2026-08-05 sessions, 25 by the 2026-08-10/
+2026-08-11 sessions) — re-verifying line-by-line rather than trusting the
+prior conclusions turned up two new, previously-undocumented mechanical
+gaps, both fixed directly since neither involved a judgment call:
+
+**Mechanical fix: spec 20's "user invited" audit event was never logged.**
+This app has no formal invite step (resolved Q&A item 7 replaced it with a
+household join code), so the closest real event to audit is the moment
+someone actually joins via code — but `join_household_by_code()`
+(`SECURITY DEFINER`, migration 0013) writes no `audit_events` row, and
+`Onboarding.tsx`'s `handleJoin` didn't log one either. "User removed" has
+been fully audited since `More.tsx`'s `removeMember` (see below), so its
+counterpart was a real, asymmetric gap. Fixed by capturing the RPC's
+returned household id and calling `logAuditEvent` with
+`entityType: 'household_user'`, `action: 'create'`, `entityId: user.id`
+(the best available anchor, since the RPC doesn't return the new
+`household_users` row's own id or the role it assigned) right after a
+successful join, before `refresh()`/navigate. The household-creation path
+(`handleCreate`, a brand-new household's founding parent-admin) stays
+unaudited on purpose — there's no one who "invited" the very first member of
+a household that didn't exist a moment earlier.
+
+**Mechanical fix: spec 14.6's Pay Screen parent view lists four distinct
+sections — "Upcoming payments," "Due payments," "Overdue payments," "Paid
+history" — but `Pay.tsx` rendered one flat, undifferentiated list.** The
+existing `paymentDisplayStatus()` classifier (built 2026-08-08) already
+buckets every payment into exactly those states from its stored `status`
+plus `due_date`; the fix reuses it to group `Pay.tsx`'s "Payments" card into
+four labeled sub-sections (only non-empty ones render, each with a count),
+extracting the existing per-row markup into a `renderPaymentRow` helper so
+the fix is pure re-grouping — same `SwipeRow` mark-paid/archive actions per
+row, same detail-modal behavior, no new state or calculation. Ordered
+Overdue → Due → Upcoming → Paid history (most-urgent-first) rather than the
+spec bullet list's literal order, matching spec 22's parent UX priority
+"What do I owe?" coming before "Did I mark payment paid?". This section is
+shared by both parent and nanny views (`isNanny` only gates the swipe-action
+caption and the archive action, not the list itself); the grouping applies
+to both, which is a reasonable superset of the nanny view's simpler
+"Payment due" / "Payment made" split rather than a spec violation.
+
+**No new judgment calls surfaced.** Every structural gap the audit found in
+13.10/14.1/14.2/14.4 turned out to be the exact substance of already-open
+items 22 and 23 (re-confirmed, not re-opened); 14.5, 14.7, and 25 were
+re-verified as fully matching spec, the third consecutive session to reach
+that conclusion for section 25. See `QUESTIONS_AND_CLARIFICATIONS.md` for
+the full current list of 15 open items (22-26, 28-37), all presented to the
+task owner in chat this session per the standing instruction, with the
+existing 2026-08-08 recommendations index still current for every item
+except 36/37 (added last session, recommendations already given there).
+
+---
+
 ## 2026-08-13 — `QUESTIONS_AND_CLARIFICATIONS.md` documentation bugs fixed (duplicate item numbering, stale leftover paragraph); real payment-archive bypass closed via full literal audit of spec 24 (mechanical fix); 13.5/13.6 Timesheet Display audit finds two new judgment calls (items 36-37); time-entry schedule pre-fill re-verified; items 22/24-26/29/31-37 presented in chat
 
 **This session's scope, per the standing recurring-task instructions:** review

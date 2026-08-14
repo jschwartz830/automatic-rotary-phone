@@ -63,7 +63,21 @@ could archive an already-paid timesheet, bypassing the required Correct/Void
 workflow and silently erasing the paid payment record) and surfaced two new
 judgment calls, items 36-37 (spec 13.5's per-day timesheet breakdown has no
 in-app view; `payment_records.guarantee_override_note` is a dead column). See
-`SPEC_CHANGE_LOG.md` 2026-08-13 for full detail.
+`SPEC_CHANGE_LOG.md` 2026-08-13 for full detail. The 2026-08-14 session
+confirmed the manual time-entry form's schedule pre-fill (built earlier,
+re-verified this session per a direct request) is already working as
+intended, then ran a full literal audit of spec 13.10 (Calendar), 14.1/14.2/
+14.4/14.5/14.6/14.7 (Screens), 20 (Audit Log Requirements), and 25
+(Recommended Defaults). Most of that ground turned out to already be covered
+by open items 22/23 or by prior sessions' conclusions on 14.5/14.7/25
+(re-confirmed, not re-opened), but it found and mechanically fixed two new,
+previously-undocumented gaps: spec 20's "user invited" audit event was never
+logged (fixed by logging one in `Onboarding.tsx` right after a successful
+join-by-code), and spec 14.6's Pay Screen listed four distinct payment
+sections (Upcoming/Due/Overdue/Paid history) that `Pay.tsx` rendered as one
+flat list (fixed by grouping the existing list using the `paymentDisplayStatus()`
+classifier already built 2026-08-08). No new judgment calls were surfaced —
+see `SPEC_CHANGE_LOG.md` 2026-08-14 for full detail.
 
 ### Recommendations added 2026-08-08, per explicit request
 
