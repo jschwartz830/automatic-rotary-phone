@@ -8,7 +8,120 @@ items that need your decision rather than ones already resolved.
 
 ---
 
-## 2026-08-12 — Field-by-field sweep of spec 15.1-15.4 (users/households/household_users/caregiver_profiles) against schema and `src`; two dead `users` columns wired up (`last_login_at`, `full_name`/`phone` self-edit, mechanical); sections 1/2/4/8/26 audited with no gaps; items 22-34 re-presented, no new judgment calls
+## 2026-08-13 — `QUESTIONS_AND_CLARIFICATIONS.md` documentation bugs fixed (duplicate item numbering, stale leftover paragraph); real payment-archive bypass closed via full literal audit of spec 24 (mechanical fix); 13.5/13.6 Timesheet Display audit finds two new judgment calls (items 36-37); time-entry schedule pre-fill re-verified; items 22/24-26/29/31-37 presented in chat
+
+**This session's scope, per the standing recurring-task instructions:** review
+progress against the spec, keep `SPEC_CHANGE_LOG.md`/`QUESTIONS_AND_CLARIFICATIONS.md`
+current, and present all still-open judgment calls in chat with options and a
+recommendation. Before starting a fresh code audit, a documentation-quality
+pass over `QUESTIONS_AND_CLARIFICATIONS.md` itself turned up two real bugs in
+the tracking file, fixed here first since a future session (or the task
+owner) reading that file for "what's still open" deserves it to be internally
+consistent:
+
+**Duplicate item numbering fixed.** Two unrelated open items were both
+numbered "30" — a household-member hard-delete judgment call (added
+2026-08-04, referenced by number in the "Recommendations added 2026-08-08"
+index and in this file's 2026-08-04 entry) and a
+`leave_requests.start_time`/`.end_time` dead-column judgment call (added
+2026-08-03, referenced by number in this file's 2026-08-03 entry). The
+2026-08-04 session assigned "30" to its new finding without checking that a
+2026-08-03 session had already claimed it, and nobody caught the collision
+since. Renumbered the `start_time`/`end_time` item to **35** (the next free
+number after 34) since it wasn't referenced by number anywhere outside its
+own section, leaving the hard-delete item as 30 (matching every place it's
+cross-referenced from). This file's 2026-08-03 entry above still says "item
+30" for the renumbered item — left as-is since it's a dated historical
+record, not live state; `QUESTIONS_AND_CLARIFICATIONS.md` itself is the
+authoritative current numbering and now has no collision.
+
+**Stale leftover paragraph removed from `QUESTIONS_AND_CLARIFICATIONS.md`.**
+A second, shorter, out-of-date copy of the "Open items" intro paragraph
+(narrating history only through 2026-08-03) had been left sitting mid-file,
+directly above old item 30's section — apparently never deleted when a
+2026-08-04-or-later session extended the real intro paragraph at the top of
+the file instead of editing this copy. Removed; the top paragraph is the only
+one now, and it already carries the full history through 2026-08-12.
+
+**A fresh, full literal bullet-by-bullet audit of spec 24 "Acceptance
+Criteria" (lines 2536-2608, 44 bullets total) against the codebase, and of
+spec 13.5/13.6's "Timesheet Display" subsections against `Pay.tsx`.** Prior
+sessions (2026-07-30, 2026-08-09) only spot-checked section 24 rather than
+checking every bullet literally; this session closed that gap.
+
+**Mechanical fix: a real gap in spec 24's Payments acceptance criteria —
+"Paid periods are locked unless corrected" was not actually enforced, and a
+parent could silently bypass Correct/Void by archiving instead.**
+`canArchiveTimesheet` in `Pay.tsx` only ever checked `timesheet.status !==
+'paid'`/`'locked'`, but a timesheet's own `status` column never actually
+reaches either of those values in normal use (only the linked
+`payment_records.status` does — timesheets sit at `submitted`/`approved`
+even once their payment has been marked paid), so that check could never
+fire. In practice, a parent could archive an already fully-paid timesheet at
+any time, and `archiveTimesheet` unconditionally soft-deletes every
+`payment_records` row for that `timesheet_id` — silently erasing a real,
+already-paid payment record instead of routing through the Correct or Void
+workflow spec 13.8 defines for exactly that case. Fixed `canArchiveTimesheet`
+to also block archiving whenever the timesheet has a live (non-deleted)
+payment record whose status is `'paid'` or `'partially_paid'` — the two
+states that mean money has actually moved. `'voided'`/`'corrected'` payments
+don't block archiving: those are themselves the workflow's "unless
+corrected" exception (voiding a payment and then archiving its timesheet to
+free the period for a redo is an intentional, already-documented path — see
+this file's 2026-08-06 entry), and a correction leaves the original payment
+row `'corrected'` alongside a fresh `'due'` row sharing the same
+`timesheet_id`, so the check looks for *any* outstanding paid amount across
+all of a timesheet's payment rows rather than assuming exactly one row per
+timesheet exists.
+
+**Everything else in spec 24 checked and passed:** all 7 Deployment bullets,
+5 Schedule bullets, 4 of 5 Time Tracking bullets (see below), all 7
+Guaranteed Hours bullets, all 6 PTO bullets, the other 5 of 6 Payments
+bullets, all 4 Permissions bullets, and all 4 Exports bullets match the
+current implementation.
+
+**Not built — folded into existing item 25's scope instead of opened as a
+new item:** spec 24's Time Tracking bullet "Approve or request correction"
+has no formal reject/request-correction action at the individual
+`time_entries` row level — only "Approve" (or a silent direct edit) exists,
+and `time_entries.status`'s `'corrected'`/`'rejected'` values are never set,
+mirroring the same gap already tracked at the timesheet level by open item
+25. Not opened as a separate item since it's the same underlying judgment
+call (what does "reject and request correction" mean in this codebase) at a
+finer grain, not a new question.
+
+**Two new judgment calls found in the 13.5/13.6 Timesheet Display audit — see
+`QUESTIONS_AND_CLARIFICATIONS.md` items 36-37, not built.** Spec 13.5's
+per-day timesheet breakdown (10 fields: date, scheduled hours, actual
+start/end, actual worked, PTO/sick/unpaid/family-cancellation hours, notes,
+status) has no in-app view at all — `Pay.tsx` only ever renders one row per
+whole *period*, never per day, even though the exact per-day data is already
+computed for CSV export (`payExport.ts`'s `buildDailyPayExportRows`) and
+simply never surfaced in the UI (item 36). Separately, `payment_records
+.guarantee_override_note` (spec 13.6) is a dead column with no workflow that
+ever writes it, so there'd be nothing to display even if it were rendered
+(item 37). Full write-ups with options and recommendations are in
+`QUESTIONS_AND_CLARIFICATIONS.md`.
+
+**Time-entry schedule pre-fill — re-verified, no change.** Same behavior
+confirmed every session since 2026-06-30: `Time.tsx`'s manual-entry form
+still defaults its date field to today (`DEFAULT_START_TIME`/`DEFAULT_END_TIME`
+= `09:00`/`17:00` only as the no-shift-scheduled fallback) and pre-fills
+start/end/break/`schedule_shift_id` from the caregiver's scheduled shift for
+whichever date is selected. Asked for again by name in this run's prompt;
+nothing needed building.
+
+**Health check:** `npm install`, `npx tsc -b`, and `npx oxlint` all clean —
+no new TypeScript errors, no new lint warnings beyond the same pre-existing
+handful (`react-hooks/exhaustive-deps` in `Schedule.tsx`, Fast Refresh
+export-shape warnings in the context files and `Card.tsx`) prior sessions
+have already noted; no regression found in a from-clean build.
+
+Q&A items 22/24-26/29/31-35 were not resolved unilaterally (unchanged from
+prior sessions, no new information to change any of them) — presented in
+`QUESTIONS_AND_CLARIFICATIONS.md` and in this session's chat message
+alongside the two new items above (36-37), each with options and a
+recommendation per this run's explicit request.
 
 **This session's scope, per the standing recurring-task instructions:** the
 data-model sections that hadn't yet gotten their own dedicated field-by-field

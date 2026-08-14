@@ -1143,8 +1143,26 @@ export function Pay() {
     )
   }
 
+  // Spec 24 "Paid periods are locked unless corrected" -- timesheet.status
+  // itself never actually reaches 'paid'/'locked' in normal use (only
+  // payment_records.status does), so those two checks alone never fire.
+  // archiveTimesheet soft-deletes every payment_records row for this
+  // timesheet_id unconditionally, so once money has actually changed hands
+  // (partially_paid/paid) that must be Corrected or Voided first -- silently
+  // archiving would erase the paid record instead. 'voided'/'corrected' are
+  // themselves the "unless corrected" exception (the void-then-archive path
+  // documented in SPEC_CHANGE_LOG.md's 2026-08-06 entry relies on this), and
+  // a correction leaves the original row 'corrected' alongside a fresh 'due'
+  // row for the same timesheet_id, so this checks for any still-outstanding
+  // paid amount rather than assuming one payment row per timesheet.
   function canArchiveTimesheet(timesheet: Timesheet) {
-    return isParentOrCoAdmin && !timesheet.deleted_at && timesheet.status !== 'paid' && timesheet.status !== 'locked'
+    if (!isParentOrCoAdmin || timesheet.deleted_at || timesheet.status === 'paid' || timesheet.status === 'locked') {
+      return false
+    }
+    const hasUncorrectedPayment = payments.some(
+      (p) => p.timesheet_id === timesheet.id && !p.deleted_at && (p.status === 'paid' || p.status === 'partially_paid')
+    )
+    return !hasUncorrectedPayment
   }
 
   // The mark-paid/void/correct forms render as cards near the top of the page,
