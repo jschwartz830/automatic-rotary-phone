@@ -640,9 +640,16 @@ export function Time() {
                           </span>
                         )}
                       </p>
-                      {(isNanny ? entry.nanny_note : entry.parent_note) && (
+                      {entry.nanny_note && (
                         <p className="text-xs text-gray-400 mt-0.5 dark:text-gray-500">
-                          {isNanny ? entry.nanny_note : entry.parent_note}
+                          {isNanny ? '' : 'Nanny: '}
+                          {entry.nanny_note}
+                        </p>
+                      )}
+                      {entry.parent_note && (
+                        <p className="text-xs text-gray-400 mt-0.5 dark:text-gray-500">
+                          {isNanny ? 'Parent: ' : ''}
+                          {entry.parent_note}
                         </p>
                       )}
                     </div>
@@ -736,6 +743,13 @@ export function Time() {
               </p>
             )}
 
+            {(isNanny ? detailEntry.parent_note : detailEntry.nanny_note) && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {isNanny ? 'Parent note: ' : 'Nanny note: '}
+                {isNanny ? detailEntry.parent_note : detailEntry.nanny_note}
+              </p>
+            )}
+
             {canModify(detailEntry) ? (
               <div className="space-y-3">
                 <Field label="Date">
@@ -773,7 +787,7 @@ export function Time() {
                     onChange={(e) => setEditBreak(e.target.value)}
                   />
                 </Field>
-                <Field label="Note (optional)">
+                <Field label="Your note (optional)">
                   <input className={inputClass} value={editNote} onChange={(e) => setEditNote(e.target.value)} />
                 </Field>
                 <p className="text-xs text-gray-500 dark:text-gray-400">

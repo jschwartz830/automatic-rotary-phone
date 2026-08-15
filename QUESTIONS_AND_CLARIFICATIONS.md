@@ -77,7 +77,21 @@ join-by-code), and spec 14.6's Pay Screen listed four distinct payment
 sections (Upcoming/Due/Overdue/Paid history) that `Pay.tsx` rendered as one
 flat list (fixed by grouping the existing list using the `paymentDisplayStatus()`
 classifier already built 2026-08-08). No new judgment calls were surfaced —
-see `SPEC_CHANGE_LOG.md` 2026-08-14 for full detail.
+see `SPEC_CHANGE_LOG.md` 2026-08-14 for full detail. The 2026-08-15 session
+re-confirmed the time-entry schedule pre-fill again (still correct, no
+change), then ran a full literal audit of spec section 2 (Product Scope),
+10/11 (User Roles / Role Permission Matrix), 13.2 (Recurring Schedule), the
+remainder of 16 (Calculation Rules), and 26 (Implementation Notes) — the
+sections the running history above hadn't yet covered with a dedicated pass.
+Sections 2, 16, and 26 matched the code exactly. It found and mechanically
+fixed four gaps: a parent/co-admin couldn't see a nanny's own time-entry
+note (and vice versa) since each side's view only ever rendered its own
+note field; `schedule_shifts.default_category` was a fully dead column with
+no UI; shift `notes` was only ever collected on the custom/'other'
+recurrence path, not weekly/biweekly/monthly; and no schedule preview of
+generated dates existed before saving a new recurring shift (spec 13.2 asks
+for one). It also surfaced two new judgment calls, items 38-39 below. See
+`SPEC_CHANGE_LOG.md` 2026-08-15 for full detail.
 
 ### Recommendations added 2026-08-08, per explicit request
 
@@ -154,6 +168,17 @@ recommendations are simply reaffirmed here since they're still unbuilt.
 - **37 (`payment_records.guarantee_override_note` dead column):** No
   recommendation — the column's intended trigger isn't specified anywhere
   past its name.
+- **38 (Nanny "request only" schedule exceptions unimplemented):** C —
+  treat the existing PTO/sick/unpaid leave-request flow as already
+  satisfying "request only" for leave, and treat the remaining exception
+  types (added/removed/shortened shift, holiday, weather, etc.) as
+  inherently parent-authored. Cheapest reading and no household has asked
+  for a nanny-facing exception-request form; B (build the real request/
+  approve queue) is the literal spec reading if that need ever surfaces.
+- **39 (Section 10 vs. 11 co-admin permission-granularity mismatch):** A —
+  keep today's narrower, section-10-prose-matching permission set; don't
+  add `view_pay_rate`/`edit_time_entries` toggles speculatively for
+  scenarios no household has run into.
 
 ### 30. Removing a household member hard-deletes the `household_users` row instead of using the schema's `'removed'` status (spec 10/15.3) — and fixing that collides with the join-code rejoin flow
 
@@ -414,6 +439,100 @@ computation existing and just not being displayed; nothing computes or
 triggers a "guarantee override" today, so guessing at what UI action should
 produce this note risks inventing a feature the spec never actually
 describes, just a column name that implies one exists somewhere.
+
+### 38. Nanny "request only" schedule exceptions (added/removed/shortened shift, etc.) have no actual implementation (spec 11)
+
+Spec 11's Role Permission Matrix gives the nanny "Request only" for "Add
+schedule exception." In practice, the only exception types a nanny can ever
+create are `pto`/`sick`/`unpaid_time_off` — and those go through the
+separate `leave_requests` table via `PTO.tsx`, not `schedule_exceptions` at
+all. The RLS carve-out that would let a nanny insert one of those three
+types directly into `schedule_exceptions` in `draft`/`requested` status
+(`supabase/migrations/0002_rls.sql:359-367`) is dead code — nothing in
+`src` ever exercises it. For the actual schedule-exception types spec 13.3
+defines (`added_shift`, `removed_shift`, `shortened_shift`, `extended_shift`,
+`family_cancellation`, `holiday`, `weather_emergency`, `other`), the entire
+add-exception form in `Schedule.tsx` is gated behind `isParentOrCoAdmin`
+with zero nanny-facing entry point, and there's no approve/reject queue for
+a `'requested'`-status exception anywhere in the UI. So today, a nanny who
+needs to flag "my shift got shortened" or "the family canceled on me" has
+no in-app way to request that — only a parent can record it, after being
+told out-of-band.
+
+Found via this session's full literal audit of spec 10/11 against
+`Schedule.tsx`, `PTO.tsx`, and the RLS policies. Not a mechanical fix: it's
+a genuine missing feature (a nanny-facing request form plus a parent
+approve/reject queue), not a dead field or a one-line wire-up.
+
+- **Option A — leave as-is.** A nanny texts or tells the parent, who records
+  the exception. Zero new work, but the literal "Request only" permission
+  the matrix grants a nanny is unusable today.
+- **Option B — build the real request/approve flow.** Give nannies a scoped
+  version of the existing add-exception form (same fields, forced
+  `status: 'requested'`), plus a parent-facing approve/reject queue
+  (structurally similar to `PTO.tsx`'s existing PTO-request review UI) that
+  turns an approved request into the same kind of row a parent creates
+  directly today. Closest literal match to spec 11, but a real new feature
+  surface (new UI on both sides, a new review queue) rather than a
+  mechanical fill-in.
+- **Option C — narrower interpretation: treat this as already covered.**
+  Read the spec's "Request only" line as being about the PTO/sick/unpaid
+  leave-request flow specifically (which already exists, end-to-end, via
+  `PTO.tsx`), and treat non-leave exception types (added/removed/shortened
+  shift, holiday, weather, family cancellation) as inherently
+  parent-authored — a nanny reporting "my shift was canceled" is a
+  real-world conversation, not necessarily an in-app workflow the spec
+  is asking for beyond what leave requests already cover.
+
+**Recommendation: C.** It's the cheapest reading and no household has
+flagged needing a nanny-facing exception-request form; the leave-request
+flow already gives nannies a real "request" mechanism for the leave-shaped
+exception types, which is plausibly what the matrix's "Request only" line
+is actually pointing at. B is the literal spec reading and should be
+revisited if a real need for it ever comes up.
+
+### 39. Section 11's co-admin permission matrix claims finer-grained restrictions than section 10's prose or the actual `permissions` JSONB support (spec 10/11)
+
+Section 10's body text names exactly four restrictable co-admin areas: pay
+rate, PTO policy, guaranteed-hours policy, and invite/remove users — and
+`caregiver_profiles.permissions` (the actual enforcement mechanism, via
+`can_manage_household_setting()`) has keys matching that set
+(`edit_pay_rate`, `edit_pto_policy`, `edit_guaranteed_hours_policy`,
+`manage_users`, plus several more for other actions). But section 11's
+matrix separately marks several additional rows "Yes/Optional" for
+co-admin that have no corresponding permission key and are unconditionally
+granted today regardless of the `permissions` JSONB: "View pay rate" (a
+co-admin always sees `caregiver_profiles.default_hourly_rate` via
+`caregiver_profiles_select_member`, `supabase/migrations/0002_rls.sql:226`
+— there's no `view_pay_rate` key, only `edit_pay_rate`), and "Add manual
+time entry" / "Edit draft time entry" / "Edit submitted time entry" (all
+three unconditionally granted to any co-admin via `is_parent_or_coadmin()`,
+which never consults `permissions` at all). The two sections of the spec
+don't agree with each other on how granular co-admin restriction is
+supposed to be.
+
+Found via this session's full literal audit of spec 10/11 against the RLS
+policies (`supabase/migrations/0002_rls.sql`) and `caregiver_profiles.permissions`
+usage across `src`. Not a mechanical fix, since there's no single "correct"
+reading to mechanically implement — the spec contradicts itself.
+
+- **Option A — treat section 11's extra granularity as aspirational/
+  over-specified and keep the current, narrower set.** Section 10's prose is
+  arguably the more deliberate statement of intent (a short, explicit list
+  of "what a second parent/spouse might reasonably need restricted"),
+  while section 11's matrix reads as a more mechanically generated
+  per-action table that over-includes rows. Zero new work.
+- **Option B — add the missing permission keys for full literal-matrix
+  compliance.** Add `view_pay_rate` and a combined `edit_time_entries` key
+  to the `permissions` JSONB, wire them into
+  `caregiver_profiles_select_member` and the `time_entries` RLS policies
+  respectively, and default both to `true` (matching today's unconditional
+  grant) so no existing co-admin's access silently narrows on migration.
+
+**Recommendation: A.** The two spec sections disagree, and adding four more
+fine-grained toggles for restriction scenarios no household has asked for
+adds new RLS surface area (always a higher-stakes change than UI-only work)
+without a concrete need driving it.
 
 ### 22. Calendar: build a real month view, or keep the week-grid-only simplification (spec 13.10/14.4)?
 
