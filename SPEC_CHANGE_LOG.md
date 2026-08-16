@@ -8,6 +8,60 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-16 — Time-entry schedule pre-fill re-verified (already correct, no change needed); targeted audit of spec 13.9 Reminder Settings finds no gaps; all 15 open Q&A items presented in chat
+
+**This session's scope, per the standing recurring-task instructions plus the
+recurring-task owner's explicit ask this run:** re-verify that manual time
+entry pre-fills from the caregiver's scheduled hours for the selected date
+(defaulting the date itself to today), and present every open
+`QUESTIONS_AND_CLARIFICATIONS.md` item in chat with options and a
+recommendation.
+
+**Time-entry schedule pre-fill — re-verified once more, no change needed.**
+`Time.tsx:50` still defaults the manual-entry `date` field to today
+(`new Date().toISOString().slice(0, 10)`); the `useEffect` at `Time.tsx:121-135`
+still looks up that date's generated shift occurrence via
+`generateShiftsForRange(templates, shiftsByTemplate, date, date)` and
+pre-fills `startTime`/`endTime`/`breakMinutes`/`scheduledShiftId` from it,
+falling back to the flat `09:00`–`17:00` default only when nothing's
+scheduled that day. This has been in place and re-verified in every session
+since it was first built 2026-06-30 (most recently 2026-08-13/-14); this
+run's prompt asked for it again by name and it already does exactly what was
+asked — no code change needed.
+
+**A fresh, targeted audit of spec 13.9 (Reminders and Notifications) —
+Reminder Types and Reminder Settings specifically — against
+`src/lib/reminders.ts` and `More.tsx`'s reminder-settings card.** This
+subsection hadn't been checked field-by-field before (the 2026-08-09 session
+covered spec 21's per-type firing *logic*; this pass checked the settings
+*surface* spec 13.9 separately describes). Found no gaps: all 10
+spec-listed reminder types (`missing_clock_out`, `unsubmitted_timesheet`,
+`pending_timesheet_approval`, `pending_pto_request`, `payment_due`,
+`payment_overdue`, `upcoming_pto`, `schedule_change`, `pto_balance_low`,
+`weekly_summary`) exist in `REMINDER_TYPE_INFO`, are individually
+enable/disable-toggleable in `More.tsx`'s "Reminder settings" card, and each
+has real computation logic in `reminders.ts`. Spec 13.9's Reminder Settings
+list also asks for "Recipients," "Timing," "Reminder cadence," and "Quiet
+hours, optional" — none of those exist as controls, but this is not a new
+finding: it's the literal, already-resolved scope of Q&A item 17
+(2026-07-03, "in-app pieces only... defer recipients and quiet hours until
+there's an email/SMS backend"), re-confirmed rather than re-opened.
+
+**No code changes this session beyond documentation** (this entry, plus the
+2026-08-14 entry's continuation note in `QUESTIONS_AND_CLARIFICATIONS.md`).
+`npm install`, `npx tsc -b`, and `npx oxlint` all ran clean — no new
+TypeScript errors, no new lint warnings beyond the same pre-existing handful
+(`react-hooks/exhaustive-deps` in `Schedule.tsx`, Fast Refresh
+export-shape warnings in the context files and `Card.tsx`) prior sessions
+have already noted.
+
+Q&A items 22-37 (15 open items) were not resolved unilaterally — presented
+in `QUESTIONS_AND_CLARIFICATIONS.md` and in this session's chat message,
+each with its existing options and recommendation, per this run's explicit
+request.
+
+---
+
 ## 2026-08-14 — Time-entry schedule pre-fill re-verified (already correct, no change needed); audit of Calendar/Screens/Audit Log/Recommended Defaults finds two new mechanical gaps, fixes them; all 15 open Q&A items presented in chat
 
 **This session's scope, per the standing recurring-task instructions**, plus a

@@ -77,7 +77,15 @@ join-by-code), and spec 14.6's Pay Screen listed four distinct payment
 sections (Upcoming/Due/Overdue/Paid history) that `Pay.tsx` rendered as one
 flat list (fixed by grouping the existing list using the `paymentDisplayStatus()`
 classifier already built 2026-08-08). No new judgment calls were surfaced —
-see `SPEC_CHANGE_LOG.md` 2026-08-14 for full detail.
+see `SPEC_CHANGE_LOG.md` 2026-08-14 for full detail. The 2026-08-16 session
+re-verified the time-entry schedule pre-fill (unchanged, working as intended)
+and ran a targeted audit of spec 13.9's Reminder Settings/Reminder Types
+against `reminders.ts`/`More.tsx` — found no gaps (all 10 spec-listed
+reminder types are computed and settings-toggleable; the missing
+recipients/timing/cadence/quiet-hours controls are the already-resolved
+item 17 in-app-only scope, not a new finding). No new judgment calls
+surfaced; all 15 open items below were presented in chat per this session's
+explicit request. See `SPEC_CHANGE_LOG.md` 2026-08-16 for full detail.
 
 ### Recommendations added 2026-08-08, per explicit request
 
