@@ -8,6 +8,88 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-15 — Time-entry schedule pre-fill re-verified again (already correct); full literal audit of Product Scope, User Roles/Permission Matrix, Recurring Schedule, remaining Calculation Rules, and Implementation Notes finds four mechanical gaps (fixed) and two new judgment calls; all 18 open Q&A items presented for a decision
+
+**This session's scope, per the standing recurring-task instructions**, plus
+a specific ask from the task owner: re-confirm the manual time-entry
+pre-fill behavior, then continue the spec-vs-code audit into sections not
+yet covered by a prior session's dedicated pass.
+
+**Time-entry schedule pre-fill: still correct, no change made.** Re-checked
+`Time.tsx` against spec 13.4 — `date` still defaults to today
+(`new Date().toISOString().slice(0, 10)`, line 50) and the pre-fill
+`useEffect` (line 120) still looks up the selected date's scheduled shift via
+`generateShiftsForRange` and fills `startTime`/`endTime`/`breakMinutes` from
+it, falling back to 09:00–17:00 only when nothing's scheduled. Same behavior
+verified in the 2026-08-14 entry below; nothing needed to change.
+
+**A fresh, full literal audit of spec section 2 (Product Scope), 10/11 (User
+Roles / Role Permission Matrix), 13.2 (Recurring Schedule), the remainder of
+16 (Calculation Rules: 16.1/16.2/16.4/16.5/16.7/16.8), and 26 (Implementation
+Notes for Coding Agent)** — the spec sections that, per the running history
+in `QUESTIONS_AND_CLARIFICATIONS.md`, hadn't yet had a dedicated field-by-
+field pass — found:
+
+- **Section 2, 16 (remainder), and 26 all fully match the code.** No gaps.
+  Confirms no accidental scope creep into GPS/geofencing/an accountant role/
+  multi-family caregiver linkage/contract generation/payment-rail
+  integration, and that `calc.ts`'s paid/scheduled/actual-paid/guarantee-
+  adjustment/payable-hours/gross-pay formulas all match spec 16.1-16.8
+  exactly (16.3/16.6's known non-weekly-pay-frequency bug is unchanged,
+  already tracked as open item 31).
+
+- **A parent/co-admin could never see a nanny's own note on a time entry
+  (and vice versa) — fixed.** `Time.tsx` displayed only
+  `isNanny ? entry.nanny_note : entry.parent_note` everywhere a note
+  appeared (list row, edit form, read-only detail view), so each side only
+  ever saw the note field they'd write themselves. A parent reviewing an
+  entry had no way to see e.g. "ran late due to traffic" from the nanny,
+  cutting against Parent Admin's spec'd full view access. Both note fields
+  now render (labeled by whose note it is) on the list row and in the
+  detail modal; the editable field is now explicitly labeled "Your note."
+  Straightforward UI fix, not a judgment call — nothing about *whose* note
+  is authoritative changed, both fields already existed and were already
+  being written correctly, they just weren't both being shown.
+
+- **`schedule_shifts.default_category` was a fully dead column — wired up.**
+  Spec 13.2's Shift Fields lists a required "Default category: regular,
+  holiday, special, occasional" field; the column existed
+  (migration 0001) but nothing ever read or wrote it. `Schedule.tsx`'s add-
+  shift form now has a "Category" select (shown for every recurrence type
+  except the one-time quick-add, which creates a `schedule_exceptions` row
+  instead of a shift), threaded into all four shift-insert call sites
+  (weekly/biweekly/monthly/custom). Same shape as the `paid_break`/
+  `counts_toward_guaranteed_hours` wire-up precedent from resolved item 27.
+
+- **Shift `notes` was only ever collected for the custom/'other' recurrence
+  path — fixed.** The weekly, biweekly, and monthly shift-insert branches
+  never had a notes input, even though the schema column applies to every
+  shift row and the custom path's `otherNote` field proved the column was
+  otherwise wired end-to-end. The add-shift form now shows a generic
+  "Note (optional)" field for every non-custom, non-one-time recurrence
+  choice too (the custom path keeps its own note field, unchanged).
+
+- **No "preview generated shifts before saving" existed — added.** Spec
+  13.2 asks for a schedule preview before a new recurring shift is
+  committed; there was none. The add-shift modal now computes, live as the
+  form is filled in, the next several calendar dates the in-progress
+  template/shift would generate (via the existing, already-tested
+  `generateShiftsForRange`, run against throwaway draft objects that are
+  never persisted) and shows them as "Upcoming dates this will generate."
+
+- **Two new judgment calls surfaced, not built** — see items 38-39 in
+  `QUESTIONS_AND_CLARIFICATIONS.md`: (38) the role matrix's nanny
+  "Request only" permission for schedule exceptions has no actual
+  implementation for real (non-leave) exception types; (39) section 11's
+  co-admin permission matrix claims finer-grained restrictions (view pay
+  rate, add/edit time entries) than section 10's prose and the actual
+  `permissions` JSONB support.
+
+No files besides `Time.tsx` and `Schedule.tsx` were touched. `npm run build`
+and `tsc --noEmit` both pass clean after these changes.
+
+---
+
 ## 2026-08-14 — Time-entry schedule pre-fill re-verified (already correct, no change needed); audit of Calendar/Screens/Audit Log/Recommended Defaults finds two new mechanical gaps, fixes them; all 15 open Q&A items presented in chat
 
 **This session's scope, per the standing recurring-task instructions**, plus a

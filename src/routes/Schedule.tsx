@@ -7,6 +7,7 @@ import { useCaregivers } from '../lib/useCaregivers'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
+import { isValidCalendarDate } from '../lib/dates'
 import { exceptionHours, generateShiftsForRange, scheduleExceptionHoursDelta, shiftHours } from '../lib/schedule'
 import { formatEntryTimeRange, formatTimeOfDay } from '../lib/time'
 import { Card, Button, Field, inputClass, dateInputClass, timeInputClass } from '../components/Card'
@@ -20,8 +21,11 @@ import type {
   ScheduleException,
   ScheduleShift,
   ScheduleTemplate,
+  ShiftCategory,
   TimeEntry,
 } from '../lib/types'
+
+const SHIFT_CATEGORIES: ShiftCategory[] = ['regular', 'holiday', 'special', 'occasional']
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -99,6 +103,7 @@ export function Schedule() {
   const [paidBreak, setPaidBreak] = useState(false)
   const [countsTowardGuaranteedHours, setCountsTowardGuaranteedHours] = useState(true)
   const [paidIfFamilyCanceled, setPaidIfFamilyCanceled] = useState(true)
+  const [shiftCategory, setShiftCategory] = useState<ShiftCategory>('regular')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -211,6 +216,64 @@ export function Schedule() {
     }
   }, [weekStart, caregiverId])
 
+  // Live preview of the dates this in-progress add-shift form would generate,
+  // shown before saving so a parent can sanity-check the recurrence pattern.
+  // Builds throwaway template/shift objects (never persisted) and runs them
+  // through the same generateShiftsForRange the rest of the app uses.
+  const PREVIEW_WINDOW_DAYS = 90
+  const PREVIEW_MAX_SHOWN = 6
+  const previewOccurrences = (() => {
+    if (!showAddShiftModal || recurrenceChoice === 'once') return []
+    const todayIso = toIsoDate(new Date())
+    const recurrenceType: RecurrenceType =
+      recurrenceChoice === 'monthly'
+        ? monthlyMode === 'date'
+          ? 'monthly_by_date'
+          : 'monthly_by_weekday'
+        : recurrenceChoice === 'other'
+          ? 'custom'
+          : recurrenceChoice
+    const effectiveStartDate = recurrenceChoice === 'biweekly' ? biweeklyAnchorDate : todayIso
+    if (!isValidCalendarDate(effectiveStartDate)) return []
+    const draftTemplate: ScheduleTemplate = {
+      id: 'preview-template',
+      caregiver_id: caregiverId ?? '',
+      name: 'Preview',
+      recurrence_type: recurrenceType,
+      recurrence_rule: {},
+      effective_start_date: effectiveStartDate,
+      effective_end_date: null,
+      active: true,
+      notes: null,
+      created_by: null,
+      created_at: '',
+      updated_at: '',
+    }
+    const days = recurrenceChoice === 'weekly' || recurrenceChoice === 'biweekly' ? selectedDays : [otherDayOfWeek]
+    const draftShifts: ScheduleShift[] = (recurrenceChoice === 'monthly' ? [null] : days).map((day, i) => ({
+      id: `preview-shift-${i}`,
+      schedule_template_id: 'preview-template',
+      day_of_week: recurrenceChoice === 'monthly' ? (monthlyMode === 'weekday' ? Number(monthlyWeekday) : null) : Number(day),
+      monthly_day: recurrenceChoice === 'monthly' && monthlyMode === 'date' ? Number(monthlyDate) : null,
+      monthly_week: recurrenceChoice === 'monthly' && monthlyMode === 'weekday' ? monthlyWeekOrdinal : null,
+      start_time: startTime,
+      end_time: endTime,
+      break_minutes: Number(breakMinutes) || 0,
+      paid_break: paidBreak,
+      counts_toward_guaranteed_hours: countsTowardGuaranteedHours,
+      paid_if_family_canceled: paidIfFamilyCanceled,
+      default_category: shiftCategory,
+      notes: null,
+      created_at: '',
+      updated_at: '',
+    }))
+    const rangeStart = effectiveStartDate > todayIso ? effectiveStartDate : todayIso
+    const rangeEnd = toIsoDate(addDays(new Date(`${rangeStart}T00:00:00`), PREVIEW_WINDOW_DAYS))
+    return generateShiftsForRange([draftTemplate], { 'preview-template': draftShifts }, rangeStart, rangeEnd)
+  })()
+  const previewDates = Array.from(new Set(previewOccurrences.map((o) => o.date))).slice(0, PREVIEW_MAX_SHOWN)
+  const previewHasMore = new Set(previewOccurrences.map((o) => o.date)).size > PREVIEW_MAX_SHOWN
+
   function resetShiftForm() {
     setRecurrenceChoice('weekly')
     setSelectedDays(['1'])
@@ -228,6 +291,7 @@ export function Schedule() {
     setPaidBreak(false)
     setCountsTowardGuaranteedHours(true)
     setPaidIfFamilyCanceled(true)
+    setShiftCategory('regular')
     setError(null)
   }
 
@@ -302,6 +366,8 @@ export function Schedule() {
             paid_break: paidBreak,
             counts_toward_guaranteed_hours: countsTowardGuaranteedHours,
             paid_if_family_canceled: paidIfFamilyCanceled,
+            default_category: shiftCategory,
+            notes: otherNote || null,
           })
           if (shiftError) throw shiftError
         }
@@ -327,6 +393,8 @@ export function Schedule() {
             paid_break: paidBreak,
             counts_toward_guaranteed_hours: countsTowardGuaranteedHours,
             paid_if_family_canceled: paidIfFamilyCanceled,
+            default_category: shiftCategory,
+            notes: otherNote || null,
           })
           if (shiftError) throw shiftError
         }
@@ -353,6 +421,8 @@ export function Schedule() {
           paid_break: paidBreak,
           counts_toward_guaranteed_hours: countsTowardGuaranteedHours,
           paid_if_family_canceled: paidIfFamilyCanceled,
+          default_category: shiftCategory,
+          notes: otherNote || null,
         })
         if (shiftError) throw shiftError
         await logAuditEvent({
@@ -376,6 +446,7 @@ export function Schedule() {
           counts_toward_guaranteed_hours: countsTowardGuaranteedHours,
           notes: otherNote || null,
           paid_if_family_canceled: paidIfFamilyCanceled,
+          default_category: shiftCategory,
         })
         if (shiftError) throw shiftError
         await logAuditEvent({
@@ -1093,6 +1164,31 @@ export function Schedule() {
                 />
                 Paid if family cancels this shift
               </label>
+            )}
+            {recurrenceChoice !== 'once' && (
+              <Field label="Category">
+                <select className={inputClass} value={shiftCategory} onChange={(e) => setShiftCategory(e.target.value as ShiftCategory)}>
+                  {SHIFT_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c.charAt(0).toUpperCase() + c.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+            {recurrenceChoice !== 'once' && recurrenceChoice !== 'other' && (
+              <Field label="Note (optional)">
+                <input className={inputClass} value={otherNote} onChange={(e) => setOtherNote(e.target.value)} />
+              </Field>
+            )}
+            {previewDates.length > 0 && (
+              <div className="rounded-lg bg-gray-50 p-2 text-xs text-gray-500 dark:bg-gray-900 dark:text-gray-400">
+                <p className="font-medium text-gray-600 dark:text-gray-300">Upcoming dates this will generate:</p>
+                <p className="mt-0.5">
+                  {previewDates.map((d) => format(new Date(`${d}T00:00:00`), 'MMM d')).join(', ')}
+                  {previewHasMore ? '…' : ''}
+                </p>
+              </div>
             )}
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
             <div className="flex gap-2 pt-1">
