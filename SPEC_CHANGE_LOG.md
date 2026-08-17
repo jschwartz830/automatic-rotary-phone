@@ -8,6 +8,116 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-17 — Time-entry schedule pre-fill re-verified again (already correct); 2026-08-15's shipped changes checked for regressions and one real preview bug found and fixed; fresh literal audit of Schedule Exceptions and Guaranteed Hours as workflow sections finds one new judgment call; all 18 open Q&A items presented for a decision
+
+**This session's scope, per the standing recurring-task instructions**, plus
+a specific ask from the task owner: re-confirm the manual time-entry
+pre-fill behavior, then follow up on the 2026-08-15 session's shipped
+changes (which hadn't had a correctness/regression check since they landed)
+before continuing the spec-vs-code audit into fresh ground. This branch was
+cut from `main` at its current tip, which does **not** include PR #76 (an
+unmerged, 2026-08-16 documentation-only session that re-verified the
+pre-fill again and audited spec 13.9 against `reminders.ts`/`More.tsx`,
+finding no gaps). That PR's content isn't in this working tree; its spec
+13.9 conclusion is taken as established per the task brief rather than
+re-audited this session.
+
+**Time-entry schedule pre-fill: still correct, no change made.** Re-checked
+`Time.tsx` against spec 13.4 — `date` still defaults to today (line 50,
+`new Date().toISOString().slice(0, 10)`) and the pre-fill `useEffect` (lines
+120-135) still looks up the selected date's scheduled shift via
+`generateShiftsForRange` and fills `startTime`/`endTime`/`breakMinutes` from
+it, falling back to 09:00–17:00 only when nothing's scheduled. Unchanged
+since 2026-08-15.
+
+**Regression check on the 2026-08-15 session's shipped changes**
+(`schedule_shifts.default_category`/`.notes` wiring, the schedule preview
+feature, and dual time-entry note display), since none had a follow-up
+correctness pass since they shipped:
+
+- **Category/Note threading: correct, no bug.** All four `schedule_shifts`
+  insert call sites in `Schedule.tsx` (`handleAddShift`'s weekly/biweekly/
+  monthly/custom branches) pass `default_category: shiftCategory` and
+  `notes: otherNote || null` consistently; none is missed and none
+  double-handles the fields. The add-shift form correctly gates the
+  Category/Note inputs to every recurrence choice except `'once'` (which
+  inserts a `schedule_exceptions` row, not a `schedule_shifts` row, so the
+  fields don't apply there).
+
+- **Dual time-entry note display: correct, no bug.** `Time.tsx`'s list rows
+  and detail modal still show both `nanny_note` and `parent_note` where
+  intended, the "Your note" edit field still seeds from and writes only the
+  acting user's own note column (`isNanny ? nanny_note : parent_note`, both
+  on load — line 323 — and on save — line 352), and `canModify`/`canApprove`'s
+  role gating is untouched by the note-display change. No regression found.
+
+- **Schedule preview: one real bug found and fixed.** `handleAddShift`'s
+  `findOrCreateTemplate` reuses an already-active template of the same
+  `recurrence_type` instead of creating a new one when a household adds a
+  second shift to an existing weekly/biweekly/monthly/custom schedule —
+  silently ignoring whatever the form's current anchor date says. This is
+  harmless for weekly/monthly/custom (their date-matching only depends on
+  day-of-week/day-of-month, not the template's `effective_start_date`,
+  beyond simple range membership), but biweekly's occurrence matching
+  (`differenceInCalendarWeeks(date, templateStart) % 2 === 0`) is anchor-
+  sensitive: adding a second biweekly shift while re-typing a different
+  "First on-week starts" date showed a live preview computed off the
+  *new* typed anchor, while the actual saved shift would silently follow
+  the *existing* template's real (and possibly different) anchor —
+  meaning the preview could show the wrong on/off-week parity from what
+  the household would actually get. Fixed in `Schedule.tsx`'s preview
+  computation: when a template of the target recurrence type already
+  exists, the preview now anchors off that template's own
+  `effective_start_date` (mirroring exactly what `findOrCreateTemplate`
+  does), falling back to the form's typed anchor (or today) only when no
+  matching template exists yet — the same behavior `handleAddShift` itself
+  follows on submit.
+
+**A fresh, full literal pass over spec 13.3 (Schedule Exceptions) and 13.6
+(Guaranteed Hours) as workflow sections** — reading the prose end to end
+against `Schedule.tsx`/`Pay.tsx`/`calc.ts`/`schedule.ts`, rather than
+re-checking the field lists 15.6/15.7/15.4's dedicated column-by-column
+audits already covered (2026-08-11/2026-08-12):
+
+- **Spec 13.3 fully matches the code**, once its two already-open/-resolved
+  items are accounted for: the 2026-07-02 resolution deliberately routes
+  PTO/sick/unpaid exceptions through `leave_requests` instead of this
+  screen, and open item 38 already tracks that the "nanny can request
+  exceptions" bullet has no real implementation for the other exception
+  types. Every other exception field (original shift, new start/end,
+  paid hours, affects pay/PTO/guarantee, parent note vs. nanny-visible
+  note, created/approved by, timestamps) is wired exactly as spec'd; the
+  parent-note/nanny-visible-note pair is intentionally asymmetric (one
+  private, one meant to be shown to the nanny) rather than the "each party
+  sees their own" shape time-entry notes have, so it doesn't have the same
+  bug this session already re-verified is fixed there. `calc.ts` and
+  `schedule.ts` (`computeGuaranteedHoursBase`, `scheduleExceptionHoursDelta`,
+  `exceptionHours`) implement spec 16.4-16.8's formulas and all four of
+  13.6's worked examples exactly — re-confirmed, not re-derived, since the
+  2026-08-15 session's audit of "remainder of 16" already checked this.
+
+- **One new judgment call surfaced in spec 13.6 — item 40 in
+  `QUESTIONS_AND_CLARIFICATIONS.md`, not built.** 13.6's own workflow prose
+  lists three fields under "Per-Shift Guaranteed Flag" and "Guaranteed
+  Hours Settings" that section 15's parallel data-model lists (15.4, 15.6)
+  — and the schema, which follows 15.4/15.6 exactly — never adopted:
+  a per-shift `counts_toward_overtime` flag, and a guaranteed-hours
+  effective start date/end date/notes on `caregiver_profiles`. Same shape
+  as item 39 (a workflow section's field list outruns its dedicated
+  data-model section); not a mechanical fix, since 13.6's own recommended
+  default ("overtime should be calculated based on actual worked hours...
+  unless the household manually changes the rule") already reads in
+  tension with what a per-shift overtime toggle would even do, so there's
+  no unambiguous behavior to wire up even if the column existed.
+
+No files besides `Schedule.tsx` (the preview-anchor fix) and this pair of
+tracking files were touched. `npx tsc -b` and `npx oxlint` both pass clean
+after these changes (same pre-existing warnings as every prior session:
+`react-hooks/exhaustive-deps` in `Schedule.tsx`, Fast Refresh export-shape
+warnings in context files and `Card.tsx`).
+
+---
+
 ## 2026-08-15 — Time-entry schedule pre-fill re-verified again (already correct); full literal audit of Product Scope, User Roles/Permission Matrix, Recurring Schedule, remaining Calculation Rules, and Implementation Notes finds four mechanical gaps (fixed) and two new judgment calls; all 18 open Q&A items presented for a decision
 
 **This session's scope, per the standing recurring-task instructions**, plus

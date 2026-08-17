@@ -233,7 +233,19 @@ export function Schedule() {
         : recurrenceChoice === 'other'
           ? 'custom'
           : recurrenceChoice
-    const effectiveStartDate = recurrenceChoice === 'biweekly' ? biweeklyAnchorDate : todayIso
+    // findOrCreateTemplate reuses an already-active template of the same
+    // recurrence_type instead of creating a new one, silently ignoring
+    // whatever anchor the form currently holds -- so if a biweekly template
+    // already exists, the preview has to anchor off *that* template's real
+    // effective_start_date (what will actually govern the saved shift's
+    // on/off-week parity), not the freshly-typed biweeklyAnchorDate, or the
+    // preview can show a different week pattern than what gets saved.
+    const existingTemplate = templates.find((t) => t.recurrence_type === recurrenceType)
+    const effectiveStartDate = existingTemplate
+      ? existingTemplate.effective_start_date
+      : recurrenceChoice === 'biweekly'
+        ? biweeklyAnchorDate
+        : todayIso
     if (!isValidCalendarDate(effectiveStartDate)) return []
     const draftTemplate: ScheduleTemplate = {
       id: 'preview-template',

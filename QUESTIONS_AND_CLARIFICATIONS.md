@@ -91,7 +91,29 @@ no UI; shift `notes` was only ever collected on the custom/'other'
 recurrence path, not weekly/biweekly/monthly; and no schedule preview of
 generated dates existed before saving a new recurring shift (spec 13.2 asks
 for one). It also surfaced two new judgment calls, items 38-39 below. See
-`SPEC_CHANGE_LOG.md` 2026-08-15 for full detail.
+`SPEC_CHANGE_LOG.md` 2026-08-15 for full detail. The 2026-08-17 session
+(branching from `main` without the intervening, unmerged PR #76 doc-only
+update) re-verified the time-entry schedule pre-fill again (still correct),
+then checked the 2026-08-15 session's shipped changes for regressions: the
+Category/Note fields are threaded correctly into all four `schedule_shifts`
+insert sites with none missed or double-handled, and the dual time-entry
+note display doesn't disturb the single-editable-field write path or its
+role-based restrictions, but the new schedule-preview feature had a real
+bug — it anchored a biweekly preview off the freshly-typed "first on-week
+starts" date even when adding a second shift to an already-existing biweekly
+template, whose real (and different) anchor date is what
+`findOrCreateTemplate` actually reuses, so the preview could show the wrong
+on/off-week parity from what got saved; fixed by anchoring the preview off
+the existing template's own `effective_start_date` when one already exists,
+matching what `findOrCreateTemplate` does. A fresh literal pass over spec
+13.3 and 13.6 as workflow sections (not just their already-audited
+data-model field lists) found 13.3 fully matches the code once its
+already-open items (15's resolution, 38) are accounted for, and found one
+new judgment call in 13.6 — item 40 below — where the workflow prose lists
+three fields (`schedule_shifts.counts_toward_overtime`, plus guaranteed-hours
+effective start/end date and notes on `caregiver_profiles`) that section
+15's data-model lists, and the schema itself, never adopted. See
+`SPEC_CHANGE_LOG.md` 2026-08-17 for full detail.
 
 ### Recommendations added 2026-08-08, per explicit request
 
@@ -179,6 +201,8 @@ recommendations are simply reaffirmed here since they're still unbuilt.
   keep today's narrower, section-10-prose-matching permission set; don't
   add `view_pay_rate`/`edit_time_entries` toggles speculatively for
   scenarios no household has run into.
+- **40 (Spec 13.6 workflow fields with no data-model/schema counterpart):**
+  A — keep today's schema, matching 15.4/15.6's own literal field lists.
 
 ### 30. Removing a household member hard-deletes the `household_users` row instead of using the schema's `'removed'` status (spec 10/15.3) — and fixing that collides with the join-code rejoin flow
 
@@ -533,6 +557,20 @@ reading to mechanically implement — the spec contradicts itself.
 fine-grained toggles for restriction scenarios no household has asked for
 adds new RLS surface area (always a higher-stakes change than UI-only work)
 without a concrete need driving it.
+
+### 40. Spec 13.6's workflow-level Guaranteed Hours field lists name three fields that section 15's data model (and the schema) never adopted (spec 13.6/15.4/15.6)
+
+Found via this session's fresh literal pass over spec 13.6 as a workflow section (rather than just its already-audited data-model field lists). Section 13.6's own prose lists fields under two headings that section 15's parallel data-model sections — which the actual schema follows exactly — simply don't have:
+
+- **"Per-Shift Guaranteed Flag"** (13.6, `APPLICATION_SPEC.md:918-925`) lists three per-shift fields a scheduled shift "should have": "Counts toward guaranteed hours," "Paid if family canceled," and "Counts toward overtime calculation." The first two are real, fully-wired `schedule_shifts` columns (`counts_toward_guaranteed_hours`, `paid_if_family_canceled` — resolved item 27, this session's Category/Notes wire-up). The third has no column at all: `schedule_shifts` (`supabase/migrations/0001_schema.sql:135-152`) has no `counts_toward_overtime` field, and spec 15.6's own literal field list (`APPLICATION_SPEC.md:1671-1690`) — the section that's already had a dedicated column-by-column audit — doesn't list one either, so this isn't a dead column that got missed, it was never in the data model to begin with. (There *is* a same-named `leave_policies.counts_toward_overtime` column per spec 15.10, but that's a different table governing a different question — whether a leave category offsets overtime math — already tracked under item 24's leave-policy-automation scope, not this one.)
+- **"Guaranteed Hours Settings"** (13.6, `APPLICATION_SPEC.md:825-843`) lists "Effective start date," "Optional end date," and "Notes" as things a Parent Admin can configure for the guarantee, alongside the fields that *are* real columns (`guaranteed_hours_enabled`, `guaranteed_hours_basis`, etc.). `caregiver_profiles` (`supabase/migrations/0001_schema.sql:55-99`) has no `guaranteed_hours_effective_start_date`/`_end_date`/`_notes`-shaped columns, and spec 15.4's own literal "Guaranteed hours fields" list (`APPLICATION_SPEC.md:1624-1634`) doesn't include them either — same shape as the bullet above, a workflow-prose field with no corresponding data-model entry anywhere.
+
+This is the same shape of spec-internal disagreement as item 39 (section 10's prose vs. section 11's matrix): a workflow section's field list is more expansive than the dedicated data-model section covering the identical concept, and the schema — and every prior audit of sections 15.4/15.6 — followed the narrower, more deliberately-curated data-model section. Not a mechanical fix, because there's no single "correct" reading: building either field means inventing both a migration and the field's actual behavior from scratch, not filling in a gap the spec already described precisely.
+
+- **Option A — treat 13.6's extra fields as aspirational/over-specified and keep today's narrower, 15.4/15.6-matching schema.** Sections 15.4/15.6 read as the more deliberate, exhaustive statement of what each table actually holds (they're written as literal field lists, not prose), while 13.6's bullets plausibly over-include forward-looking ideas that never made it into the data model. Zero new work.
+- **Option B — add the three missing fields.** A new migration adding `schedule_shifts.counts_toward_overtime boolean not null default true` (worked hours already count toward overtime by default per 13.6's own "Default" list, so `true` matches existing behavior) plus `caregiver_profiles.guaranteed_hours_effective_start_date date`, `.guaranteed_hours_effective_end_date date nullable`, `.guaranteed_hours_notes text nullable`, with minimal settings-page UI to set each. For `counts_toward_overtime` specifically, this only closes the literal "the column exists" gap — spec 13.6's own recommended default already says "Overtime should be calculated based on actual worked hours, not merely guaranteed adjustment hours, unless the household manually changes the rule," which reads as an overtime rule that's *not* meant to vary per-shift, so it's genuinely unclear what unchecking the new toggle should do to `calc.ts`'s math (exclude that shift's hours from `overtimeThresholdHours`/`overtimeWorkedHours` entirely? Only from the threshold count, not the pay rate?) — a real design question, not just a UI wire-up.
+
+**Recommendation: A.** Unlike a dead column with an obvious trigger (e.g. this session's `default_category`/notes wire-up), these three fields don't exist anywhere in the schema today, and two of the three (`counts_toward_overtime`, the guarantee's effective-dating) would need a genuinely new design decision about behavior before they could be built at all — 13.6's own default language already reads as being in tension with what a per-shift overtime toggle would even mean. No household has asked for guarantee effective-dating or a per-shift overtime exclusion; building schema surface for either speculatively risks the same wrong-guess-at-intent problem items 34/37 already flag for less ambiguous cases.
 
 ### 22. Calendar: build a real month view, or keep the week-grid-only simplification (spec 13.10/14.4)?
 
