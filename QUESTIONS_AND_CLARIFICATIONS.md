@@ -91,7 +91,26 @@ no UI; shift `notes` was only ever collected on the custom/'other'
 recurrence path, not weekly/biweekly/monthly; and no schedule preview of
 generated dates existed before saving a new recurring shift (spec 13.2 asks
 for one). It also surfaced two new judgment calls, items 38-39 below. See
-`SPEC_CHANGE_LOG.md` 2026-08-15 for full detail.
+`SPEC_CHANGE_LOG.md` 2026-08-15 for full detail. The 2026-08-18 session
+re-confirmed the time-entry schedule pre-fill once more (still correct, no
+change), then ran a full literal audit of spec 13.3 (Schedule Exceptions)
+against `Schedule.tsx`/`lib/schedule.ts`, plus a spot-check of 13.9
+(Reminders and Notifications) and 13.11 (Exports) for any bullet not already
+covered by prior sessions. 13.9 and 13.11 both matched the code exactly, with
+nothing left to find beyond what items 17/19/21/33 already settled. 13.3
+turned up two mechanical gaps, both fixed directly, no new judgment call:
+`Schedule.tsx`'s "Remove" action on a schedule exception was a hard
+`DELETE` even though `schedule_exceptions.status` already has a `'canceled'`
+value that every read path (`loadExceptions`, `Home.tsx`, and
+`lib/schedule.ts`'s calc helpers) was already built to exclude — switched to
+a soft `status: 'canceled'` update, the same never-hard-delete posture item
+30 flags as missing for `household_users`, but with none of item 30's
+rejoin-flow complication since nothing here needed an RLS change; and a
+parent/co-admin viewing an exception could never see the `nanny_visible_note`
+they themselves had written for it (only their own private `parent_note`
+rendered), the same shape of one-sided note display the 2026-08-15 session
+fixed for `time_entries` — now both render for the parent/co-admin side,
+labeled. See `SPEC_CHANGE_LOG.md` 2026-08-18 for full detail.
 
 ### Recommendations added 2026-08-08, per explicit request
 

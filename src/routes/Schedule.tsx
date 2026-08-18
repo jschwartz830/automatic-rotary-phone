@@ -551,11 +551,22 @@ export function Schedule() {
     }
   }
 
+  // Soft-delete via the schema's own 'canceled' status rather than a hard
+  // DELETE -- schedule_exceptions has no deleted_at/archived_at column, and
+  // every read path already excludes 'canceled' rows (loadExceptions above,
+  // and Home.tsx/schedule.ts's calc helpers, which only ever consider
+  // status === 'approved'), so this is a pure wire-up of a status value the
+  // rest of the app was already built to expect, matching the app's general
+  // never-hard-delete posture (correction records over destructive edits,
+  // spec 26) the same way time_entries/leave_requests/household_users do.
   async function handleDeleteException(exception: ScheduleException) {
     if (!caregiverId || !household || !user) return
-    const { error: deleteError } = await supabase.from('schedule_exceptions').delete().eq('id', exception.id)
-    if (deleteError) {
-      setError(errorMessage(deleteError, 'Could not remove exception.'))
+    const { error: cancelError } = await supabase
+      .from('schedule_exceptions')
+      .update({ status: 'canceled' })
+      .eq('id', exception.id)
+    if (cancelError) {
+      setError(errorMessage(cancelError, 'Could not remove exception.'))
       return
     }
     await logAuditEvent({
@@ -563,8 +574,8 @@ export function Schedule() {
       actorUserId: user.id,
       entityType: 'schedule_exception',
       entityId: exception.id,
-      action: 'delete',
-      before: { date: exception.date, exception_type: exception.exception_type },
+      action: 'cancel',
+      before: { date: exception.date, exception_type: exception.exception_type, status: exception.status },
     })
     await loadExceptions(caregiverId, weekStart)
   }
@@ -802,10 +813,21 @@ export function Schedule() {
                             {ex.affects_pay ? '' : ' · unpaid'}
                             {ex.counts_toward_guaranteed_hours ? ' · counts toward guarantee' : ''}
                           </p>
-                          {(isNanny ? ex.nanny_visible_note : ex.parent_note) && (
-                            <p className="text-xs text-gray-400 dark:text-gray-500">
-                              {isNanny ? ex.nanny_visible_note : ex.parent_note}
-                            </p>
+                          {isNanny ? (
+                            ex.nanny_visible_note && (
+                              <p className="text-xs text-gray-400 dark:text-gray-500">{ex.nanny_visible_note}</p>
+                            )
+                          ) : (
+                            <>
+                              {ex.parent_note && (
+                                <p className="text-xs text-gray-400 dark:text-gray-500">{ex.parent_note}</p>
+                              )}
+                              {ex.nanny_visible_note && (
+                                <p className="text-xs text-gray-400 dark:text-gray-500">
+                                  Nanny sees: {ex.nanny_visible_note}
+                                </p>
+                              )}
+                            </>
                           )}
                         </div>
                         {isParentOrCoAdmin && (

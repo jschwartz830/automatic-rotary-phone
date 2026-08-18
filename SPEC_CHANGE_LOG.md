@@ -8,6 +8,95 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-18 — Time-entry schedule pre-fill re-verified again (already correct); full literal audit of Schedule Exceptions finds two mechanical gaps (fixed); Reminders/Notifications and Exports spot-checked clean; no new judgment calls; all 18 open Q&A items re-presented
+
+**This session's scope, per the standing recurring-task instructions**, plus
+a specific ask from the task owner: re-confirm the manual time-entry
+pre-fill behavior, then continue the spec-vs-code audit into sections not
+yet covered by a prior session's dedicated pass.
+
+**Time-entry schedule pre-fill: still correct, no change made.** Re-checked
+`Time.tsx` against spec 13.4 — `date` still defaults to today
+(`new Date().toISOString().slice(0, 10)`, line 50), the pre-fill `useEffect`
+(line 120) still looks up the selected date's scheduled shift via
+`generateShiftsForRange` and fills `startTime`/`endTime`/`breakMinutes` from
+it, falling back to 09:00–17:00 only when nothing's scheduled, and every
+field remains a plain editable input. Same behavior confirmed every session
+since 2026-06-30; nothing needed to change.
+
+**A full literal audit of spec 13.3 (Schedule Exceptions) against
+`Schedule.tsx`/`src/lib/schedule.ts`**, chosen because prior sessions had
+only ever checked `schedule_exceptions`' *columns* against the schema
+(2026-08-11, spec 15.7, found no column-level gaps) or resolved a
+request-only-permission judgment call for it (item 38, 2026-08-15) — nobody
+had yet read section 13.3's actual workflow bullets literally against the
+UI. Found two real, previously-undocumented mechanical gaps, both fixed
+directly since neither involved a judgment call:
+
+- **`Schedule.tsx`'s "Remove" action on a schedule exception did a hard
+  `DELETE` instead of using the schema's own `'canceled'` status.**
+  `schedule_exceptions.status` already includes `'canceled'` as a valid
+  value (migration 0001), and every place that reads exceptions was already
+  built to exclude it — `Schedule.tsx`'s own `loadExceptions` already does
+  `.neq('status', 'canceled')`, `Home.tsx`'s query already does
+  `.eq('status', 'approved')`, and `lib/schedule.ts`'s calc helpers
+  (`sumExceptionHoursByType`, `scheduleExceptionHoursDelta`) already filter
+  to `status === 'approved'` only — but `handleDeleteException` still called
+  `.delete()` on the row instead of transitioning it to `'canceled'`, the
+  only table besides `household_users` (open item 30) found to violate the
+  app's general never-hard-delete posture (spec 26). Unlike item 30, fixing
+  this needed no RLS change (the existing `schedule_exceptions_update`
+  policy's parent/co-admin branch already permits setting any status) and no
+  rejoin-flow-style collision to reason about, so it was fixed directly
+  rather than opened as a new judgment call: `handleDeleteException` now
+  does `.update({ status: 'canceled' })`, audit-logged with `action:
+  'cancel'` instead of `'delete'`.
+- **A parent/co-admin could never see the `nanny_visible_note` they
+  themselves had written on a schedule exception.** The day-detail exception
+  row rendered `isNanny ? ex.nanny_visible_note : ex.parent_note` —
+  correct for the nanny side, but a parent/co-admin only ever saw their own
+  private `parent_note`, never the note they'd separately typed for the
+  nanny to see. Same shape of bug as the 2026-08-15 fix for
+  `time_entries.nanny_note`/`.parent_note` (each side only ever rendered its
+  own field), just one-sided here since only a parent/co-admin ever writes
+  either note for this table. Both now render on the parent/co-admin side,
+  labeled (`parent_note` plain, `nanny_visible_note` prefixed "Nanny
+  sees:"); the nanny side is unchanged (still only `nanny_visible_note`,
+  since `parent_note` is meant to stay internal).
+
+**Spec 13.9 (Reminders and Notifications) and 13.11 (Exports) spot-checked,
+both fully clean — no new findings.** All ten spec-listed reminder types
+(`missing_clock_out`, `unsubmitted_timesheet`, `pending_timesheet_approval`,
+`pending_pto_request`, `payment_due`, `payment_overdue`, `upcoming_pto`,
+`schedule_change`, `pto_balance_low`, `weekly_summary`) exist in
+`reminders.ts`, matching spec's literal list (`unsubmitted_timesheet` is
+real but non-firing, already tracked as open item 33, not a new finding);
+Reminder Settings' enable/disable-per-type is built, recipients/timing/
+cadence/quiet-hours remain deliberately deferred per already-resolved item
+17. All six spec-listed export types (weekly timesheet CSV, pay period CSV,
+PTO ledger CSV, payment history CSV, annual summary CSV, full records
+CSV/JSON) exist in `Pay.tsx`; the Annual Summary export's 14-field list
+(`exportAnnualSummary`) matches spec's field list exactly; export access is
+gated to Parent Admin/Co-Admin only, matching already-resolved item 21.
+
+**No new judgment calls surfaced this session.** Both 13.3 findings had an
+unambiguous, low-blast-radius fix already implied by code the app itself was
+already built around (the `'canceled'` status's existing exclusion filters,
+the exact note-visibility precedent from 2026-08-15), so neither needed a
+new `QUESTIONS_AND_CLARIFICATIONS.md` entry.
+
+**Health check:** `npm run build` (`tsc -b && vite build`) and `npm run
+lint` (`oxlint`) both clean — no new TypeScript or lint errors; same
+pre-existing `react-hooks/exhaustive-deps` and Fast Refresh
+`only-export-components` warnings prior sessions have already noted.
+
+All 18 open Q&A items (22-26, 28-39) were re-presented this session per the
+standing instruction — none resolved, none newly opened; the existing
+2026-08-08 recommendations index (with items 33/36-39's later additions) is
+still current for every item.
+
+---
+
 ## 2026-08-15 — Time-entry schedule pre-fill re-verified again (already correct); full literal audit of Product Scope, User Roles/Permission Matrix, Recurring Schedule, remaining Calculation Rules, and Implementation Notes finds four mechanical gaps (fixed) and two new judgment calls; all 18 open Q&A items presented for a decision
 
 **This session's scope, per the standing recurring-task instructions**, plus
