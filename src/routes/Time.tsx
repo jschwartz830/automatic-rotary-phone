@@ -17,7 +17,7 @@ import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
 import { SwipeRow } from '../components/SwipeRow'
 import { Modal } from '../components/Modal'
-import type { ScheduleShift, ScheduleTemplate, TimeEntry, TimeEntryMethod } from '../lib/types'
+import type { PaymentRecord, ScheduleShift, ScheduleTemplate, TimeEntry, TimeEntryMethod } from '../lib/types'
 
 function WarningList({ warnings }: { warnings: string[] }) {
   if (warnings.length === 0) return null
@@ -44,6 +44,7 @@ export function Time() {
   const { caregivers } = useCaregivers(household?.id)
   const [caregiverId, setCaregiverId] = useState<string | null>(null)
   const [entries, setEntries] = useState<TimeEntry[]>([])
+  const [paidPeriods, setPaidPeriods] = useState<{ start: string; end: string }[]>([])
   const [templates, setTemplates] = useState<ScheduleTemplate[]>([])
   const [shiftsByTemplate, setShiftsByTemplate] = useState<Record<string, ScheduleShift[]>>({})
   const [showForm, setShowForm] = useState(false)
@@ -143,8 +144,29 @@ export function Time() {
     setEntries((data ?? []) as TimeEntry[])
   }
 
+  // Spec 13.4 Validation "Parent attempts to edit a paid/locked period" --
+  // only the date ranges of payment_records rows money has actually moved
+  // for (paid/partially_paid) are needed, not the full row.
+  async function loadPaidPeriods(forCaregiverId: string) {
+    const { data } = await supabase
+      .from('payment_records')
+      .select('period_start, period_end, status')
+      .eq('caregiver_id', forCaregiverId)
+      .in('status', ['paid', 'partially_paid'])
+      .is('deleted_at', null)
+    setPaidPeriods(
+      ((data ?? []) as Pick<PaymentRecord, 'period_start' | 'period_end' | 'status'>[]).map((p) => ({
+        start: p.period_start,
+        end: p.period_end,
+      }))
+    )
+  }
+
   useEffect(() => {
-    if (caregiverId) loadEntries(caregiverId)
+    if (caregiverId) {
+      loadEntries(caregiverId)
+      loadPaidPeriods(caregiverId)
+    }
   }, [caregiverId])
 
   async function handleAddEntry(e: FormEvent) {
@@ -472,11 +494,12 @@ export function Time() {
         scheduledHoursForDate: scheduledHoursFor(date),
         overtimeThresholdHours,
         weekStartsOn,
+        paidPeriodRanges: paidPeriods,
       }
     )
     // scheduledHoursFor closes over templates/shiftsByTemplate, included below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showForm, date, startTime, endTime, breakMinutes, entries, actingRole, overtimeThresholdHours, weekStartsOn, templates, shiftsByTemplate])
+  }, [showForm, date, startTime, endTime, breakMinutes, entries, actingRole, overtimeThresholdHours, weekStartsOn, templates, shiftsByTemplate, paidPeriods])
 
   const detailEntry = entries.find((e) => e.id === detailEntryId) ?? null
   const editingEntry = detailEntry
@@ -497,10 +520,11 @@ export function Time() {
         scheduledHoursForDate: scheduledHoursFor(editDate),
         overtimeThresholdHours,
         weekStartsOn,
+        paidPeriodRanges: paidPeriods,
       }
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingEntry, editDate, editStart, editEnd, editBreak, entries, actingRole, overtimeThresholdHours, weekStartsOn, templates, shiftsByTemplate])
+  }, [editingEntry, editDate, editStart, editEnd, editBreak, entries, actingRole, overtimeThresholdHours, weekStartsOn, templates, shiftsByTemplate, paidPeriods])
 
   return (
     <div className="space-y-4 p-4">
