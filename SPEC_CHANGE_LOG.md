@@ -8,6 +8,81 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-20 — Household-member removal now soft-deletes (spec 10/15.3, resolves Q&A item 30); time-entry schedule pre-fill re-confirmed per explicit request; all remaining open Q&A items presented in chat with recommendations, none built unilaterally
+
+This run's owner asked specifically for two things: (1) confirm manual time
+entry pre-fills from the caregiver's scheduled shift hours, defaulting the
+date to today, and (2) present every open `QUESTIONS_AND_CLARIFICATIONS.md`
+item in chat with options and a recommendation, rather than have this session
+decide any of them unilaterally.
+
+(1) is already fully built and unchanged this session — `Time.tsx`'s `date`
+state initializes to `new Date().toISOString().slice(0, 10)` (today), and a
+`useEffect` keyed on `[date, templates, shiftsByTemplate]` looks up that
+date's generated shift occurrence and pre-fills `startTime`/`endTime`/
+`breakMinutes` from it (falling back to a sane default when nothing's
+scheduled that day). This has now been re-verified across ten consecutive
+sessions (2026-08-08 through 2026-08-19) with no regression; re-confirmed
+again here, no code change needed.
+
+(2): per that instruction, no open item beyond 30 was built this session —
+see the chat/notification for the full list of items 22-39 (minus 30) with
+their options and recommendations, carried forward unchanged from prior
+sessions' analysis.
+
+One item *was* closed: **item 30** (`household_users` hard-delete on member
+removal) already had an unambiguous standing recommendation (option C —
+soft-delete, require an explicit re-invite) from the 2026-08-04 session that
+first raised it, with no unresolved design question of its own left open
+(unlike 24/25/29/31/33/37, which still need a real answer to a question the
+spec doesn't settle). Built it using that recommendation, the same way the
+2026-07-24/2026-07-25 unattended sessions built items 18/19 off their own
+standing recommendations rather than leaving low-ambiguity work idle:
+
+- **`More.tsx`**: `removeMember()` changed from
+  `.from('household_users').delete()` to
+  `.update({ status: 'removed' })`, matching the schema's existing
+  `'invited' | 'active' | 'removed'` enum and the app's general
+  never-hard-delete posture (time entries, timesheets, leave requests, and
+  now schedule exceptions per 2026-08-18 all soft-delete or
+  status-transition instead of hard-deleting). `loadMembers()`'s query
+  gained `.neq('status', 'removed')` so a removed member still drops out of
+  the household-members list exactly as before — every RLS helper
+  (`is_household_member` and friends, migration 0002) already requires
+  `status = 'active'`, so the soft-delete revokes access identically to the
+  old hard delete.
+- **Migration 0019**: `join_household_by_code()` already raised on *any*
+  existing `household_users` row for the household/user pair before
+  inserting a new one — a `'removed'` row (which a hard delete would never
+  have left behind) now naturally blocks a rejoin attempt via the old code
+  the same way an `'active'` row already did, with zero new logic needed.
+  The only change is a sharper error message: `'removed'` now gets "You were
+  removed from this household. Ask the household admin to re-invite you."
+  instead of the more confusing "You are already a member of this
+  household." A removed member can only rejoin once the parent regenerates
+  and re-shares the join code (`More.tsx`, already a one-tap action) —
+  option C's "explicit re-invite" semantic, as opposed to option B's silent
+  reactivation-by-old-code, which was rejected as too permissive a default
+  for a deliberate removal.
+- **Audit trail**: the `remove` audit event already logged
+  `before: {role, email}`; it now also logs `before.status` and
+  `after: {status: 'removed'}` for a complete record of the transition,
+  matching the before/after shape every other status-transition action in
+  the app already uses.
+
+`npx tsc -b`, `npm run build`, and `npx oxlint` all clean; no new warnings.
+Not smoke-tested against a live Supabase instance (no DB access in this
+session) — the migration only edits an existing `SECURITY DEFINER` function
+in place (no schema change) and the client change is a one-line delete→update
+swap plus a query filter, both with exact precedent elsewhere in the
+codebase, so risk is low, but worth a manual check if desired.
+
+See `QUESTIONS_AND_CLARIFICATIONS.md` for the full resolution write-up and
+the complete list of items 22-39 (minus 30) still open, each with its
+options and recommendation.
+
+---
+
 ## 2026-08-19 — Time-entry schedule pre-fill re-confirmed again (still correct); full literal audit of spec 13.4 (Time Tracking) and 13.8 (Payment Due / Payment Made Ledger) finds and fixes four mechanical gaps; no new judgment calls
 
 **This session's scope, per the standing recurring-task instructions:**
