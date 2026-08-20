@@ -155,6 +155,7 @@ export function More() {
       .from('household_users')
       .select('id, user_id, role, status, permissions')
       .eq('household_id', household.id)
+      .neq('status', 'removed')
     if (error) {
       setMembersError(errorMessage(error, 'Could not load household members.'))
       return
@@ -269,7 +270,10 @@ export function More() {
     setSavingMemberId(member.id)
     setMembersError(null)
     try {
-      const { error } = await supabase.from('household_users').delete().eq('id', member.id)
+      const { error } = await supabase
+        .from('household_users')
+        .update({ status: 'removed' })
+        .eq('id', member.id)
       if (error) throw error
       await logAuditEvent({
         householdId: household.id,
@@ -277,7 +281,8 @@ export function More() {
         entityType: 'household_user',
         entityId: member.id,
         action: 'remove',
-        before: { role: member.role, email: member.email },
+        before: { role: member.role, email: member.email, status: member.status },
+        after: { status: 'removed' },
       })
       setConfirmRemoveId(null)
       await loadMembers()
