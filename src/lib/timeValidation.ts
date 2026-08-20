@@ -33,6 +33,13 @@ export interface TimeEntryValidationContext {
   overtimeThresholdHours: number
   /** Household week start; controls how the weekly OT total is bucketed. */
   weekStartsOn: 0 | 1
+  /**
+   * Date ranges (inclusive) of this caregiver's payment_records rows whose
+   * status is 'paid' or 'partially_paid' -- i.e. periods money has actually
+   * moved for. Used for the "Parent attempts to edit a paid/locked period"
+   * warning below.
+   */
+  paidPeriodRanges?: { start: string; end: string }[]
 }
 
 /** Minutes past midnight for an HH:mm string, or null if unparseable. */
@@ -158,6 +165,16 @@ export function validateTimeEntry(
     }
     if (ctx.role === 'parent' && draft.status === 'approved') {
       warnings.push("You're editing an already-approved entry.")
+    }
+    // Parent attempts to edit a paid/locked period. time_entries.status
+    // never actually reaches 'locked' in this app (see Time.tsx's canModify
+    // comment), so this checks the caregiver's payment_records directly --
+    // the same signal canArchiveTimesheet/canArchivePayment in Pay.tsx use
+    // to decide a period has already been paid.
+    if (ctx.role === 'parent' && ctx.paidPeriodRanges?.some((r) => draft.date >= r.start && draft.date <= r.end)) {
+      warnings.push(
+        'This date falls within a period that has already been marked paid. Use Correct or Void on the payment record instead of editing time entries directly.'
+      )
     }
   }
 

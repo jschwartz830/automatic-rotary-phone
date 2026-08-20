@@ -110,7 +110,31 @@ parent/co-admin viewing an exception could never see the `nanny_visible_note`
 they themselves had written for it (only their own private `parent_note`
 rendered), the same shape of one-sided note display the 2026-08-15 session
 fixed for `time_entries` — now both render for the parent/co-admin side,
-labeled. See `SPEC_CHANGE_LOG.md` 2026-08-18 for full detail.
+labeled. See `SPEC_CHANGE_LOG.md` 2026-08-18 for full detail. The 2026-08-19 session
+re-confirmed the time-entry schedule pre-fill once more (still correct, no
+change), then ran the first dedicated full literal audit of spec 13.4 (Time
+Tracking) and 13.8 (Payment Due / Payment Made Ledger) against
+`Time.tsx`/`Pay.tsx`/`calc.ts` — the two core workflow sections that hadn't
+yet had one. It found and mechanically fixed four gaps: spec 13.4's "Parent
+attempts to edit a paid/locked period" validation warning had no
+implementation (added, checking the caregiver's `payment_records` date
+ranges rather than trying to resolve the still-open non-weekly-pay-period
+question items 31/32 already flag); a payment record could be archived on
+its own without going through Correct/Void even when already paid, the same
+class of Correct/Void bypass the 2026-08-13 session fixed at the timesheet
+level but left unfixed on this separate, independently-added code path
+(fixed with the same status-guard pattern); the co-admin `approve_timesheet`/
+`mark_payment_made` RLS permission keys migration 0014 added specifically
+for client-side enforcement were never actually checked client-side, so a
+restricted co-admin still saw fully-interactive buttons that would fail
+against RLS (fixed by adding the matching `coadminAllowed(...)` checks,
+mirroring the `export_records` precedent already in the same file); and the
+"Correct payment" form didn't show the amount difference spec 13.8 asks for
+(added as a live-computed line). No new judgment calls were surfaced — every
+gap had an unambiguous fix already implied by an exact precedent elsewhere in
+the same file or by a backend mechanism that was already fully built and
+just missing its client half. See `SPEC_CHANGE_LOG.md` 2026-08-19 for full
+detail.
 
 ### Recommendations added 2026-08-08, per explicit request
 

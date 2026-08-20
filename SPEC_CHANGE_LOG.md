@@ -8,6 +8,148 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-19 — Time-entry schedule pre-fill re-confirmed again (still correct); full literal audit of spec 13.4 (Time Tracking) and 13.8 (Payment Due / Payment Made Ledger) finds and fixes four mechanical gaps; no new judgment calls
+
+**This session's scope, per the standing recurring-task instructions:**
+re-confirm the manual time-entry pre-fill behavior, then run a full literal,
+bullet-by-bullet audit of spec 13.4 and 13.8 against `Time.tsx`, `Pay.tsx`,
+`calc.ts`, and the RLS migrations — the two core workflow sections the
+running history in `QUESTIONS_AND_CLARIFICATIONS.md` confirmed hadn't yet had
+a dedicated pass, despite most of the rest of the app having been covered at
+least once across 30+ prior sessions.
+
+**Time-entry schedule pre-fill: still correct, no change made.** Re-checked
+`Time.tsx` against spec 13.4 — `date` still defaults to today
+(`new Date().toISOString().slice(0, 10)`, line 51), the pre-fill `useEffect`
+(line 121) still looks up the selected date's scheduled shift via
+`generateShiftsForRange` and fills `startTime`/`endTime`/`breakMinutes` from
+it, falling back to 09:00–17:00 only when nothing's scheduled, and every
+field remains a plain editable input. Same behavior confirmed every session
+since 2026-06-30; nothing needed to change.
+
+**Spec 13.4 (Time Tracking), bullet-by-bullet against `Time.tsx` and
+`timeValidation.ts`:** Entry methods (clock in/out, manual entry), the
+Clock In/Clock Out flow (tap in, active-shift status on Home's "Today" card
+per spec 14.1/14.2, tap out, optional note), Manual Time Entry (date/start/
+end/break/note, available to both nanny and parent/co-admin), and every
+`time_entries` column in spec's Time Entry Fields list all match the code.
+The Validation section's nine "warn when" bullets were checked one at a
+time against `timeValidation.ts`'s `validateTimeEntry` — eight already
+existed (clock-out-missing is handled separately by the reminders engine per
+that file's own header comment; end-before-start/midnight-crossing, overlap,
+break-longer-than-shift, materially-differs-from-scheduled, weekly-overtime-
+threshold, nanny-edits-submitted, and parent-edits-approved all already
+fire) — but the ninth, **"Parent attempts to edit a paid/locked period," had
+no implementation at all.**
+
+`time_entries.status` never actually reaches `'locked'` in this app (same
+gap `canArchiveTimesheet`'s 2026-08-13 comment already documents for
+`timesheets.status` never reaching `'paid'`/`'locked'` — only
+`payment_records.status` does), so `canModify`'s existing
+`entry.status !== 'locked'` block was already effectively dead for this
+purpose, and nothing warned a parent editing an entry whose date fell inside
+an already-paid pay period. Since spec 13.4 frames this bullet as a
+*warning*, not a hard block (unlike the other "attempts to edit" bullets,
+which are also warnings, not blocks, in the existing implementation), the
+fix stayed a warning too rather than adding a new hard-block path — hard-
+blocking would have needed a real "which period does this date belong to"
+computation the app doesn't have for non-weekly pay frequencies (the same
+period-boundary ambiguity items 31/32 already flag as unresolved), whereas a
+warning only needs to check whether the date falls inside an *existing
+stored* `payment_records` range, which sidesteps that ambiguity entirely.
+`Time.tsx` now loads the caregiver's `payment_records` rows with status
+`'paid'`/`'partially_paid'` (`loadPaidPeriods`, run alongside `loadEntries`)
+and passes their date ranges into `timeValidation.ts`'s
+`TimeEntryValidationContext` as `paidPeriodRanges`; `validateTimeEntry` warns
+when a parent edits an existing entry (`draft.entryId` set) whose date falls
+in one of those ranges, directing them to Correct/Void the payment instead.
+Nanny edits and brand-new entries are unaffected, matching the bullet's
+literal "Parent attempts to edit" wording.
+
+**Spec 13.8 (Payment Due / Payment Made Ledger), bullet-by-bullet against
+`Pay.tsx` and `payPeriod.ts`:** Pay Settings (frequency, period start day,
+all three payday rules including "Manual," default rate, overtime
+threshold/multiplier, guaranteed hours settings, all seven payment method
+labels, both nanny-visibility flags), every `payment_records` column in
+spec's field list (aside from the two already-tracked dead columns,
+`attachment_url`/item 26 and `guarantee_override_note`/item 37), all seven
+Payment Statuses (including `partially_paid`, exercised by `handleMarkPaid`
+whenever the amount entered is less than `gross_pay_due`), and the seven-step
+Payment Workflow all match the code. The Payment Corrections subsection
+turned up three real gaps, all fixed:
+
+- **A payment record could be archived on its own, bypassing the required
+  Correct/Void workflow for an already-paid period — the same shape of bug
+  the 2026-08-13 session fixed for *timesheet* archiving
+  (`canArchiveTimesheet`), but for a separate, independent code path this
+  session found unfixed.** `setPaymentArchived` (added after the 2026-08-13
+  fix, per its own comment, so a payment could be cleared without also
+  losing its timesheet) had no status guard at all — the swipe-row "Archive"
+  action and the payment detail sheet's "Archive" button were both available
+  for any payment regardless of status, so a parent could silently
+  soft-delete an already-`'paid'`/`'partially_paid'` record straight out of
+  the active list instead of going through "Correct" or "Void," exactly what
+  spec 13.8's "Do not delete original record" line for a paid period is
+  meant to prevent. Added `canArchivePayment`, mirroring
+  `canArchiveTimesheet`'s reasoning (blocks on `'paid'`/`'partially_paid'`,
+  allows `'voided'`/`'corrected'` through, since those are themselves the
+  "unless corrected" exception), and gated the row-level swipe action, the
+  detail-sheet Archive button, and the Archived-payments list's Restore
+  actions with it (Restore needed the same gate since every
+  `payment_records` update, not just mark-paid/void/correct, requires the
+  `mark_payment_made` RLS permission — see below).
+- **Neither the timesheet-approval nor payment-marking actions consulted the
+  co-admin `approve_timesheet`/`mark_payment_made` permission keys migration
+  0014 already added for exactly this purpose.** That migration's own header
+  comment says those two RLS keys exist so a household can restrict a
+  co-admin from "Approve timesheet"/"Mark payment made" per spec 11's
+  Yes/Optional matrix rows, the same way `edit_pay_rate`/`edit_pto_policy`/
+  etc. already work — and expects the client to hide the corresponding
+  actions ("see App code"). But `canApproveTimesheet`, `canMarkPaid`, the
+  "Generate timesheet"/"Import timesheets" toolbar, and the "Correct" button
+  all gated purely on `isParentOrCoAdmin`, never on `coadminAllowed(...)`, so
+  a co-admin a household had explicitly restricted from either permission
+  still saw fully-functional-looking buttons that would fail against RLS the
+  moment they were used — the exact broken-UX gap `canExport`'s existing
+  `coadminAllowed('export_records')` check (same file) was already built to
+  avoid for exports. Added the matching `coadminAllowed('approve_timesheet')`
+  check to `canApproveTimesheet` and the Generate/Import toolbar (every
+  `doGenerate` call inserts a timesheet at `status: 'approved'` directly, so
+  every use of that toolbar needs the permission regardless of which button
+  is clicked), and `coadminAllowed('mark_payment_made')` to `canMarkPaid`,
+  the Correct button, and payment archive/restore (per the point above).
+  This only narrows behavior for a household that has explicitly toggled one
+  of these two permissions off in `More.tsx`'s co-admin settings — the
+  default (both permissions on) is unchanged for every other household.
+- **The "Correct payment" form showed the original amount and let a parent
+  type a corrected amount, but never showed the difference between them**,
+  short of spec 13.8's literal "Show original amount, corrected amount, and
+  difference." Added a live "Difference: +/-$X.XX" line under the amount
+  input, computed from the same `correctionAmount` state the form already
+  tracks — pure display, no change to what gets written on save.
+
+**Health check:** `npm install` (fresh checkout had no `node_modules`), then
+`npx tsc -b`, `npm run build` (`tsc -b && vite build`), and `npx oxlint` all
+ran clean — no new TypeScript or lint errors; the same pre-existing
+`react-hooks/exhaustive-deps` (`Schedule.tsx`) and Fast Refresh
+`only-export-components` warnings prior sessions have already noted, none
+new from this session's changes.
+
+**No new judgment calls surfaced this session.** All four gaps found had an
+unambiguous, low-risk fix already implied either by an exact precedent
+already in the same file (`canArchiveTimesheet`'s status guard,
+`canExport`'s `coadminAllowed` check) or by a backend mechanism
+(`payment_records`' `mark_payment_made` RLS policy) that was already fully
+built and just missing its client-side half, so none needed a new
+`QUESTIONS_AND_CLARIFICATIONS.md` entry. No schema changes were needed
+either — both fixes read from tables and columns that already exist, so no
+new migration file was added this session.
+
+No files besides `src/lib/timeValidation.ts`, `src/routes/Time.tsx`, and
+`src/routes/Pay.tsx` were touched.
+
+---
+
 ## 2026-08-18 — Time-entry schedule pre-fill re-verified again (already correct); full literal audit of Schedule Exceptions finds two mechanical gaps (fixed); Reminders/Notifications and Exports spot-checked clean; no new judgment calls; all 18 open Q&A items re-presented
 
 **This session's scope, per the standing recurring-task instructions**, plus

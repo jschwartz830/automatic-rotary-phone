@@ -1152,13 +1152,49 @@ export function Pay() {
     }
   }
 
+  // Spec 11's role matrix lists "Mark payment made" as Yes/Optional for a
+  // co-admin, and migration 0014 already added the mark_payment_made RLS key
+  // for exactly that -- but this check never consulted coadminAllowed, so a
+  // restricted co-admin still saw a working-looking "Mark paid" button that
+  // would fail against RLS on submit. Matches the coadminAllowed('export_records')
+  // precedent already used elsewhere in this file.
   function canMarkPaid(payment: PaymentRecord) {
-    return isParentOrCoAdmin && !payment.deleted_at && PAYABLE_STATUSES.includes(payment.status)
+    return (
+      isParentOrCoAdmin &&
+      coadminAllowed('mark_payment_made') &&
+      !payment.deleted_at &&
+      PAYABLE_STATUSES.includes(payment.status)
+    )
   }
 
+  // Spec 13.8 Payment Corrections "Do not delete original record" -- a
+  // payment record can be archived on its own via setPaymentArchived
+  // (independent of its timesheet, see that function's comment), but that
+  // action had no status guard at all, unlike canArchiveTimesheet below,
+  // which already blocks archiving a timesheet once its payment has actually
+  // been paid. Same guard, applied to the standalone payment-archive action
+  // so a parent can't silently hide an already-paid record without going
+  // through Correct or Void first.
+  // Every payment_records update (archive/restore included, not just
+  // mark-paid/void/correct) requires mark_payment_made per the
+  // payment_records_update_manager RLS policy (migration 0014), which has no
+  // status carve-out the way timesheets_update does -- so this needs the
+  // same coadminAllowed check canMarkPaid above does.
+  function canArchivePayment(payment: PaymentRecord) {
+    return (
+      isParentOrCoAdmin &&
+      coadminAllowed('mark_payment_made') &&
+      !payment.deleted_at &&
+      payment.status !== 'paid' &&
+      payment.status !== 'partially_paid'
+    )
+  }
+
+  // Same as canMarkPaid above, for the sibling approve_timesheet key.
   function canApproveTimesheet(timesheet: Timesheet) {
     return (
       isParentOrCoAdmin &&
+      coadminAllowed('approve_timesheet') &&
       !timesheet.deleted_at &&
       (timesheet.status === 'submitted' || timesheet.status === 'needs_correction')
     )
@@ -1217,7 +1253,7 @@ export function Pay() {
         onOpen={() => setDetailPaymentId(p.id)}
         leadingAction={canMarkPaid(p) ? { label: 'Mark paid', tone: 'approve', onAction: () => openMarkPaid(p) } : null}
         trailingActions={
-          isParentOrCoAdmin
+          canArchivePayment(p)
             ? [
                 {
                   label: 'Archive',
@@ -1270,7 +1306,7 @@ export function Pay() {
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">Pay</h1>
-        {isParentOrCoAdmin && (
+        {isParentOrCoAdmin && coadminAllowed('approve_timesheet') && (
           <div className="flex gap-2">
             <input ref={timesheetImportInput} type="file" accept=".csv,text/csv" className="hidden" onChange={importTimesheets} />
             <Button variant="secondary" onClick={() => timesheetImportInput.current?.click()} disabled={importingTimesheets}>
@@ -1523,6 +1559,12 @@ export function Pay() {
                 required
               />
             </Field>
+            {correctionAmount !== '' && !Number.isNaN(Number(correctionAmount)) && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Difference: {Number(correctionAmount) - correctingPayment.gross_pay_due >= 0 ? '+' : '-'}$
+                {Math.abs(Number(correctionAmount) - correctingPayment.gross_pay_due).toFixed(2)}
+              </p>
+            )}
             <Field label="Reason for correction (required)">
               <input
                 className={inputClass}
@@ -1776,7 +1818,11 @@ export function Pay() {
                   contentClassName="bg-white px-4 py-2 dark:bg-gray-800"
                   openLabel={`Open archived payment for ${p.period_start} to ${p.period_end}`}
                   onOpen={() => setDetailPaymentId(p.id)}
-                  leadingAction={{ label: 'Restore', tone: 'restore', onAction: () => setPaymentArchived(p, false) }}
+                  leadingAction={
+                    coadminAllowed('mark_payment_made')
+                      ? { label: 'Restore', tone: 'restore', onAction: () => setPaymentArchived(p, false) }
+                      : null
+                  }
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
@@ -1787,15 +1833,17 @@ export function Pay() {
                         Due {p.due_date} · ${p.gross_pay_due.toFixed(2)}
                       </p>
                     </div>
-                    <button
-                      className="shrink-0 text-xs text-blue-600 underline dark:text-blue-400"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setPaymentArchived(p, false)
-                      }}
-                    >
-                      Restore
-                    </button>
+                    {coadminAllowed('mark_payment_made') && (
+                      <button
+                        className="shrink-0 text-xs text-blue-600 underline dark:text-blue-400"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setPaymentArchived(p, false)
+                        }}
+                      >
+                        Restore
+                      </button>
+                    )}
                   </div>
                 </SwipeRow>
               ))}
@@ -1914,7 +1962,7 @@ export function Pay() {
                     Mark paid
                   </Button>
                 )}
-                {detailPayment.status === 'paid' && (
+                {detailPayment.status === 'paid' && coadminAllowed('mark_payment_made') && (
                   <Button variant="secondary" className="flex-1" onClick={() => openCorrect(detailPayment)}>
                     Correct
                   </Button>
@@ -1925,23 +1973,27 @@ export function Pay() {
                   </Button>
                 )}
                 {detailPayment.deleted_at ? (
-                  <Button
-                    variant="secondary"
-                    className="flex-1"
-                    disabled={archivingId === detailPayment.id}
-                    onClick={() => setPaymentArchived(detailPayment, false)}
-                  >
-                    {archivingId === detailPayment.id ? 'Restoring…' : 'Restore'}
-                  </Button>
+                  coadminAllowed('mark_payment_made') && (
+                    <Button
+                      variant="secondary"
+                      className="flex-1"
+                      disabled={archivingId === detailPayment.id}
+                      onClick={() => setPaymentArchived(detailPayment, false)}
+                    >
+                      {archivingId === detailPayment.id ? 'Restoring…' : 'Restore'}
+                    </Button>
+                  )
                 ) : (
-                  <Button
-                    variant="danger"
-                    className="flex-1"
-                    disabled={archivingId === detailPayment.id}
-                    onClick={() => setPaymentArchived(detailPayment, true)}
-                  >
-                    {archivingId === detailPayment.id ? 'Archiving…' : 'Archive'}
-                  </Button>
+                  canArchivePayment(detailPayment) && (
+                    <Button
+                      variant="danger"
+                      className="flex-1"
+                      disabled={archivingId === detailPayment.id}
+                      onClick={() => setPaymentArchived(detailPayment, true)}
+                    >
+                      {archivingId === detailPayment.id ? 'Archiving…' : 'Archive'}
+                    </Button>
+                  )
                 )}
               </div>
             )}
