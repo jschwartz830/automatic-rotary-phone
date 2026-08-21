@@ -1,6 +1,9 @@
 import type { LeaveLedgerEntry, LeavePolicy, LeaveRequest, LeaveType } from './types'
 
-export type LeaveBalancePolicy = Pick<LeavePolicy, 'leave_type' | 'reset_month' | 'reset_day' | 'annual_allowance_hours'>
+export type LeaveBalancePolicy = Pick<
+  LeavePolicy,
+  'leave_type' | 'reset_month' | 'reset_day' | 'annual_allowance_hours' | 'balance_cap_hours'
+>
 
 // 'pto' renders as the acronym everywhere it's shown to a user; the rest are
 // title-cased. Centralized so the PTO screen, caregiver settings, and
@@ -58,10 +61,11 @@ export function computeLeaveBalanceFromLedger(
     .reduce((sum, e) => sum + Math.abs(e.hours_delta), 0)
 
   const allowanceHours = policy.annual_allowance_hours
+  const rawRemaining = allowanceHours == null ? currentBalance : Math.max(currentBalance, 0)
   return {
     allowanceHours,
     usedHours: usedInPeriod,
-    remainingHours: allowanceHours == null ? currentBalance : Math.max(currentBalance, 0),
+    remainingHours: policy.balance_cap_hours != null ? Math.min(rawRemaining, policy.balance_cap_hours) : rawRemaining,
     periodStart,
     periodEnd,
   }
@@ -94,10 +98,14 @@ export function computeLeaveBalance(
     .reduce((sum, r) => sum + (r.hours_requested ?? 0), 0)
 
   const allowanceHours = policy.annual_allowance_hours
+  const rawRemaining = allowanceHours == null ? null : Math.max(allowanceHours - usedHours, 0)
   return {
     allowanceHours,
     usedHours,
-    remainingHours: allowanceHours == null ? null : Math.max(allowanceHours - usedHours, 0),
+    remainingHours:
+      rawRemaining != null && policy.balance_cap_hours != null
+        ? Math.min(rawRemaining, policy.balance_cap_hours)
+        : rawRemaining,
     periodStart,
     periodEnd,
   }

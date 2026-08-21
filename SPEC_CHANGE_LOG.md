@@ -8,6 +8,137 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-21 — "Finish setup" checklist, Time screen weekly paging, and `schedule_exception_id` audit link built (resolves Q&A items 28/32/34); PTO policy waiting-period/balance-cap settings UI built (partially resolves item 24); six more items closed as "leave as built" (23/26/29/35/38/39); time-entry schedule pre-fill re-confirmed; six items remain open, presented in chat with recommendations
+
+This run's owner asked for progress against `APPLICATION_SPEC.md` "in
+phases" this time, rather than another pass that only presents the open
+`QUESTIONS_AND_CLARIFICATIONS.md` list without building anything (as
+2026-08-20 did per that day's explicit instruction). Also asked, separately,
+to have manual time-entry pre-fill from the caregiver's schedule (defaulting
+the date to today). That's already fully built and unchanged — `Time.tsx`'s
+`date` state initializes to today and a `useEffect` keyed on
+`[date, templates, shiftsByTemplate]` pre-fills start/end/break from that
+date's generated shift occurrence — re-confirmed again here, no code change,
+same as every session since 2026-08-08.
+
+**This session's scope:** rather than repeat 2026-08-20's "present
+everything, build nothing" pass, or unilaterally decide genuinely open
+judgment calls, this session drew a line at the 2026-08-08 recommendation
+index: any open item whose own recommendation was unambiguous and carried no
+unresolved design question of its own got built or formally decided (the
+same bar item 30 was built against the day before); everything else stays
+open and gets presented in chat again, per the standing instruction not to
+guess at real judgment calls. Ten items closed:
+
+### Built (Q&A items 28, 32, 34, 24-partial)
+
+- **Item 28 — "Finish setup" checklist card (`Home.tsx`).** Parent/co-admin
+  only, shown while any of four spec-13.1 setup steps are still at their
+  default: household timezone still `America/New_York`, no active recurring
+  schedule, no enabled PTO/sick policy, guaranteed hours never turned on for
+  any caregiver. Each line links straight to the existing screen that
+  already handles it (`/more`, `/calendar`, `/caregiver/:id`) — no new forms,
+  no onboarding-flow change. Disappears once every item's addressed, or can
+  be dismissed manually; dismissal is tracked per-household in
+  `localStorage` (`nanny-ledger:setup-checklist-dismissed:{householdId}`),
+  the same client-only-preference pattern already used for theme/time-format/
+  active-household in `PreferencesContext.tsx`/`HouseholdContext.tsx`.
+- **Item 32 — Time screen weekly paging (`Time.tsx`).** The active-entries
+  list now scopes to one calendar week at a time instead of every entry the
+  caregiver has ever logged. Defaults to the current week (via
+  `household.week_start_day`, `date-fns`'s `startOfWeek`/`addWeeks`), with a
+  prev/next toggle; "Next" is disabled once back at the current week since
+  there's nothing to page forward into. Resets to the current week when the
+  selected caregiver changes. The archived-entries section, add/edit forms,
+  and validation warnings are untouched — they already operate per-entry.
+  The spec's third "Corrections" tab stays unbuilt, per the recommendation,
+  since it has nothing to show until Q&A item 25 (still open) defines what
+  "request correction" does in this codebase.
+- **Item 34 — `time_entries.schedule_exception_id` audit-trail link
+  (`Time.tsx`).** A new `findScheduleExceptionId(caregiverId, date)` helper
+  queries that date's approved `schedule_exceptions` restricted to the
+  shift-affecting types (`added_shift`/`shortened_shift`/`extended_shift`/
+  `family_cancellation`); when exactly one matches, its id is stored on the
+  new time entry (both the manual-entry insert and clock-in), mirroring how
+  `schedule_shift_id`/`scheduledShiftId` already works. Zero or multiple
+  matches store nothing rather than guess. No pre-fill change, no
+  calculation reads the column — the recommendation's "audit-trail link
+  only" scope, exactly.
+- **Item 24 (partial) — PTO policy settings UI (`CaregiverDetail.tsx`,
+  `lib/leave.ts`).** Added, per leave type (PTO/sick), inputs for waiting
+  period (days), a balance cap (hours), and a "allow requesting more than
+  the remaining balance" checkbox (`negative_balance_allowed`) to the
+  existing PTO settings card, saved in the same `leave_policies` upsert the
+  annual-allowance field already used. `negative_balance_allowed`/
+  `waiting_period_days` were already read by `Pto.tsx`'s request validation
+  (2026-07-01 batch 3) — this just exposes the settings UI that was missing.
+  `balance_cap_hours` had no reader anywhere; `lib/leave.ts`'s
+  `computeLeaveBalanceFromLedger`/`computeLeaveBalance` now cap
+  `remainingHours` at it when set (`Math.min`), gating the existing balance
+  computation with no new trigger, matching the recommendation. This is
+  opt-in — no existing household's PTO/sick balance changes unless someone
+  actively sets a new cap or waiting period.
+
+  **`carryover_cap_hours` was deliberately left out**, unlike the
+  recommendation's literal field list: `lib/leave.ts`'s balance model never
+  resets at a policy-year boundary today (`policyYearStart` only changes
+  which ledger rows count as "used this year" for display; the running
+  balance itself just accumulates forever), so there's no rollover event for
+  a carryover cap to gate. Building settings UI for it without a reset
+  mechanism to attach it to would just create another populated-but-inert
+  column — left unbuilt for a future session if year-boundary balance reset
+  is ever built. Full accrual-method automation
+  (`per_hour_worked`/`per_pay_period`/`monthly`) and the
+  `counts_toward_guarantee`/`visible_to_nanny` redundancy the item
+  originally raised are both still unbuilt too — the recommendation never
+  called those mechanical.
+
+### Decided, no code change (Q&A items 23, 26, 29, 35, 38, 39)
+
+Each of these already had an unambiguous "leave as built" recommendation
+from the 2026-08-08 index with no unresolved design question of its own, so
+each was recorded as a deliberate decision rather than left to silently
+re-appear as "still open" indefinitely: item 23 (Home screen literal
+layout — current cards + reminder feed already cover it), item 26 (payment
+attachment/photo — still no household signal it's needed), item 29 (PTO
+deduction timing — stay on deduct-on-approval, don't risk moving an
+already-relied-upon balance number without a household asking), item 35
+(`leave_requests` time-of-day columns — the numeric hours field already
+covers it), item 38 (nanny "request only" schedule exceptions — the existing
+PTO/sick/unpaid leave-request flow already satisfies it; the dead RLS
+carve-out this item found is left in place as harmless unused surface rather
+than narrowed on a guess), and item 39 (section 10 vs. 11 co-admin
+permission-granularity mismatch — keep the narrower, section-10-matching
+set rather than add RLS surface for scenarios nobody's hit). See
+`QUESTIONS_AND_CLARIFICATIONS.md`'s `Resolved items — 2026-08-21` for each
+item's full reasoning.
+
+### Still open (Q&A items 22, 25, 31, 33, 36, 37)
+
+None of these six meet the "unambiguous, no unresolved design question"
+bar the ten closed items above did — 25/31/33 each turn on a real product
+or legal judgment call the spec doesn't settle (correction-workflow
+rearchitecture risk, per-workweek overtime bucketing for non-weekly pay,
+an unspecified period-boundary rule), and 22/36/37 either have a real but
+non-trivial UI-design surface of their own or no defensible guess at
+intent. Presented again in this session's chat/notification with their
+options and recommendations, per the standing instruction not to decide
+these unilaterally.
+
+`npx tsc -b`, `npm run build`, and `npx oxlint` all clean; no new warnings.
+Not smoke-tested against a live Supabase instance (no DB access in this
+session) — every change here is additive (a new card, a new list filter, a
+new nullable FK write, three new nullable/boolean `leave_policies` columns
+already present in the schema) with no migration required and an exact
+precedent elsewhere in the codebase for each pattern used, so risk is low,
+but worth a manual check if desired.
+
+See `QUESTIONS_AND_CLARIFICATIONS.md` for the full resolution write-ups and
+the complete list of items 22/25/31/33/36/37 still open, each with its
+options and recommendation.
+
+---
+
 ## 2026-08-20 — Household-member removal now soft-deletes (spec 10/15.3, resolves Q&A item 30); time-entry schedule pre-fill re-confirmed per explicit request; all remaining open Q&A items presented in chat with recommendations, none built unilaterally
 
 This run's owner asked specifically for two things: (1) confirm manual time

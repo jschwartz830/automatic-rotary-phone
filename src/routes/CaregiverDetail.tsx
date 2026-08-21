@@ -53,6 +53,14 @@ export function CaregiverDetail() {
   const caregiver = caregivers.find((c) => c.id === id) ?? null
   const { policies, refresh: refreshPolicies } = useLeavePolicies(id ?? null)
   const [allowanceDrafts, setAllowanceDrafts] = useState<Record<string, string>>({})
+  // Q&A item 24, option B: settings UI for the leave_policies fields calc/
+  // validation already reads (negative_balance_allowed, waiting_period_days)
+  // or can gate mechanically (balance_cap_hours, applied in lib/leave.ts).
+  // carryover_cap_hours stays unbuilt -- the ledger balance never resets at a
+  // policy year boundary today, so there's no rollover event to cap.
+  const [negativeBalanceDrafts, setNegativeBalanceDrafts] = useState<Record<string, boolean>>({})
+  const [waitingPeriodDrafts, setWaitingPeriodDrafts] = useState<Record<string, string>>({})
+  const [balanceCapDrafts, setBalanceCapDrafts] = useState<Record<string, string>>({})
   const [savingPolicy, setSavingPolicy] = useState<LeaveType | null>(null)
   const [policyError, setPolicyError] = useState<string | null>(null)
 
@@ -165,11 +173,20 @@ export function CaregiverDetail() {
 
   useEffect(() => {
     const drafts: Record<string, string> = {}
+    const negativeBalance: Record<string, boolean> = {}
+    const waitingPeriod: Record<string, string> = {}
+    const balanceCap: Record<string, string> = {}
     for (const type of BALANCE_TYPES) {
       const policy = policies.find((p) => p.leave_type === type)
       drafts[type] = policy?.annual_allowance_hours?.toString() ?? ''
+      negativeBalance[type] = policy?.negative_balance_allowed ?? false
+      waitingPeriod[type] = policy?.waiting_period_days?.toString() ?? ''
+      balanceCap[type] = policy?.balance_cap_hours?.toString() ?? ''
     }
     setAllowanceDrafts(drafts)
+    setNegativeBalanceDrafts(negativeBalance)
+    setWaitingPeriodDrafts(waitingPeriod)
+    setBalanceCapDrafts(balanceCap)
   }, [policies])
 
   async function saveAllowance(type: LeaveType) {
@@ -179,6 +196,8 @@ export function CaregiverDetail() {
     try {
       const draft = allowanceDrafts[type] ?? ''
       const newHours = draft ? Number(draft) : null
+      const waitingPeriodDraft = waitingPeriodDrafts[type] ?? ''
+      const balanceCapDraft = balanceCapDrafts[type] ?? ''
       const existingPolicy = policies.find((p) => p.leave_type === type)
       const { data: upsertedRows, error: upsertError } = await supabase
         .from('leave_policies')
@@ -188,6 +207,9 @@ export function CaregiverDetail() {
             leave_type: type,
             accrual_method: 'front_loaded_annual',
             annual_allowance_hours: newHours,
+            negative_balance_allowed: negativeBalanceDrafts[type] ?? false,
+            waiting_period_days: waitingPeriodDraft ? Number(waitingPeriodDraft) : null,
+            balance_cap_hours: balanceCapDraft ? Number(balanceCapDraft) : null,
           },
           { onConflict: 'caregiver_id,leave_type' }
         )
@@ -228,7 +250,13 @@ export function CaregiverDetail() {
         entityType: 'leave_policy',
         entityId: caregiver.id,
         action: 'update',
-        after: { leaveType: type, annualAllowanceHours: draft },
+        after: {
+          leaveType: type,
+          annualAllowanceHours: draft,
+          negativeBalanceAllowed: negativeBalanceDrafts[type] ?? false,
+          waitingPeriodDays: waitingPeriodDraft,
+          balanceCapHours: balanceCapDraft,
+        },
       })
 
       await refreshPolicies()
@@ -812,27 +840,59 @@ export function CaregiverDetail() {
       <Card title="PTO settings">
         <div className="space-y-4">
           {BALANCE_TYPES.map((type) => (
-            <Field key={type} label={`Annual ${formatLeaveType(type)} hours allowed`}>
-              <div className="flex items-center gap-2">
+            <div key={type} className="space-y-2 border-b border-gray-100 pb-4 last:border-0 last:pb-0 dark:border-gray-700">
+              <Field label={`Annual ${formatLeaveType(type)} hours allowed`}>
                 <input
                   type="number"
                   min="0"
                   step="1"
-                  className={`${inputClass} flex-1`}
+                  className={inputClass}
                   placeholder="Annual hours allowed"
                   value={allowanceDrafts[type] ?? ''}
                   onChange={(e) => setAllowanceDrafts((d) => ({ ...d, [type]: e.target.value }))}
                 />
-                <button
-                  type="button"
-                  className="text-xs text-blue-600 underline disabled:opacity-50 dark:text-blue-400"
-                  disabled={savingPolicy === type}
-                  onClick={() => saveAllowance(type)}
-                >
-                  {savingPolicy === type ? 'Saving…' : 'Save'}
-                </button>
+              </Field>
+              <div className="flex gap-3">
+                <Field label="Waiting period (days)">
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    className={inputClass}
+                    placeholder="None"
+                    value={waitingPeriodDrafts[type] ?? ''}
+                    onChange={(e) => setWaitingPeriodDrafts((d) => ({ ...d, [type]: e.target.value }))}
+                  />
+                </Field>
+                <Field label="Balance cap (hours)">
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    className={inputClass}
+                    placeholder="No cap"
+                    value={balanceCapDrafts[type] ?? ''}
+                    onChange={(e) => setBalanceCapDrafts((d) => ({ ...d, [type]: e.target.value }))}
+                  />
+                </Field>
               </div>
-            </Field>
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={negativeBalanceDrafts[type] ?? false}
+                  onChange={(e) => setNegativeBalanceDrafts((d) => ({ ...d, [type]: e.target.checked }))}
+                />
+                Allow requesting more than the remaining balance
+              </label>
+              <button
+                type="button"
+                className="text-xs text-blue-600 underline disabled:opacity-50 dark:text-blue-400"
+                disabled={savingPolicy === type}
+                onClick={() => saveAllowance(type)}
+              >
+                {savingPolicy === type ? 'Saving…' : `Save ${formatLeaveType(type)} policy`}
+              </button>
+            </div>
           ))}
           {policyError && <p className="text-xs text-red-600 dark:text-red-400">{policyError}</p>}
         </div>

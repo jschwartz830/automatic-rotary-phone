@@ -186,6 +186,7 @@ export function PTO() {
         reset_month: policy.reset_month,
         reset_day: policy.reset_day,
         annual_allowance_hours: policy.annual_allowance_hours,
+        balance_cap_hours: policy.balance_cap_hours,
       }
       const balance =
         policyLedger.length > 0
@@ -510,6 +511,7 @@ export function PTO() {
                 reset_month: null,
                 reset_day: null,
                 annual_allowance_hours: null,
+                balance_cap_hours: null,
               }
               const policyLedger = ledgerEntries.filter((e) => e.leave_policy_id === (policies.find((p) => p.leave_type === type)?.id))
               const balance = policyLedger.length > 0

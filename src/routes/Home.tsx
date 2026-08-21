@@ -160,6 +160,45 @@ interface DashboardCard {
   route: string
 }
 
+// Spec 13.1's guided setup covers timezone, guaranteed hours, PTO/sick
+// policy, and recurring schedule beyond what Onboarding.tsx itself collects
+// (household name, nanny name, hourly rate) -- Q&A item 28, option B. Every
+// one of these is already a working control on an existing screen; this just
+// surfaces the still-default ones until they've all been touched.
+interface SetupChecklistItem {
+  id: string
+  label: string
+  route: string
+}
+
+const DEFAULT_TIMEZONE = 'America/New_York'
+const SETUP_DISMISSED_KEY_PREFIX = 'nanny-ledger:setup-checklist-dismissed:'
+
+function buildSetupChecklist(input: {
+  household: { timezone: string } | null
+  caregivers: CaregiverProfile[]
+  templates: ScheduleTemplate[]
+  leavePolicies: LeavePolicy[]
+}): SetupChecklistItem[] {
+  const { household, caregivers, templates, leavePolicies } = input
+  if (caregivers.length === 0) return []
+  const firstCaregiverRoute = `/caregiver/${caregivers[0].id}`
+  const items: SetupChecklistItem[] = []
+  if (household && household.timezone === DEFAULT_TIMEZONE) {
+    items.push({ id: 'timezone', label: 'Confirm your household timezone', route: '/more' })
+  }
+  if (templates.length === 0) {
+    items.push({ id: 'schedule', label: 'Add a recurring schedule', route: '/calendar' })
+  }
+  if (!leavePolicies.some((p) => p.enabled)) {
+    items.push({ id: 'pto_policy', label: 'Set up a PTO/sick policy', route: firstCaregiverRoute })
+  }
+  if (!caregivers.some((c) => c.guaranteed_hours_enabled)) {
+    items.push({ id: 'guaranteed_hours', label: 'Set guaranteed hours (if any)', route: firstCaregiverRoute })
+  }
+  return items
+}
+
 const SEVERITY_STYLES: Record<ReminderCard['severity'], string> = {
   urgent: 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300',
   warning: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300',
@@ -247,8 +286,21 @@ export function Home() {
   const [dashboardCards, setDashboardCards] = useState<DashboardCard[]>([])
   const [todayStatuses, setTodayStatuses] = useState<TodayStatus[]>([])
   const [weekSummaries, setWeekSummaries] = useState<WeekSummary[]>([])
+  const [setupChecklist, setSetupChecklist] = useState<SetupChecklistItem[]>([])
+  const [setupDismissed, setSetupDismissed] = useState(false)
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (!household) return
+    setSetupDismissed(localStorage.getItem(SETUP_DISMISSED_KEY_PREFIX + household.id) === '1')
+  }, [household])
+
+  function dismissSetupChecklist() {
+    if (!household) return
+    localStorage.setItem(SETUP_DISMISSED_KEY_PREFIX + household.id, '1')
+    setSetupDismissed(true)
+  }
 
   useEffect(() => {
     const caregiverIds = isNanny
@@ -431,6 +483,9 @@ export function Home() {
           viewerIsNanny: isNanny,
         })
       )
+      setSetupChecklist(
+        isNanny ? [] : buildSetupChecklist({ household, caregivers: scopedCaregivers, templates, leavePolicies })
+      )
       setLoading(false)
     }
     load()
@@ -445,6 +500,31 @@ export function Home() {
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">{household?.name}</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400">Here's what needs your attention.</p>
       </div>
+
+      {!loading && !setupDismissed && setupChecklist.length > 0 && (
+        <Card title="Finish setup">
+          <div className="space-y-2">
+            {setupChecklist.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => navigate(item.route)}
+                className="flex w-full items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-left text-sm text-gray-700 dark:bg-gray-900 dark:text-gray-300"
+              >
+                <span>{item.label}</span>
+                <span className="text-gray-400 dark:text-gray-500" aria-hidden>
+                  →
+                </span>
+              </button>
+            ))}
+            <button
+              onClick={dismissSetupChecklist}
+              className="w-full text-center text-xs text-gray-400 underline dark:text-gray-500"
+            >
+              Dismiss
+            </button>
+          </div>
+        </Card>
+      )}
 
       {!loading && todayStatuses.length > 0 && (
         <Card title="Today">

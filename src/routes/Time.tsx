@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { addDays, addWeeks, format, startOfWeek } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { usePreferences } from '../context/PreferencesContext'
@@ -75,6 +76,11 @@ export function Time() {
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
   const [showArchive, setShowArchive] = useState(false)
+  // Spec 14.3's This Week / Previous Weeks split (Q&A item 32, option B):
+  // pages the active-entries list by calendar week instead of showing every
+  // entry the caregiver has ever logged in one long scroll. 0 = the current
+  // week, negative = weeks back.
+  const [weekOffset, setWeekOffset] = useState(0)
 
   useEffect(() => {
     if (isNanny && caregiverProfile) {
@@ -114,6 +120,10 @@ export function Time() {
     if (caregiverId) loadSchedule(caregiverId)
   }, [caregiverId])
 
+  useEffect(() => {
+    setWeekOffset(0)
+  }, [caregiverId])
+
   // Pre-fill the manual entry form with the caregiver's scheduled shift for
   // the selected date, so the common case (logging the shift as worked) only
   // needs a date pick rather than retyping hours. Falls back to a sane
@@ -134,6 +144,22 @@ export function Time() {
       setScheduledShiftId(null)
     }
   }, [date, templates, shiftsByTemplate])
+
+  // Spec 15.8's schedule_exception_id link (Q&A item 34, option B): a
+  // pure audit-trail link, stored only when exactly one approved,
+  // shift-affecting exception covers the entry's date -- never used for
+  // pre-fill or any calculation, unlike schedule_shift_id above.
+  async function findScheduleExceptionId(forCaregiverId: string, forDate: string): Promise<string | null> {
+    const { data } = await supabase
+      .from('schedule_exceptions')
+      .select('id')
+      .eq('caregiver_id', forCaregiverId)
+      .eq('date', forDate)
+      .eq('status', 'approved')
+      .in('exception_type', ['added_shift', 'shortened_shift', 'extended_shift', 'family_cancellation'])
+    const rows = data ?? []
+    return rows.length === 1 ? rows[0].id : null
+  }
 
   async function loadEntries(forCaregiverId: string) {
     const { data } = await supabase
@@ -180,12 +206,14 @@ export function Time() {
     setError(null)
     try {
       const paidHours = hoursBetween(startTime, endTime, Number(breakMinutes) || 0)
+      const scheduleExceptionId = await findScheduleExceptionId(caregiverId, date)
       const { data: entry, error: insertError } = await supabase
         .from('time_entries')
         .insert({
           caregiver_id: caregiverId,
           date,
           schedule_shift_id: scheduledShiftId,
+          schedule_exception_id: scheduleExceptionId,
           manual_start_time: startTime,
           manual_end_time: endTime,
           break_minutes: Number(breakMinutes) || 0,
@@ -253,12 +281,14 @@ export function Time() {
     try {
       const todayStr = new Date().toISOString().slice(0, 10)
       const todaysShift = generateShiftsForRange(templates, shiftsByTemplate, todayStr, todayStr)[0]?.shift
+      const scheduleExceptionId = await findScheduleExceptionId(caregiverId, todayStr)
       const { data: entry, error: insertError } = await supabase
         .from('time_entries')
         .insert({
           caregiver_id: caregiverId,
           date: todayStr,
           schedule_shift_id: todaysShift?.id ?? null,
+          schedule_exception_id: scheduleExceptionId,
           clock_in_at: new Date().toISOString(),
           method: 'clock',
           status: 'draft',
@@ -474,6 +504,11 @@ export function Time() {
   const selectedCaregiver =
     caregivers.find((c) => c.id === caregiverId) ?? (isNanny ? caregiverProfile : null)
   const weekStartsOn: 0 | 1 = household?.week_start_day === 'monday' ? 1 : 0
+  const viewedWeekStart = startOfWeek(addWeeks(new Date(), weekOffset), { weekStartsOn })
+  const viewedWeekEnd = addDays(viewedWeekStart, 6)
+  const viewedWeekStartStr = format(viewedWeekStart, 'yyyy-MM-dd')
+  const viewedWeekEndStr = format(viewedWeekEnd, 'yyyy-MM-dd')
+  const weekEntries = activeEntries.filter((e) => e.date >= viewedWeekStartStr && e.date <= viewedWeekEndStr)
   const actingRole: ActingRole = isNanny ? 'nanny' : 'parent'
   const overtimeThresholdHours = selectedCaregiver?.overtime_threshold_hours ?? 0
 
@@ -622,10 +657,37 @@ export function Time() {
         </Card>
       ) : (
         <div className="space-y-2">
+          <div className="flex items-center justify-between px-1">
+            <button
+              type="button"
+              aria-label="Previous week"
+              onClick={() => setWeekOffset((o) => o - 1)}
+              className="rounded-lg px-2 py-1 text-sm text-gray-400 active:bg-gray-100 dark:text-gray-500 dark:active:bg-gray-800"
+            >
+              ‹
+            </button>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {weekOffset === 0 ? 'This Week' : `Week of ${format(viewedWeekStart, 'MMM d')}`}
+            </p>
+            <button
+              type="button"
+              aria-label="Next week"
+              onClick={() => setWeekOffset((o) => o + 1)}
+              disabled={weekOffset === 0}
+              className="rounded-lg px-2 py-1 text-sm text-gray-400 active:bg-gray-100 disabled:opacity-30 dark:text-gray-500 dark:active:bg-gray-800"
+            >
+              ›
+            </button>
+          </div>
           <p className="px-1 text-[11px] text-gray-400 dark:text-gray-500">
             Tap an entry for details. Swipe left to archive{isParentOrCoAdmin ? ', swipe right to approve' : ''}.
           </p>
-          {activeEntries.map((entry) => {
+          {weekEntries.length === 0 && (
+            <Card>
+              <p className="text-sm text-gray-500 dark:text-gray-400">No time entries this week.</p>
+            </Card>
+          )}
+          {weekEntries.map((entry) => {
             const isActiveClock = entry.id === activeClockEntry?.id
             const { start: displayStart, end: displayEnd } = formatEntryTimeRange(entry, timeFormat)
             // Spec 14.3 Time Screen "Show: ... Scheduled vs actual" -- reuses
