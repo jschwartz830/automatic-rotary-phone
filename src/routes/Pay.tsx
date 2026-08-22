@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
-import { addDays, format } from 'date-fns'
+import { addDays, format, parseISO } from 'date-fns'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
@@ -10,7 +10,7 @@ import { errorMessage } from '../lib/errors'
 import { isValidCalendarDate } from '../lib/dates'
 import { calculateTimesheet, round2 } from '../lib/calc'
 import { downloadCsv, downloadJson } from '../lib/csv'
-import { buildDailyPayExportRows } from '../lib/payExport'
+import { buildDailyPayExportRows, buildTimesheetDailyBreakdown, type DailyBreakdown } from '../lib/payExport'
 import { parseTimesheetImport } from '../lib/timesheetImport'
 import { catchUpPayPeriod, computeCurrentPayPeriod, formatPaymentMethod, paymentDisplayStatus } from '../lib/payPeriod'
 import {
@@ -94,6 +94,90 @@ function HoursBreakdown({
   )
 }
 
+// Presentational only -- entryTimeRanges already carries the exact strings
+// buildDailyPayExportRows's CSV rows use ("HH:MM–HH:MM" for a manual entry,
+// full ISO timestamps for a clocked one); this just makes either readable
+// inline instead of duplicating any hour computation.
+function formatEntryTimeRange(range: string): string {
+  const [startRaw, endRaw] = range.split('–')
+  const formatOne = (raw: string | undefined) => {
+    if (!raw) return '?'
+    if (raw.includes('T')) {
+      const d = new Date(raw)
+      return Number.isNaN(d.getTime()) ? raw : format(d, 'h:mm a')
+    }
+    const [h, m] = raw.split(':')
+    const hour = Number(h)
+    if (Number.isNaN(hour)) return raw
+    const period = hour >= 12 ? 'PM' : 'AM'
+    const hour12 = hour % 12 === 0 ? 12 : hour % 12
+    return `${hour12}:${(m ?? '00').padStart(2, '0')} ${period}`
+  }
+  return `${formatOne(startRaw)}–${formatOne(endRaw)}`
+}
+
+// Spec 13.5's per-day timesheet breakdown (QUESTIONS_AND_CLARIFICATIONS.md
+// item 36) -- one card per calendar day in the period, nested as a
+// collapsible "Daily detail" disclosure below HoursBreakdown in the
+// timesheet detail Modal. Card list instead of a literal 10-column table,
+// same mobile-first pattern the rest of this codebase uses (no <table>
+// anywhere in src) rather than a table that would need horizontal scroll.
+function DailyDetailDay({ day }: { day: DailyBreakdown }) {
+  const leaveItems = (
+    [
+      ['PTO', day.ptoHours],
+      ['Sick', day.sickHours],
+      ['Holiday', day.holidayHours],
+      ['Unpaid', day.unpaidHours],
+      ['Other paid', day.otherPaidHours],
+    ] as const
+  ).filter(([, hours]) => hours > 0)
+  const notes = [...day.entryNotes, day.leaveNotes].filter(Boolean).join('; ')
+
+  return (
+    <div className="rounded-lg border border-gray-100 p-2.5 dark:border-gray-700">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">{format(parseISO(day.date), 'EEE, MMM d')}</p>
+        <div className="flex flex-wrap justify-end gap-1">
+          {day.entryStatuses.length > 0 ? (
+            day.entryStatuses.map((s) => <StatusChip key={s} status={s} />)
+          ) : (
+            <span className="text-[11px] text-gray-400 dark:text-gray-500">No entry</span>
+          )}
+        </div>
+      </div>
+      <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-gray-600 dark:text-gray-300">
+        <span>
+          Scheduled{' '}
+          <span className="font-medium text-gray-900 dark:text-gray-100">
+            {day.scheduledHours != null ? day.scheduledHours.toFixed(2) : '—'}
+          </span>
+        </span>
+        <span>
+          Worked <span className="font-medium text-gray-900 dark:text-gray-100">{day.actualWorkedHours.toFixed(2)}</span>
+        </span>
+        {leaveItems.map(([label, hours]) => (
+          <span key={label}>
+            {label} <span className="font-medium text-gray-900 dark:text-gray-100">{hours.toFixed(2)}</span>
+          </span>
+        ))}
+        {day.familyCancellationHours != null && day.familyCancellationHours > 0 && (
+          <span>
+            Family cancellation{' '}
+            <span className="font-medium text-gray-900 dark:text-gray-100">{day.familyCancellationHours.toFixed(2)}</span>
+          </span>
+        )}
+      </div>
+      {day.entryTimeRanges.length > 0 && (
+        <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+          {day.entryTimeRanges.map(formatEntryTimeRange).join(', ')}
+        </p>
+      )}
+      {notes && <p className="mt-1 text-[11px] italic text-gray-400 dark:text-gray-500">{notes}</p>}
+    </div>
+  )
+}
+
 function timesheetErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && (err as { code?: string }).code === '23505') {
     return 'A timesheet for this exact date range already exists. Archive it first (see Archived below), or adjust the dates.'
@@ -171,6 +255,14 @@ export function Pay() {
   const [approvingTimesheetId, setApprovingTimesheetId] = useState<string | null>(null)
   const [archivingId, setArchivingId] = useState<string | null>(null)
   const [showPaymentArchive, setShowPaymentArchive] = useState(false)
+  // Spec 13.5 per-day breakdown (Q&A item 36) -- lazy-loaded the first time
+  // the "Daily detail" disclosure is opened on a given timesheet, not
+  // up front for every row in the list.
+  const [showDailyDetail, setShowDailyDetail] = useState(false)
+  const [dailyDetailForId, setDailyDetailForId] = useState<string | null>(null)
+  const [dailyDetailRows, setDailyDetailRows] = useState<DailyBreakdown[] | null>(null)
+  const [dailyDetailLoading, setDailyDetailLoading] = useState(false)
+  const [dailyDetailError, setDailyDetailError] = useState<string | null>(null)
 
   const activeCaregiver = isNanny ? caregiverProfile : caregivers.find((c) => c.id === caregiverId) ?? null
   // Spec 11/15.4: nanny_can_view_gross_pay/nanny_can_view_guaranteed_hours only
@@ -241,6 +333,17 @@ export function Pay() {
   useEffect(() => {
     if (caregiverId) loadData(caregiverId)
   }, [caregiverId])
+
+  // Daily detail is scoped to whichever timesheet the modal is open for --
+  // reset it whenever that changes (a different row opened, or the modal
+  // closed) so a stale expanded/loaded state from one timesheet never shows
+  // through for another.
+  useEffect(() => {
+    setShowDailyDetail(false)
+    setDailyDetailForId(null)
+    setDailyDetailRows(null)
+    setDailyDetailError(null)
+  }, [detailTimesheetId])
 
   // Default both date-range forms to the pay period tied to the next
   // payday, so opening either form starts from a sensible range instead of
@@ -775,6 +878,61 @@ export function Pay() {
     } finally {
       setArchivingId(null)
     }
+  }
+
+  // Spec 13.5 per-day breakdown (Q&A item 36) -- loads the same per-day
+  // building blocks computePeriodTotals/loadScheduleContext already use for
+  // the pay calculation itself, plus a fresh time_entries/leave_requests
+  // fetch scoped to just this timesheet's own period (the "Timesheets" list
+  // doesn't keep those in state), then hands them to
+  // buildTimesheetDailyBreakdown (payExport.ts) -- the same per-day
+  // computation the CSV "Daily Detail" export already uses.
+  async function loadDailyDetail(timesheet: Timesheet) {
+    setDailyDetailLoading(true)
+    setDailyDetailError(null)
+    try {
+      const [entriesRes, leaveRes, schedule] = await Promise.all([
+        supabase
+          .from('time_entries')
+          .select('*')
+          .eq('caregiver_id', timesheet.caregiver_id)
+          .is('deleted_at', null)
+          .gte('date', timesheet.period_start)
+          .lte('date', timesheet.period_end),
+        supabase
+          .from('leave_requests')
+          .select('*')
+          .eq('caregiver_id', timesheet.caregiver_id)
+          .eq('status', 'approved')
+          .is('archived_at', null)
+          .lte('start_date', timesheet.period_end)
+          .gte('end_date', timesheet.period_start),
+        loadScheduleContext(timesheet.caregiver_id, timesheet.period_start, timesheet.period_end),
+      ])
+      if (entriesRes.error) throw entriesRes.error
+      if (leaveRes.error) throw leaveRes.error
+      setDailyDetailRows(
+        buildTimesheetDailyBreakdown(
+          timesheet,
+          (entriesRes.data ?? []) as TimeEntry[],
+          (leaveRes.data ?? []) as LeaveRequest[],
+          schedule
+        )
+      )
+      setDailyDetailForId(timesheet.id)
+    } catch (err) {
+      setDailyDetailError(errorMessage(err, 'Could not load daily detail.'))
+    } finally {
+      setDailyDetailLoading(false)
+    }
+  }
+
+  function toggleDailyDetail(timesheet: Timesheet) {
+    setShowDailyDetail((s) => {
+      const next = !s
+      if (next && dailyDetailForId !== timesheet.id) loadDailyDetail(timesheet)
+      return next
+    })
   }
 
   // A payment record can be archived on its own -- previously it could only
@@ -1875,6 +2033,27 @@ export function Pay() {
               </div>
             </div>
             <HoursBreakdown record={detailTimesheet} showGuaranteedHours={showGuaranteedHours} />
+            <div className="border-t border-gray-100 pt-3 dark:border-gray-700">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between text-xs font-semibold text-gray-700 dark:text-gray-300"
+                onClick={() => toggleDailyDetail(detailTimesheet)}
+              >
+                <span>Daily detail</span>
+                <span className="text-gray-400 dark:text-gray-500">{showDailyDetail ? '▲' : '▼'}</span>
+              </button>
+              {showDailyDetail && (
+                <div className="mt-2 space-y-2">
+                  {dailyDetailLoading && <p className="text-xs text-gray-400 dark:text-gray-500">Loading…</p>}
+                  {dailyDetailError && <p className="text-xs text-red-600 dark:text-red-400">{dailyDetailError}</p>}
+                  {!dailyDetailLoading &&
+                    !dailyDetailError &&
+                    dailyDetailRows &&
+                    dailyDetailForId === detailTimesheet.id &&
+                    dailyDetailRows.map((day) => <DailyDetailDay key={day.date} day={day} />)}
+                </div>
+              )}
+            </div>
             {detailTimesheet.correction_note && (
               <p className="text-xs text-amber-700 dark:text-amber-300">{detailTimesheet.correction_note}</p>
             )}

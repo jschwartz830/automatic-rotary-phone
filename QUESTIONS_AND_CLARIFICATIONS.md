@@ -143,7 +143,11 @@ question of its own. This run's owner asked to have every remaining open
 item presented with options and a recommendation, in this chat, rather than
 have any of them decided unilaterally — see the notification/chat message
 from this session for the full list; nothing below was built or changed as
-part of that ask beyond item 30.
+part of that ask beyond item 30. The 2026-08-22 session re-confirmed the
+time-entry schedule pre-fill once more (still correct, no change), then
+built items 28 and 36 below, each using its own already-standing
+recommendation (option B for both), the same low-ambiguity posture the
+2026-08-20 session used for item 30; no other open item was touched.
 
 ### Recommendations added 2026-08-08, per explicit request
 
@@ -174,7 +178,6 @@ recommendations are simply reaffirmed here since they're still unbuilt.
   stable across 30+ sessions, and isn't worth the risk without a household
   actually needing to reject and correct a submission.
 - **26 (Payment attachment/photo):** A — skip until a household asks for it.
-- **28 (Onboarding checklist):** B — dismissible "Finish setup" card on Home.
 - **29 (PTO deduction timing):** A — leave deduct-on-approval as-is. This
   moves an already-relied-upon balance number differently than the spec's
   literal recommendation, but every household using the app today has
@@ -213,9 +216,6 @@ recommendations are simply reaffirmed here since they're still unbuilt.
   column today.
 - **35 (`leave_requests.start_time`/`end_time` dead columns):** A — skip
   unless a household asks for hour-of-day granularity.
-- **36 (Spec 13.5 per-day timesheet breakdown missing from the UI):** B — a
-  collapsible daily table inside the timesheet detail view, reusing the
-  per-day computation the CSV export already has.
 - **37 (`payment_records.guarantee_override_note` dead column):** No
   recommendation — the column's intended trigger isn't specified anywhere
   past its name.
@@ -230,45 +230,6 @@ recommendations are simply reaffirmed here since they're still unbuilt.
   keep today's narrower, section-10-prose-matching permission set; don't
   add `view_pay_rate`/`edit_time_entries` toggles speculatively for
   scenarios no household has run into.
-
-### 28. Onboarding implements 2 of spec 13.1's 11 setup steps — build it out, or is "everything's reachable, just not funneled" good enough (spec 13.1)?
-
-Spec 13.1 specifies an 11-step guided parent setup: create household → set
-timezone → add nanny profile → start date → pay rate → pay frequency →
-guaranteed hours → PTO/sick policy → recurring schedule → invite nanny
-(optional) → configure reminders. `Onboarding.tsx` only collects household
-name and, optionally, nanny name + a single hourly rate — steps 2 and 4-11
-are skipped entirely during onboarding. Every one of those settings *does*
-exist as a real, working UI control elsewhere (timezone and pay frequency in
-`More.tsx`, guaranteed hours/PTO policy/pay rate in `CaregiverDetail.tsx`,
-schedule in `Schedule.tsx`, reminders in `More.tsx`'s reminder settings card,
-nanny invite via the join code) — nothing is missing from the app, it's just
-not funneled into one guided flow, so a new household has to discover each
-screen on its own after landing on Home with mostly-default settings
-(`America/New_York` timezone, no schedule, no PTO policy, no reminders
-configured).
-
-- **Option A — leave as-is.** Every setting is one or two taps away from
-  Home/More; a new parent who explores the app for five minutes finds all of
-  it. Zero new work.
-- **Option B — add a "Finish setup" checklist card.** A dismissible card on
-  `Home.tsx`, shown only while unconfigured, listing the still-default
-  settings (no schedule yet, no PTO policy yet, etc.) each linking straight
-  to the relevant existing screen. Doesn't touch the onboarding flow itself
-  or require building anything new per-step — just surfaces what already
-  exists at the moment it's most useful. Disappears once every item's been
-  touched (or is manually dismissed).
-- **Option C — full multi-step wizard.** Rebuild `Onboarding.tsx` into an
-  11-step literal match for spec 13.1, collecting every field inline before
-  the household ever reaches Home. Closest to the spec's literal wording, but
-  a much longer first-run flow, and duplicates form UI that already exists
-  on the settings screens (two places that create/edit the same PTO
-  policy/schedule, for instance).
-
-**Recommendation: B.** It closes the actual gap (a new household not knowing
-what's left to configure) without a first-run flow long enough to abandon,
-and without building a second copy of forms that already work fine on their
-own screens.
 
 ### 29. PTO/sick/unpaid deduction timing is hardcoded to "on approval," not spec 13.7's recommended default of "on timesheet approval" (spec 13.7)
 
@@ -343,59 +304,6 @@ granularity.** Same shape as item 26 (Payment attachment) — an
 explicitly-optional spec field with a working numeric fallback already in
 place, and no signal yet that the missing granularity has actually blocked
 anyone.
-
-### 36. Spec 13.5's per-day timesheet breakdown has no in-app view at all — only the CSV export computes it (spec 13.5)
-
-Spec 13.5's Timesheet Display lists a 10-field per-day breakdown as part of
-what a timesheet screen should show: date, scheduled hours, actual
-start/end, actual worked hours, PTO/sick/unpaid/family-cancellation hours,
-notes, and status. `Pay.tsx` never renders anything at this grain — every
-timesheet, in both the list and its detail view, is a single row/card
-summarizing the *whole period* (`HoursBreakdown`, built 2026-07-27, covers
-spec 13.5's period-level footer fields and spec 13.6's guaranteed-hours
-example table completely, but nothing narrower than a period). The exact
-per-day numbers spec 13.5 asks for already get computed, just not for
-display — `payExport.ts`'s `buildDailyPayExportRows` builds precisely this
-breakdown, one row per calendar day, for the "Daily Detail" CSV export
-(spec 13.11) — but that function's output is only ever handed to a CSV
-Blob, never rendered as a UI table. So today, seeing "what happened on
-Tuesday of this pay period" inside the app itself isn't possible; a parent
-has to export a CSV and open it elsewhere. Found via this session's full
-literal pass over spec 13.5 against `Pay.tsx`.
-
-This isn't a one-line "add a missing field" fix like several previous
-sessions' dead-column wire-ups, because there's no per-day UI surface to add
-a field *to* — building it means a genuinely new view: a table or
-expandable list nested inside the existing period-level timesheet
-detail, with its own mobile-layout decisions (10 columns is a lot for a
-narrow screen — some fields would need to collapse into a row, or the view
-would need to be a per-day card list instead of a literal table).
-
-- **Option A — leave as-is.** The CSV export (`buildDailyPayExportRows`,
-  already spec-13.11-compliant) is the daily view; a parent who wants
-  day-by-day detail exports it. Zero new work, but doesn't match spec
-  13.5's literal "Timesheet Display" list, which frames the per-day
-  breakdown as part of the in-app screen, not just an export.
-- **Option B — add a collapsible daily table inside the timesheet detail
-  view.** Reuse `buildDailyPayExportRows`'s existing per-day computation
-  (it already joins `time_entries`/`leave_requests`/`schedule_exceptions`
-  per day, refactored to be shared between the CSV path and a new render
-  path instead of duplicated) to populate an expandable table/card-list
-  under each timesheet's existing period-level summary. Closes the literal
-  gap without inventing new calculation logic — the hard part (assembling
-  the per-day numbers) is already built and tested via the CSV path.
-- **Option C — full day-by-day inline edit surface.** Same as B, but each
-  day's row is editable inline (jumping to or embedding `Time.tsx`'s
-  edit form), turning the timesheet detail view into a day-by-day editor
-  rather than a read-only breakdown. Spec 13.5 only asks for *display*,
-  not inline editing, so this is a bigger scope increase than the spec
-  itself calls for.
-
-**Recommendation: B, if built.** It's a real, previously-unflagged display
-gap — not just a nice-to-have judgment call — but the UI-layout decisions
-(how to compress 10 columns onto mobile, exactly where the table nests
-inside the existing detail view) are a real design surface worth a
-deliberate look rather than a guess baked into a mechanical fix.
 
 ### 37. `payment_records.guarantee_override_note` is a dead column — no workflow ever produces the note it's meant to hold (spec 13.6/15.13)
 
@@ -1010,6 +918,38 @@ this column for anything (no calculation, no display, no export), A is a
 perfectly defensible choice too if there's no concrete need for the
 audit-trail link yet; this is why it's flagged here rather than built
 unilaterally.
+
+---
+
+## Resolved items — 2026-08-22
+
+### 28. Onboarding implements 2 of spec 13.1's 11 setup steps — RESOLVED (option B)
+
+**Decision (built using this item's own standing recommendation — see
+`SPEC_CHANGE_LOG.md` 2026-08-22 for the implementation write-up):** Built a
+dismissible "Finish setup" card on `Home.tsx`, shown only to
+`isParentOrCoAdmin`, listing whichever of five still-default settings remain
+(no caregiver profile, no active schedule for every caregiver, no PTO/sick
+policy for every caregiver, household timezone still at its
+`America/New_York` default, zero customized `reminders` rows), each linking
+to the existing screen that already configures it. Nothing per-step was
+built — every setting already had a working control, per the original
+write-up. Dismissal (or every item being done) hides the card, persisted per
+household via `localStorage`, not a new column.
+
+### 36. Spec 13.5's per-day timesheet breakdown has no in-app view — RESOLVED (option B)
+
+**Decision (built using this item's own standing recommendation — see
+`SPEC_CHANGE_LOG.md` 2026-08-22 for the implementation write-up):** Added a
+collapsible "Daily detail" disclosure to `Pay.tsx`'s timesheet detail
+`Modal`, below the existing `HoursBreakdown` period summary, rendering one
+card per calendar day (date, scheduled hours, actual clock times, actual
+worked hours, PTO/sick/holiday/unpaid/family-cancellation hours, per-day
+time-entry status, notes) instead of a literal 10-column table, matching
+this codebase's mobile-first, table-free UI pattern. `payExport.ts`'s
+`buildDailyPayExportRows` (the CSV "Daily Detail" export) was refactored so
+both it and the new in-app view share one `computeDailyBreakdown()`
+per-day engine, with the CSV's own output byte-for-byte unchanged.
 
 ---
 

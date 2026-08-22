@@ -160,6 +160,88 @@ interface DashboardCard {
   route: string
 }
 
+// Spec 13.1's 11-step guided parent setup (Q&A item 28, option B) --
+// everything it asks for already has a real, working screen elsewhere in the
+// app (More.tsx, Schedule.tsx, CaregiverDetail.tsx); this just surfaces
+// what's still at its default so a new household knows where to go, rather
+// than rebuilding those screens as an inline wizard. Gated behind
+// isParentOrCoAdmin -- a nanny has no reason to see a household-setup
+// checklist for settings only a parent/co-admin can change.
+interface SetupChecklistItem {
+  id: string
+  label: string
+  done: boolean
+  route: string
+}
+
+const HOUSEHOLD_DEFAULT_TIMEZONE = 'America/New_York'
+
+function setupDismissedKey(householdId: string): string {
+  return `nanny-ledger:setup-checklist-dismissed:${householdId}`
+}
+
+function isSetupChecklistDismissed(householdId: string): boolean {
+  try {
+    return localStorage.getItem(setupDismissedKey(householdId)) === '1'
+  } catch {
+    return false
+  }
+}
+
+function dismissSetupChecklist(householdId: string): void {
+  try {
+    localStorage.setItem(setupDismissedKey(householdId), '1')
+  } catch {
+    // localStorage unavailable (private browsing, blocked site data) -- the
+    // card just keeps showing until every item is actually done instead;
+    // not worth surfacing an error for a purely cosmetic dismiss.
+  }
+}
+
+function buildSetupChecklist(input: {
+  caregivers: CaregiverProfile[]
+  templates: ScheduleTemplate[]
+  leavePolicies: LeavePolicy[]
+  reminderSettings: ReminderSetting[]
+  household: { timezone: string } | null
+}): SetupChecklistItem[] {
+  const { caregivers, templates, leavePolicies, reminderSettings, household } = input
+  const hasCaregiver = caregivers.length > 0
+  const soleCaregiverRoute = caregivers.length === 1 ? `/caregiver/${caregivers[0].id}` : '/more'
+  return [
+    {
+      id: 'caregiver',
+      label: 'Add a caregiver profile',
+      done: hasCaregiver,
+      route: '/more',
+    },
+    {
+      id: 'schedule',
+      label: 'Set up a recurring schedule',
+      done: hasCaregiver && caregivers.every((c) => templates.some((t) => t.caregiver_id === c.id)),
+      route: '/calendar',
+    },
+    {
+      id: 'leave_policy',
+      label: 'Configure a PTO/sick policy',
+      done: hasCaregiver && caregivers.every((c) => leavePolicies.some((p) => p.caregiver_id === c.id)),
+      route: soleCaregiverRoute,
+    },
+    {
+      id: 'timezone',
+      label: 'Set your household timezone',
+      done: household != null && household.timezone !== HOUSEHOLD_DEFAULT_TIMEZONE,
+      route: '/more',
+    },
+    {
+      id: 'reminders',
+      label: 'Customize reminder settings',
+      done: reminderSettings.length > 0,
+      route: '/more',
+    },
+  ]
+}
+
 const SEVERITY_STYLES: Record<ReminderCard['severity'], string> = {
   urgent: 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300',
   warning: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300',
@@ -241,14 +323,20 @@ function buildDashboardCards(input: {
 
 export function Home() {
   const { user } = useAuth()
-  const { household, isNanny, caregiverProfile } = useHousehold()
+  const { household, isNanny, isParentOrCoAdmin, caregiverProfile } = useHousehold()
   const { caregivers } = useCaregivers(household?.id)
   const [reminders, setReminders] = useState<ReminderCard[]>([])
   const [dashboardCards, setDashboardCards] = useState<DashboardCard[]>([])
   const [todayStatuses, setTodayStatuses] = useState<TodayStatus[]>([])
   const [weekSummaries, setWeekSummaries] = useState<WeekSummary[]>([])
+  const [setupChecklist, setSetupChecklist] = useState<SetupChecklistItem[]>([])
+  const [setupDismissed, setSetupDismissed] = useState(false)
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (household?.id) setSetupDismissed(isSetupChecklistDismissed(household.id))
+  }, [household?.id])
 
   useEffect(() => {
     const caregiverIds = isNanny
@@ -262,6 +350,11 @@ export function Home() {
       setDashboardCards([])
       setTodayStatuses([])
       setWeekSummaries([])
+      setSetupChecklist(
+        isParentOrCoAdmin
+          ? buildSetupChecklist({ caregivers: [], templates: [], leavePolicies: [], reminderSettings: [], household: household ?? null })
+          : []
+      )
       setLoading(false)
       return
     }
@@ -431,13 +524,18 @@ export function Home() {
           viewerIsNanny: isNanny,
         })
       )
+      setSetupChecklist(
+        isParentOrCoAdmin
+          ? buildSetupChecklist({ caregivers: scopedCaregivers, templates, leavePolicies, reminderSettings, household: household ?? null })
+          : []
+      )
       setLoading(false)
     }
     load()
     return () => {
       cancelled = true
     }
-  }, [caregivers, isNanny, caregiverProfile, household, user])
+  }, [caregivers, isNanny, isParentOrCoAdmin, caregiverProfile, household, user])
 
   return (
     <div className="space-y-4 p-4">
@@ -445,6 +543,39 @@ export function Home() {
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">{household?.name}</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400">Here's what needs your attention.</p>
       </div>
+
+      {!loading && !setupDismissed && setupChecklist.some((i) => !i.done) && (
+        <Card
+          title="Finish setup"
+          action={
+            <button
+              type="button"
+              className="text-xs text-gray-400 underline dark:text-gray-500"
+              onClick={() => {
+                if (household?.id) dismissSetupChecklist(household.id)
+                setSetupDismissed(true)
+              }}
+            >
+              Dismiss
+            </button>
+          }
+        >
+          <div className="space-y-2">
+            {setupChecklist
+              .filter((item) => !item.done)
+              .map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => navigate(item.route)}
+                  className="flex w-full items-center justify-between gap-2 rounded-xl border border-gray-100 p-3 text-left active:bg-gray-50 dark:border-gray-700 dark:active:bg-gray-900"
+                >
+                  <span className="text-sm text-gray-700 dark:text-gray-300">{item.label}</span>
+                  <span className="text-gray-300 dark:text-gray-600">›</span>
+                </button>
+              ))}
+          </div>
+        </Card>
+      )}
 
       {!loading && todayStatuses.length > 0 && (
         <Card title="Today">
