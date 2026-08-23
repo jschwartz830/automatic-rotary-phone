@@ -315,10 +315,17 @@ export function PTO() {
     setError(null)
     try {
       const newHours = hours ? Number(hours) : null
+      // Spec 15.11: leave_policy_id has to move with leave_type on edit, the
+      // same way it's set from the matching policy on insert (2026-08-03) --
+      // otherwise editing an entry from e.g. 'pto' to 'sick' leaves the FK
+      // pointing at the original policy even though the type it now names
+      // is different.
+      const policy = policies.find((p) => p.leave_type === leaveType)
       const { error: updateError } = await supabase
         .from('leave_requests')
         .update({
           leave_type: leaveType,
+          leave_policy_id: policy?.id ?? null,
           start_date: startDate,
           end_date: endDate || startDate,
           hours_requested: newHours,

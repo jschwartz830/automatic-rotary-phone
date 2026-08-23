@@ -143,7 +143,24 @@ question of its own. This run's owner asked to have every remaining open
 item presented with options and a recommendation, in this chat, rather than
 have any of them decided unilaterally — see the notification/chat message
 from this session for the full list; nothing below was built or changed as
-part of that ask beyond item 30.
+part of that ask beyond item 30. The 2026-08-23 session re-confirmed the
+time-entry schedule pre-fill once more (still correct, no change), then ran
+a fresh, literal bullet-by-bullet audit of spec 14.5 (PTO Screen) and 14.7
+(Settings Screen) against `PTO.tsx`/`CaregiverDetail.tsx`/`More.tsx` — the
+two screens whose last *fresh* literal pass (as opposed to a re-confirmation
+of a prior conclusion) was 2026-08-03/2026-08-05, well before several
+sessions' worth of PTO/settings-adjacent changes. Both screens came back
+clean against every spec bullet, with the "reachable elsewhere in the app,
+just not on this literal screen" bullets (PTO/sick policy summary on the PTO
+screen, schedule templates/export on the Settings screen) re-confirmed as
+the same already-accepted pattern documented for item 28 and the 2026-08-05
+14.7 audit, not a new finding. One small, previously-undocumented mechanical
+bug was found and fixed: `leave_requests.leave_policy_id` (spec 15.11) was
+correctly written on insert (per the 2026-08-03 fix) but never updated when
+an existing request was edited to a different leave type, leaving the FK
+stale after such an edit; `PTO.tsx`'s `handleEditSubmit` now re-resolves and
+writes it the same way the insert path already does. No new judgment call
+was opened. See `SPEC_CHANGE_LOG.md` 2026-08-23 for full detail.
 
 ### Recommendations added 2026-08-08, per explicit request
 

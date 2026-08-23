@@ -8,6 +8,90 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-23 — Time-entry schedule pre-fill re-confirmed again (still correct); full literal audit of spec 14.5 (PTO Screen) and 14.7 (Settings Screen) finds and fixes one mechanical gap; no new judgment calls
+
+**This session's scope, per the standing recurring-task instructions:**
+re-confirm the manual time-entry pre-fill behavior, then run a fresh,
+genuinely skeptical literal audit rather than a skim. Picked spec 14.5 (PTO
+Screen) and 14.7 (Settings Screen) because, per the running history in
+`QUESTIONS_AND_CLARIFICATIONS.md`, their last *fresh* bullet-by-bullet pass
+was 2026-08-03/2026-08-05 — the 2026-08-14 session only re-confirmed those
+sessions' conclusions rather than re-reading the spec bullets against the
+current code — making them the oldest genuinely-unrefreshed passes among the
+candidates the task suggested (13.9/13.11 were spot-checked 2026-08-18, 19
+was audited 2026-08-08, 20 was audited 2026-08-14 — all more recent than
+14.5/14.7's last fresh pass).
+
+**Time-entry schedule pre-fill: still correct, no change made.** Re-checked
+`Time.tsx` against spec 13.4 — `date` still defaults to today
+(`new Date().toISOString().slice(0, 10)`, line 51), the pre-fill `useEffect`
+(lines 121-136) still looks up the selected date's scheduled shift via
+`generateShiftsForRange` and fills `startTime`/`endTime`/`breakMinutes` from
+it, falling back to a sane default only when nothing's scheduled that day.
+Same behavior re-verified in every session since 2026-06-30; nothing needed
+to change.
+
+**Spec 14.5 (PTO Screen), bullet-by-bullet against `PTO.tsx`,
+`useLeavePolicies.ts`, and `CaregiverDetail.tsx`'s PTO settings card:**
+Parent view's Current balance, Pending requests, Ledger, and Manual
+adjustment bullets all match the code (Manual adjustment stays reachable
+only via `CaregiverDetail.tsx`'s allowance editor, which was already
+flagged and folded into open item 24's scope back on 2026-08-03 — not a new
+finding). Nanny view's Balance-if-enabled (`showPtoBalance` gating), Pending
+requests, Request PTO, and Request sick/unpaid time (the single leave-type
+selector covering all `LEAVE_TYPES`) all match. "PTO policy"/"Sick policy"
+and "Upcoming approved leave" have no dedicated summary/section on this
+screen specifically — but this is the same "reachable elsewhere in the app,
+just not funneled onto this literal screen" shape already explicitly
+accepted for item 28 (onboarding) and for 14.7's own 2026-08-05 audit
+(policy details live in `CaregiverDetail.tsx`, one tap away via More →
+Caregivers; approved leave is visible in the same list every other
+status is), so it's re-confirmed as fine, not opened as a new gap.
+
+One real, previously-undocumented mechanical bug found and fixed:
+**`leave_requests.leave_policy_id` (spec 15.11) was written correctly on
+insert (the 2026-08-03 fix) but never kept in sync when an existing request
+was edited to a different leave type.** `handleEditSubmit`'s update object
+set `leave_type`, `start_date`, `end_date`, `hours_requested`, and the note
+field, but not `leave_policy_id` — so editing e.g. a `'pto'` request to
+`'sick'` left the FK still pointing at the PTO policy row. Nothing in `src`
+currently reads `leave_requests.leave_policy_id` back (confirmed by grep;
+the ledger-correction logic in `applyUsedLedger`/`zeroOutLedgerForRequest`
+independently re-resolves the policy from `leave_type` on every call, not
+from this column), so this wasn't producing a visible balance bug today —
+but it's the same class of data-completeness gap the 2026-08-03 session
+fixed for the insert path, just left half-done for edits. Fixed by resolving
+`policy = policies.find(p => p.leave_type === leaveType)` the same way the
+insert path already does, and adding `leave_policy_id: policy?.id ?? null`
+to the edit's update payload.
+
+**Spec 14.7 (Settings Screen), bullet-by-bullet against `More.tsx` and
+`CaregiverDetail.tsx`:** every one of the ten listed sections (Household
+settings, User permissions, Nanny profile, Pay settings, Guaranteed hours
+settings, PTO/sick settings, Schedule templates, Reminder settings, Export
+records, Audit log) is present and working, either directly on `More.tsx`
+or one tap away (Nanny profile/Pay/Guaranteed-hours/PTO settings via
+Caregivers → `CaregiverDetail.tsx`, Schedule templates via `Schedule.tsx`,
+Export via `Pay.tsx`/`PTO.tsx`, Audit log via its bottom link) — re-confirms
+the 2026-08-05 session's conclusion with a fresh literal read rather than
+just trusting it. No gaps found in this section.
+
+**No new judgment calls surfaced this session.** The one bug found had an
+unambiguous, zero-risk fix with an exact precedent in the same file (the
+2026-08-03 insert-site fix, just completed for the edit path too), so it
+didn't need a `QUESTIONS_AND_CLARIFICATIONS.md` entry.
+
+**Health check:** `npm install` (fresh checkout had no `node_modules`), then
+`npx tsc -b`, `npm run build` (`tsc -b && vite build`), and `npx oxlint` all
+ran clean — no new TypeScript or lint errors, only the same pre-existing
+`react-hooks/exhaustive-deps` (`Schedule.tsx`) and Fast Refresh
+`only-export-components` warnings (context files, `Card.tsx`) prior sessions
+have already noted.
+
+No files besides `src/routes/PTO.tsx` were changed.
+
+---
+
 ## 2026-08-20 — Household-member removal now soft-deletes (spec 10/15.3, resolves Q&A item 30); time-entry schedule pre-fill re-confirmed per explicit request; all remaining open Q&A items presented in chat with recommendations, none built unilaterally
 
 This run's owner asked specifically for two things: (1) confirm manual time
