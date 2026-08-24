@@ -89,6 +89,69 @@ ran clean — no new TypeScript or lint errors, only the same pre-existing
 have already noted.
 
 No files besides `src/routes/PTO.tsx` were changed.
+## 2026-08-24 — Time-entry schedule pre-fill re-confirmed again (still correct, no change); first dedicated adversarial code-review pass over the last ~7 sessions' diff finds no bugs; one candidate hard-delete gap investigated and ruled a false alarm; all remaining open Q&A items presented in chat again, none built unilaterally
+
+This run's owner asked the same two standing things as 2026-08-20: (1) confirm
+manual time entry still pre-fills from the caregiver's scheduled shift hours,
+defaulting the date to today, and (2) present every open
+`QUESTIONS_AND_CLARIFICATIONS.md` item in chat with options and a
+recommendation. No code changed in between (2026-08-20 to 2026-08-24) other
+than the item-30 soft-delete PR already logged above, so there was nothing new
+to re-verify against.
+
+**(1) Pre-fill: unchanged, still correct.** Same `Time.tsx` behavior as every
+prior re-confirmation — `date` state initializes to today, and the
+`useEffect` keyed on `[date, templates, shiftsByTemplate]` fills
+`startTime`/`endTime`/`breakMinutes` from the selected date's generated shift
+occurrence, falling back to a sane default when nothing's scheduled. Eleven
+consecutive sessions (2026-08-08 through 2026-08-20) have now re-verified this
+with zero regressions.
+
+**New this session: a code-review pass, not another spec-literal audit.**
+Given how many consecutive sessions' full literal spec-vs-code audits have
+returned "no gaps found" across nearly every section (1-26), a straight
+spec-audit pass was likely to be low-yield again. Instead, this session ran
+an adversarial code-review over the diff from `03b23a9` (2026-08-12) through
+`0037ee8` (2026-08-20) — roughly the last seven merged sessions' worth of
+work — looking specifically for correctness bugs (wrong logic, RLS gaps,
+off-by-one errors, state bugs, race conditions) rather than spec-compliance
+gaps. It traced the new paid-period edit warning
+(`timeValidation.ts`/`Time.tsx`), the `household_users` soft-delete migration
+against every RLS policy that reads `household_users.status`, the
+`canMarkPaid`/`canArchivePayment`/`canArchiveTimesheet`/`canApproveTimesheet`
+co-admin permission gates in `Pay.tsx` against migration 0014's actual policy
+SQL, and the `Schedule.tsx` shift-preview computation. **Result: no bugs
+found.** The one pre-existing quirk noted (a shift-preview date-anchor
+divergence when reusing an existing template) predates this diff and only
+affects a non-persisted UI preview, not saved data or any calculation.
+
+**One candidate gap investigated, ruled a false alarm.** A sweep for
+remaining hard `.delete()` calls (the same pattern that previously found and
+fixed real bugs in `timesheets`, `schedule_exceptions`, and `household_users`)
+turned up two: `Schedule.tsx`'s `schedule_shifts` delete (already covered by
+resolved Q&A item 14 — a deliberate choice to keep the simple model, with an
+audit-trail mitigation) and `CaregiverDetail.tsx`'s `handleRemoveCaregiver`,
+which hard-deletes a `caregiver_profiles` row and, via `on delete cascade`,
+everything referencing it (schedule, time entries, timesheets, leave,
+payment history). On inspection this is **not** a silent bug: the confirm
+dialog explicitly reads "Permanently remove [name]? This also deletes their
+schedule, time entries, timesheets, leave, and payment history and cannot be
+undone. To keep their history, set their employment status to Inactive or
+Terminated instead" — and `employment_status` (`active`/`inactive`/
+`terminated`) is a real, already-wired settings field on the same screen,
+offered as the explicit non-destructive alternative. Unlike the household-
+member/timesheet/schedule-exception cases, this hard delete is deliberate,
+disclosed, and has a signposted alternative already built — so it was left
+as-is.
+
+**(2): per the standing instruction, no open item was built this session** —
+see the chat/notification for the full list of items 22-39 (all still open;
+item 30 closed 2026-08-20) with their options and recommendations, carried
+forward unchanged from prior sessions' analysis since nothing this session
+found changes any of that reasoning.
+
+`npx tsc -b`, `npm run build`, and `npx oxlint` all clean (no code changed
+this session, so this just confirms the tree is still in a good state).
 
 ---
 

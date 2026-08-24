@@ -161,6 +161,21 @@ an existing request was edited to a different leave type, leaving the FK
 stale after such an edit; `PTO.tsx`'s `handleEditSubmit` now re-resolves and
 writes it the same way the insert path already does. No new judgment call
 was opened. See `SPEC_CHANGE_LOG.md` 2026-08-23 for full detail.
+part of that ask beyond item 30. The 2026-08-24 session re-confirmed the
+pre-fill again (still correct), then — since consecutive sessions' full
+literal spec-vs-code audits had returned "no gaps found" across nearly every
+spec section by this point — ran an adversarial code-review pass over the
+diff instead of another spec audit, looking for real correctness bugs across
+the last ~7 sessions' merged work; found none. It also investigated
+`CaregiverDetail.tsx`'s hard-delete "Remove caregiver" action (found via a
+sweep for remaining hard `.delete()` calls, the same pattern that
+previously caught real bugs in `timesheets`/`schedule_exceptions`/
+`household_users`) and concluded it's a deliberate, clearly-disclosed action
+with an existing non-destructive alternative (`employment_status`), not a
+bug — see `SPEC_CHANGE_LOG.md` 2026-08-24 for detail. No new judgment calls
+were surfaced. Per the same standing instruction, every item below was
+presented again in chat with its options and recommendation, and nothing
+was built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
