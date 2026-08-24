@@ -143,7 +143,21 @@ question of its own. This run's owner asked to have every remaining open
 item presented with options and a recommendation, in this chat, rather than
 have any of them decided unilaterally — see the notification/chat message
 from this session for the full list; nothing below was built or changed as
-part of that ask beyond item 30.
+part of that ask beyond item 30. The 2026-08-24 session re-confirmed the
+pre-fill again (still correct), then — since consecutive sessions' full
+literal spec-vs-code audits had returned "no gaps found" across nearly every
+spec section by this point — ran an adversarial code-review pass over the
+diff instead of another spec audit, looking for real correctness bugs across
+the last ~7 sessions' merged work; found none. It also investigated
+`CaregiverDetail.tsx`'s hard-delete "Remove caregiver" action (found via a
+sweep for remaining hard `.delete()` calls, the same pattern that
+previously caught real bugs in `timesheets`/`schedule_exceptions`/
+`household_users`) and concluded it's a deliberate, clearly-disclosed action
+with an existing non-destructive alternative (`employment_status`), not a
+bug — see `SPEC_CHANGE_LOG.md` 2026-08-24 for detail. No new judgment calls
+were surfaced. Per the same standing instruction, every item below was
+presented again in chat with its options and recommendation, and nothing
+was built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
