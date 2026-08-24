@@ -1,5 +1,6 @@
 import { addDays, format, parseISO } from 'date-fns'
-import type { LeaveRequest, PaymentRecord, TimeEntry, Timesheet } from './types'
+import { exceptionHours, shiftHours, type GeneratedShiftOccurrence } from './schedule'
+import type { LeaveRequest, PaymentRecord, ScheduleException, ScheduleShift, TimeEntry, Timesheet } from './types'
 
 type PayExportRecord = Timesheet | PaymentRecord
 
@@ -17,6 +18,94 @@ function leaveHoursForDate(leave: LeaveRequest, date: string): number {
   return leave.hours_requested / days
 }
 
+// Optional schedule data (a period's active recurring occurrences + approved
+// exceptions) used to add per-day scheduled hours and per-day family
+// cancellation hours on top of the worked/leave hours every caller already
+// gets. The CSV export path (buildDailyPayExportRows) doesn't load this and
+// omits both fields, exactly as before this refactor -- only the new in-app
+// daily-detail view (Pay.tsx) passes it.
+export interface DailyScheduleContext {
+  occurrences: GeneratedShiftOccurrence[]
+  exceptions: ScheduleException[]
+  shiftsById: Record<string, ScheduleShift>
+}
+
+// One calendar day's worth of the spec 13.5 per-day breakdown: date,
+// scheduled hours, actual clock times, actual worked hours, PTO/sick/
+// unpaid/family-cancellation hours, notes, and each time entry's own status.
+// Shared building block for the CSV "Daily Detail" export
+// (buildDailyPayExportRows) and the in-app daily table on a timesheet's
+// detail view (Pay.tsx's DailyDetail) -- both need the same worked/leave
+// hours per day, just shaped differently (CSV row vs typed numbers for
+// rendering).
+export interface DailyBreakdown {
+  date: string
+  scheduledHours: number | null
+  entryTimeRanges: string[]
+  entryCount: number
+  actualWorkedHours: number
+  ptoHours: number
+  sickHours: number
+  holidayHours: number
+  unpaidHours: number
+  otherPaidHours: number
+  familyCancellationHours: number | null
+  leaveNotes: string
+  entryNotes: string[]
+  entryStatuses: string[]
+}
+
+export function computeDailyBreakdown(
+  date: string,
+  entries: TimeEntry[],
+  leaveRequests: LeaveRequest[],
+  schedule?: DailyScheduleContext
+): DailyBreakdown {
+  const dayEntries = entries.filter((entry) => entry.date === date)
+  const dayLeave = leaveRequests.filter((leave) => date >= leave.start_date && date <= leave.end_date)
+  const leaveHours = (type: LeaveRequest['leave_type']) =>
+    dayLeave.filter((leave) => leave.leave_type === type).reduce((sum, leave) => sum + leaveHoursForDate(leave, date), 0)
+
+  let scheduledHours: number | null = null
+  let familyCancellationHours: number | null = null
+  if (schedule) {
+    scheduledHours = schedule.occurrences
+      .filter((o) => o.date === date)
+      .reduce((sum, o) => sum + shiftHours(o.shift), 0)
+    // Mirrors Pay.tsx's computePeriodTotals: weather_emergency folds into the
+    // same "didn't work, still paid" bucket as family_cancellation, and only
+    // exceptions marked affects_pay count.
+    familyCancellationHours = schedule.exceptions
+      .filter(
+        (e) =>
+          e.date === date &&
+          e.status === 'approved' &&
+          e.affects_pay &&
+          (e.exception_type === 'family_cancellation' || e.exception_type === 'weather_emergency')
+      )
+      .reduce((sum, e) => sum + exceptionHours(e, schedule.shiftsById), 0)
+  }
+
+  return {
+    date,
+    scheduledHours,
+    entryTimeRanges: dayEntries.map(
+      (entry) => `${entry.manual_start_time ?? entry.clock_in_at ?? ''}–${entry.manual_end_time ?? entry.clock_out_at ?? ''}`
+    ),
+    entryCount: dayEntries.length,
+    actualWorkedHours: dayEntries.reduce((sum, entry) => sum + (entry.paid_hours ?? 0), 0),
+    ptoHours: leaveHours('pto'),
+    sickHours: leaveHours('sick'),
+    holidayHours: leaveHours('holiday'),
+    unpaidHours: leaveHours('unpaid'),
+    otherPaidHours: leaveHours('other_paid'),
+    familyCancellationHours,
+    leaveNotes: dayLeave.map((leave) => leave.nanny_note ?? leave.parent_note ?? '').filter(Boolean).join('; '),
+    entryNotes: dayEntries.map((entry) => entry.nanny_note ?? entry.parent_note ?? '').filter(Boolean),
+    entryStatuses: [...new Set(dayEntries.map((entry) => entry.status))],
+  }
+}
+
 /**
  * Produces one CSV record for each calendar day in every exported pay period.
  * Pay amounts remain period-level values because the pay calculation can include
@@ -31,28 +120,22 @@ export function buildDailyPayExportRows(
 ): Record<string, unknown>[] {
   return records.flatMap((record) =>
     datesInRange(record.period_start, record.period_end).map((date) => {
-      const dayEntries = entries.filter((entry) => entry.date === date)
-      const dayLeave = leaveRequests.filter((leave) => date >= leave.start_date && date <= leave.end_date)
-      const leaveHours = (type: LeaveRequest['leave_type']) =>
-        dayLeave.filter((leave) => leave.leave_type === type).reduce((sum, leave) => sum + leaveHoursForDate(leave, date), 0)
-      const entryDetails = dayEntries
-        .map((entry) => `${entry.manual_start_time ?? entry.clock_in_at ?? ''}–${entry.manual_end_time ?? entry.clock_out_at ?? ''}`)
-        .join('; ')
+      const day = computeDailyBreakdown(date, entries, leaveRequests)
 
       return {
         record_type: recordType,
         period_start: record.period_start,
         period_end: record.period_end,
         date,
-        hours_worked: dayEntries.reduce((sum, entry) => sum + (entry.paid_hours ?? 0), 0),
-        time_entry_count: dayEntries.length,
-        time_entry_times: entryDetails,
-        pto_hours: leaveHours('pto'),
-        sick_hours: leaveHours('sick'),
-        holiday_hours: leaveHours('holiday'),
-        unpaid_time_off_hours: leaveHours('unpaid'),
-        other_paid_time_off_hours: leaveHours('other_paid'),
-        time_off_notes: dayLeave.map((leave) => leave.nanny_note ?? leave.parent_note ?? '').filter(Boolean).join('; '),
+        hours_worked: day.actualWorkedHours,
+        time_entry_count: day.entryCount,
+        time_entry_times: day.entryTimeRanges.join('; '),
+        pto_hours: day.ptoHours,
+        sick_hours: day.sickHours,
+        holiday_hours: day.holidayHours,
+        unpaid_time_off_hours: day.unpaidHours,
+        other_paid_time_off_hours: day.otherPaidHours,
+        time_off_notes: day.leaveNotes,
         record_status: record.status,
         actual_worked_hours_period: record.actual_worked_hours,
         regular_worked_hours_period: record.regular_worked_hours,
@@ -81,5 +164,24 @@ export function buildDailyPayExportRows(
           : { unpaid_time_off_hours_period: (record as Timesheet).unpaid_time_off_hours }),
       }
     })
+  )
+}
+
+/**
+ * The same per-day breakdown as buildDailyPayExportRows, but for one
+ * timesheet, typed for rendering rather than shaped into a CSV row -- spec
+ * 13.5's in-app "Timesheet Display" per-day table (QUESTIONS_AND_CLARIFICATIONS.md
+ * item 36), nested inside Pay.tsx's timesheet detail view. Unlike the CSV
+ * path, this always includes a schedule context so scheduled hours and
+ * family-cancellation hours are populated per day, not just left null.
+ */
+export function buildTimesheetDailyBreakdown(
+  timesheet: Timesheet,
+  entries: TimeEntry[],
+  leaveRequests: LeaveRequest[],
+  schedule: DailyScheduleContext
+): DailyBreakdown[] {
+  return datesInRange(timesheet.period_start, timesheet.period_end).map((date) =>
+    computeDailyBreakdown(date, entries, leaveRequests, schedule)
   )
 }

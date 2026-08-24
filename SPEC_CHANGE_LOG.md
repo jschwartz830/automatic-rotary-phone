@@ -8,6 +8,82 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-22 — "Finish setup" checklist on Home (resolves Q&A item 28); in-app per-day timesheet breakdown in Pay's timesheet detail view (resolves Q&A item 36); time-entry schedule pre-fill re-confirmed
+
+Built items **28** and **36**, each using its own already-standing
+recommendation (option B for both) rather than a fresh judgment call — both
+had unambiguous option lists with a clear "if built" recommendation already
+written up in `QUESTIONS_AND_CLARIFICATIONS.md`, the same posture the
+2026-08-20 session used to close item 30. No other open item (22-27, 29,
+31-35, 37-39) was touched.
+
+**Item 28 — "Finish setup" checklist (spec 13.1):** `Home.tsx` now renders a
+dismissible "Finish setup" card, visible only to `isParentOrCoAdmin`, listing
+whichever of five still-default settings remain: no caregiver profile yet, no
+active `schedule_templates` row for every caregiver, no PTO/sick
+`leave_policies` row for every caregiver, the household `timezone` still at
+its `'America/New_York'` DB default, and zero `reminders` rows for this
+household/user. Each item routes straight to the screen that already handles
+it (`/more` for caregivers/timezone/reminders, `/calendar` for schedule,
+`/caregiver/:id` for PTO settings when there's exactly one caregiver,
+otherwise `/more` so the parent picks which one) — no new screen or form was
+built, matching option B's framing that every one of spec 13.1's 11 steps
+already has a working control somewhere in the app. The five checks reuse
+data `Home.tsx`'s existing load effect already fetches (`caregivers`,
+active `templates`, PTO/sick `leavePolicies`, and the current user's
+`reminders` rows) rather than issuing new queries. The card disappears once
+every item is done, or the parent taps "Dismiss" — dismissal is stored in
+`localStorage` under `nanny-ledger:setup-checklist-dismissed:<householdId>`
+(read/write both wrapped in try/catch), the same per-viewer-convenience use
+the codebase's other `localStorage` keys (active-household, theme,
+time-format) already follow. No new column or migration.
+
+**Item 36 — per-day timesheet breakdown (spec 13.5):** `Pay.tsx`'s timesheet
+detail `Modal` now has a collapsible "Daily detail" disclosure below the
+existing `HoursBreakdown` period summary. Expanding it lazy-loads that
+timesheet's time entries, approved leave requests, and active schedule
+context, then renders one card per calendar day in the period (a card list,
+not a literal 10-column table, matching the mobile-first, table-free pattern
+already used everywhere else in this codebase) showing: date, scheduled
+hours, actual clock-in/out times, actual worked hours, PTO/sick/holiday/
+unpaid/family-cancellation hours (only the nonzero ones, to keep a mostly-
+worked day's card short), each time entry's own status as a chip
+(`draft`/`submitted`/`approved`/etc., not the period's status), and notes.
+
+`src/lib/payExport.ts`'s `buildDailyPayExportRows` (the CSV "Daily Detail"
+export's per-day engine) was refactored, not duplicated: its per-day logic
+now lives in a new shared `computeDailyBreakdown()` that returns a typed
+`DailyBreakdown` object instead of CSV-row-shaped strings, and
+`buildDailyPayExportRows` maps that same typed object onto the exact same
+CSV column set/values as before — the CSV output is byte-for-byte unchanged.
+A new `buildTimesheetDailyBreakdown()` calls the same `computeDailyBreakdown()`
+for the new render path, additionally passing a schedule context
+(occurrences + approved exceptions for the period, loaded via `Pay.tsx`'s
+existing `loadScheduleContext()`) so scheduled hours and family-cancellation
+hours — which the CSV path has never computed per day, only as period
+totals — get filled in for the UI using the same `shiftHours()`/
+`exceptionHours()` primitives `schedule.ts` already exports, just grouped by
+day instead of by period; no new hour-calculation formula was invented. The
+CSV call site (`exportDetailedRecords` in `Pay.tsx`) is untouched and still
+doesn't load schedule context, so those two fields stay absent from the CSV
+exactly as before.
+
+Re-confirmed the manual time-entry form's schedule pre-fill against
+`Time.tsx` again this session (the `useEffect` keyed on
+`[date, templates, shiftsByTemplate]`, `Time.tsx:121-136`) — still correct,
+no change.
+
+`npx tsc -b`, `npm run build`, and `npx oxlint` all clean; no new warnings
+(verified by diffing oxlint's output against the pre-change tree — the six
+pre-existing warnings in `AuthContext.tsx`/`HouseholdContext.tsx`/
+`PreferencesContext.tsx`/`Card.tsx`/`Schedule.tsx` are unchanged and none of
+this session's three touched files appear in the list). Not smoke-tested
+against a live Supabase instance (no DB access in this session); both
+features only read existing tables/columns, no migration involved.
+
+See `QUESTIONS_AND_CLARIFICATIONS.md`'s 2026-08-22 resolved-items section for
+the short decision write-up, and its updated intro paragraph for how this
+session's scope was chosen.
 ## 2026-08-23 — Time-entry schedule pre-fill re-confirmed again (still correct); full literal audit of spec 14.5 (PTO Screen) and 14.7 (Settings Screen) finds and fixes one mechanical gap; no new judgment calls
 
 **This session's scope, per the standing recurring-task instructions:**
