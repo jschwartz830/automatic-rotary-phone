@@ -148,6 +148,39 @@ time-entry schedule pre-fill once more (still correct, no change), then
 built items 28 and 36 below, each using its own already-standing
 recommendation (option B for both), the same low-ambiguity posture the
 2026-08-20 session used for item 30; no other open item was touched.
+part of that ask beyond item 30. The 2026-08-23 session re-confirmed the
+time-entry schedule pre-fill once more (still correct, no change), then ran
+a fresh, literal bullet-by-bullet audit of spec 14.5 (PTO Screen) and 14.7
+(Settings Screen) against `PTO.tsx`/`CaregiverDetail.tsx`/`More.tsx` — the
+two screens whose last *fresh* literal pass (as opposed to a re-confirmation
+of a prior conclusion) was 2026-08-03/2026-08-05, well before several
+sessions' worth of PTO/settings-adjacent changes. Both screens came back
+clean against every spec bullet, with the "reachable elsewhere in the app,
+just not on this literal screen" bullets (PTO/sick policy summary on the PTO
+screen, schedule templates/export on the Settings screen) re-confirmed as
+the same already-accepted pattern documented for item 28 and the 2026-08-05
+14.7 audit, not a new finding. One small, previously-undocumented mechanical
+bug was found and fixed: `leave_requests.leave_policy_id` (spec 15.11) was
+correctly written on insert (per the 2026-08-03 fix) but never updated when
+an existing request was edited to a different leave type, leaving the FK
+stale after such an edit; `PTO.tsx`'s `handleEditSubmit` now re-resolves and
+writes it the same way the insert path already does. No new judgment call
+was opened. See `SPEC_CHANGE_LOG.md` 2026-08-23 for full detail.
+part of that ask beyond item 30. The 2026-08-24 session re-confirmed the
+pre-fill again (still correct), then — since consecutive sessions' full
+literal spec-vs-code audits had returned "no gaps found" across nearly every
+spec section by this point — ran an adversarial code-review pass over the
+diff instead of another spec audit, looking for real correctness bugs across
+the last ~7 sessions' merged work; found none. It also investigated
+`CaregiverDetail.tsx`'s hard-delete "Remove caregiver" action (found via a
+sweep for remaining hard `.delete()` calls, the same pattern that
+previously caught real bugs in `timesheets`/`schedule_exceptions`/
+`household_users`) and concluded it's a deliberate, clearly-disclosed action
+with an existing non-destructive alternative (`employment_status`), not a
+bug — see `SPEC_CHANGE_LOG.md` 2026-08-24 for detail. No new judgment calls
+were surfaced. Per the same standing instruction, every item below was
+presented again in chat with its options and recommendation, and nothing
+was built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 

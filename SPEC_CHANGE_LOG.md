@@ -84,6 +84,150 @@ features only read existing tables/columns, no migration involved.
 See `QUESTIONS_AND_CLARIFICATIONS.md`'s 2026-08-22 resolved-items section for
 the short decision write-up, and its updated intro paragraph for how this
 session's scope was chosen.
+## 2026-08-23 — Time-entry schedule pre-fill re-confirmed again (still correct); full literal audit of spec 14.5 (PTO Screen) and 14.7 (Settings Screen) finds and fixes one mechanical gap; no new judgment calls
+
+**This session's scope, per the standing recurring-task instructions:**
+re-confirm the manual time-entry pre-fill behavior, then run a fresh,
+genuinely skeptical literal audit rather than a skim. Picked spec 14.5 (PTO
+Screen) and 14.7 (Settings Screen) because, per the running history in
+`QUESTIONS_AND_CLARIFICATIONS.md`, their last *fresh* bullet-by-bullet pass
+was 2026-08-03/2026-08-05 — the 2026-08-14 session only re-confirmed those
+sessions' conclusions rather than re-reading the spec bullets against the
+current code — making them the oldest genuinely-unrefreshed passes among the
+candidates the task suggested (13.9/13.11 were spot-checked 2026-08-18, 19
+was audited 2026-08-08, 20 was audited 2026-08-14 — all more recent than
+14.5/14.7's last fresh pass).
+
+**Time-entry schedule pre-fill: still correct, no change made.** Re-checked
+`Time.tsx` against spec 13.4 — `date` still defaults to today
+(`new Date().toISOString().slice(0, 10)`, line 51), the pre-fill `useEffect`
+(lines 121-136) still looks up the selected date's scheduled shift via
+`generateShiftsForRange` and fills `startTime`/`endTime`/`breakMinutes` from
+it, falling back to a sane default only when nothing's scheduled that day.
+Same behavior re-verified in every session since 2026-06-30; nothing needed
+to change.
+
+**Spec 14.5 (PTO Screen), bullet-by-bullet against `PTO.tsx`,
+`useLeavePolicies.ts`, and `CaregiverDetail.tsx`'s PTO settings card:**
+Parent view's Current balance, Pending requests, Ledger, and Manual
+adjustment bullets all match the code (Manual adjustment stays reachable
+only via `CaregiverDetail.tsx`'s allowance editor, which was already
+flagged and folded into open item 24's scope back on 2026-08-03 — not a new
+finding). Nanny view's Balance-if-enabled (`showPtoBalance` gating), Pending
+requests, Request PTO, and Request sick/unpaid time (the single leave-type
+selector covering all `LEAVE_TYPES`) all match. "PTO policy"/"Sick policy"
+and "Upcoming approved leave" have no dedicated summary/section on this
+screen specifically — but this is the same "reachable elsewhere in the app,
+just not funneled onto this literal screen" shape already explicitly
+accepted for item 28 (onboarding) and for 14.7's own 2026-08-05 audit
+(policy details live in `CaregiverDetail.tsx`, one tap away via More →
+Caregivers; approved leave is visible in the same list every other
+status is), so it's re-confirmed as fine, not opened as a new gap.
+
+One real, previously-undocumented mechanical bug found and fixed:
+**`leave_requests.leave_policy_id` (spec 15.11) was written correctly on
+insert (the 2026-08-03 fix) but never kept in sync when an existing request
+was edited to a different leave type.** `handleEditSubmit`'s update object
+set `leave_type`, `start_date`, `end_date`, `hours_requested`, and the note
+field, but not `leave_policy_id` — so editing e.g. a `'pto'` request to
+`'sick'` left the FK still pointing at the PTO policy row. Nothing in `src`
+currently reads `leave_requests.leave_policy_id` back (confirmed by grep;
+the ledger-correction logic in `applyUsedLedger`/`zeroOutLedgerForRequest`
+independently re-resolves the policy from `leave_type` on every call, not
+from this column), so this wasn't producing a visible balance bug today —
+but it's the same class of data-completeness gap the 2026-08-03 session
+fixed for the insert path, just left half-done for edits. Fixed by resolving
+`policy = policies.find(p => p.leave_type === leaveType)` the same way the
+insert path already does, and adding `leave_policy_id: policy?.id ?? null`
+to the edit's update payload.
+
+**Spec 14.7 (Settings Screen), bullet-by-bullet against `More.tsx` and
+`CaregiverDetail.tsx`:** every one of the ten listed sections (Household
+settings, User permissions, Nanny profile, Pay settings, Guaranteed hours
+settings, PTO/sick settings, Schedule templates, Reminder settings, Export
+records, Audit log) is present and working, either directly on `More.tsx`
+or one tap away (Nanny profile/Pay/Guaranteed-hours/PTO settings via
+Caregivers → `CaregiverDetail.tsx`, Schedule templates via `Schedule.tsx`,
+Export via `Pay.tsx`/`PTO.tsx`, Audit log via its bottom link) — re-confirms
+the 2026-08-05 session's conclusion with a fresh literal read rather than
+just trusting it. No gaps found in this section.
+
+**No new judgment calls surfaced this session.** The one bug found had an
+unambiguous, zero-risk fix with an exact precedent in the same file (the
+2026-08-03 insert-site fix, just completed for the edit path too), so it
+didn't need a `QUESTIONS_AND_CLARIFICATIONS.md` entry.
+
+**Health check:** `npm install` (fresh checkout had no `node_modules`), then
+`npx tsc -b`, `npm run build` (`tsc -b && vite build`), and `npx oxlint` all
+ran clean — no new TypeScript or lint errors, only the same pre-existing
+`react-hooks/exhaustive-deps` (`Schedule.tsx`) and Fast Refresh
+`only-export-components` warnings (context files, `Card.tsx`) prior sessions
+have already noted.
+
+No files besides `src/routes/PTO.tsx` were changed.
+## 2026-08-24 — Time-entry schedule pre-fill re-confirmed again (still correct, no change); first dedicated adversarial code-review pass over the last ~7 sessions' diff finds no bugs; one candidate hard-delete gap investigated and ruled a false alarm; all remaining open Q&A items presented in chat again, none built unilaterally
+
+This run's owner asked the same two standing things as 2026-08-20: (1) confirm
+manual time entry still pre-fills from the caregiver's scheduled shift hours,
+defaulting the date to today, and (2) present every open
+`QUESTIONS_AND_CLARIFICATIONS.md` item in chat with options and a
+recommendation. No code changed in between (2026-08-20 to 2026-08-24) other
+than the item-30 soft-delete PR already logged above, so there was nothing new
+to re-verify against.
+
+**(1) Pre-fill: unchanged, still correct.** Same `Time.tsx` behavior as every
+prior re-confirmation — `date` state initializes to today, and the
+`useEffect` keyed on `[date, templates, shiftsByTemplate]` fills
+`startTime`/`endTime`/`breakMinutes` from the selected date's generated shift
+occurrence, falling back to a sane default when nothing's scheduled. Eleven
+consecutive sessions (2026-08-08 through 2026-08-20) have now re-verified this
+with zero regressions.
+
+**New this session: a code-review pass, not another spec-literal audit.**
+Given how many consecutive sessions' full literal spec-vs-code audits have
+returned "no gaps found" across nearly every section (1-26), a straight
+spec-audit pass was likely to be low-yield again. Instead, this session ran
+an adversarial code-review over the diff from `03b23a9` (2026-08-12) through
+`0037ee8` (2026-08-20) — roughly the last seven merged sessions' worth of
+work — looking specifically for correctness bugs (wrong logic, RLS gaps,
+off-by-one errors, state bugs, race conditions) rather than spec-compliance
+gaps. It traced the new paid-period edit warning
+(`timeValidation.ts`/`Time.tsx`), the `household_users` soft-delete migration
+against every RLS policy that reads `household_users.status`, the
+`canMarkPaid`/`canArchivePayment`/`canArchiveTimesheet`/`canApproveTimesheet`
+co-admin permission gates in `Pay.tsx` against migration 0014's actual policy
+SQL, and the `Schedule.tsx` shift-preview computation. **Result: no bugs
+found.** The one pre-existing quirk noted (a shift-preview date-anchor
+divergence when reusing an existing template) predates this diff and only
+affects a non-persisted UI preview, not saved data or any calculation.
+
+**One candidate gap investigated, ruled a false alarm.** A sweep for
+remaining hard `.delete()` calls (the same pattern that previously found and
+fixed real bugs in `timesheets`, `schedule_exceptions`, and `household_users`)
+turned up two: `Schedule.tsx`'s `schedule_shifts` delete (already covered by
+resolved Q&A item 14 — a deliberate choice to keep the simple model, with an
+audit-trail mitigation) and `CaregiverDetail.tsx`'s `handleRemoveCaregiver`,
+which hard-deletes a `caregiver_profiles` row and, via `on delete cascade`,
+everything referencing it (schedule, time entries, timesheets, leave,
+payment history). On inspection this is **not** a silent bug: the confirm
+dialog explicitly reads "Permanently remove [name]? This also deletes their
+schedule, time entries, timesheets, leave, and payment history and cannot be
+undone. To keep their history, set their employment status to Inactive or
+Terminated instead" — and `employment_status` (`active`/`inactive`/
+`terminated`) is a real, already-wired settings field on the same screen,
+offered as the explicit non-destructive alternative. Unlike the household-
+member/timesheet/schedule-exception cases, this hard delete is deliberate,
+disclosed, and has a signposted alternative already built — so it was left
+as-is.
+
+**(2): per the standing instruction, no open item was built this session** —
+see the chat/notification for the full list of items 22-39 (all still open;
+item 30 closed 2026-08-20) with their options and recommendations, carried
+forward unchanged from prior sessions' analysis since nothing this session
+found changes any of that reasoning.
+
+`npx tsc -b`, `npm run build`, and `npx oxlint` all clean (no code changed
+this session, so this just confirms the tree is still in a good state).
 
 ---
 
