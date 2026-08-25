@@ -8,6 +8,87 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-25 — Time-entry schedule pre-fill re-confirmed again (still correct); adversarial code-review of the 2026-08-22/23 diff finds and fixes two real bugs in the new "Daily detail" view (spec 13.5/13.6); all 14 open Q&A items presented in chat again, none built unilaterally
+
+**This session's scope, per the standing recurring-task instructions:**
+re-confirm the manual time-entry pre-fill behavior, then continue the
+adversarial-code-review approach the 2026-08-24 session introduced (a
+full literal spec audit had been returning "no gaps found" for several
+consecutive sessions by that point) — this time over the slice of diff the
+2026-08-24 review hadn't yet covered: commits `9f63c74` (2026-08-22,
+"Finish setup" checklist + per-day timesheet breakdown) and `7397fe1`
+(2026-08-23, `leave_policy_id` edit-sync fix), i.e. `0037ee8..HEAD`.
+
+**Pre-fill: still correct, no change.** Same `Time.tsx` behavior as every
+prior re-confirmation — `date` defaults to today, and the `useEffect` keyed
+on `[date, templates, shiftsByTemplate]` fills `startTime`/`endTime`/
+`breakMinutes` from the selected date's generated shift occurrence, falling
+back to a sane default when nothing's scheduled. Sixteen consecutive
+sessions (2026-08-08 through 2026-08-24) have now re-verified this with
+zero regressions.
+
+**Two real, previously-undocumented bugs found in `computeDailyBreakdown()`
+(`src/lib/payExport.ts`), the per-day engine built 2026-08-22 for item 36's
+in-app "Daily detail" view — both fixed, both confined to that new UI path
+(the CSV export, which never passes a `schedule` context, was unaffected and
+confirmed still byte-for-byte identical):**
+
+- **Family cancellation/weather-emergency hours ignored the caregiver's
+  `family_cancellation_counts_toward_guarantee` flag.** `Pay.tsx`'s
+  `computePeriodTotals` (the period-total pay calculation) zeroes these hours
+  out entirely when that flag is off — per `calc.ts`, the flag gates whether
+  the hours are paid at all, not just whether they count toward the
+  guarantee. `computeDailyBreakdown`'s per-day version summed them
+  unconditionally whenever an exception was `approved`/`affects_pay`,
+  regardless of the flag, so a caregiver with the toggle off could open
+  "Daily detail" on a day with an approved family-cancellation exception and
+  see a nonzero hours line directly contradicting both the period total
+  shown just above it and the actual amount paid. Fixed by adding an
+  optional `familyCancellationCountsTowardGuarantee` field to
+  `DailyScheduleContext` (defaulting to `false`, matching
+  `computePeriodTotals`' own ternary) and gating the per-day sum on it;
+  `Pay.tsx`'s `loadDailyDetail` now looks up the timesheet's caregiver from
+  the already-loaded `caregivers` list and passes the flag through.
+- **Per-day "Scheduled" hours ignored one-off shift-modification exceptions
+  entirely.** `computePeriodTotals` nets `scheduleExceptionHoursDelta(...)`
+  (the `added_shift`/`removed_shift`/`shortened_shift`/`extended_shift`
+  adjustment) into the period's scheduled-hours total, but
+  `computeDailyBreakdown`'s per-day `scheduledHours` only ever summed
+  recurring-template occurrences for that date — an approved `removed_shift`
+  exception canceling a normally-scheduled day still showed the full
+  original hours in Daily Detail, and an `added_shift` exception on a day
+  with no recurring occurrence showed nothing at all. Fixed by filtering the
+  day's exceptions to the selected date and running them through the same
+  `scheduleExceptionHoursDelta` helper `computePeriodTotals` already uses
+  (no new formula invented), clamped to zero the same way the period-level
+  computation is.
+
+Both bugs existed despite the function's own comment claiming to "mirror"
+`computePeriodTotals` — the mirroring was real for the worked/leave-hours
+math but incomplete for these two schedule-derived fields, which weren't
+part of the original per-day engine before this feature's per-day scheduled/
+family-cancellation columns were added.
+
+**No new judgment calls surfaced.** Both were mechanical bugs with an exact,
+unambiguous fix already implied by the sibling code they were meant to
+mirror — same posture as every other mechanical fix in this log.
+
+**Health check:** `npm install`, `npx tsc -b`, `npm run build`
+(`tsc -b && vite build`), and `npx oxlint` all ran clean — no new
+TypeScript or lint errors; same six pre-existing warnings prior sessions
+have already noted (`react-hooks/exhaustive-deps` in `Schedule.tsx`, Fast
+Refresh `only-export-components` warnings in the context files and
+`Card.tsx`).
+
+All 14 open `QUESTIONS_AND_CLARIFICATIONS.md` items (22-26, 29, 31-35,
+37-39) were re-presented in chat this session per the standing instruction —
+none resolved, none newly opened; the existing 2026-08-08 recommendations
+index is still current for every item.
+
+Only `src/lib/payExport.ts` and `src/routes/Pay.tsx` were touched.
+
+---
+
 ## 2026-08-22 — "Finish setup" checklist on Home (resolves Q&A item 28); in-app per-day timesheet breakdown in Pay's timesheet detail view (resolves Q&A item 36); time-entry schedule pre-fill re-confirmed
 
 Built items **28** and **36**, each using its own already-standing

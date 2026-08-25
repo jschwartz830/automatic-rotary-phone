@@ -1,5 +1,5 @@
 import { addDays, format, parseISO } from 'date-fns'
-import { exceptionHours, shiftHours, type GeneratedShiftOccurrence } from './schedule'
+import { exceptionHours, scheduleExceptionHoursDelta, shiftHours, type GeneratedShiftOccurrence } from './schedule'
 import type { LeaveRequest, PaymentRecord, ScheduleException, ScheduleShift, TimeEntry, Timesheet } from './types'
 
 type PayExportRecord = Timesheet | PaymentRecord
@@ -28,6 +28,12 @@ export interface DailyScheduleContext {
   occurrences: GeneratedShiftOccurrence[]
   exceptions: ScheduleException[]
   shiftsById: Record<string, ScheduleShift>
+  // Mirrors Pay.tsx's computePeriodTotals gating: family cancellation (and
+  // weather emergency) hours only count when the caregiver's guarantee flag
+  // is on. Defaults to false (matching computePeriodTotals' ternary) so a
+  // caller that omits it doesn't accidentally show paid hours the period
+  // total wouldn't credit.
+  familyCancellationCountsTowardGuarantee?: boolean
 }
 
 // One calendar day's worth of the spec 13.5 per-day breakdown: date,
@@ -69,21 +75,29 @@ export function computeDailyBreakdown(
   let scheduledHours: number | null = null
   let familyCancellationHours: number | null = null
   if (schedule) {
-    scheduledHours = schedule.occurrences
-      .filter((o) => o.date === date)
-      .reduce((sum, o) => sum + shiftHours(o.shift), 0)
+    const dayExceptions = schedule.exceptions.filter((e) => e.date === date)
+    // Mirrors Pay.tsx's computePeriodTotals: recurring occurrence hours net
+    // against the same one-off added/removed/shortened/extended-shift
+    // exception delta the period total uses, just scoped to this one date.
+    scheduledHours = Math.max(
+      schedule.occurrences.filter((o) => o.date === date).reduce((sum, o) => sum + shiftHours(o.shift), 0) +
+        scheduleExceptionHoursDelta(dayExceptions, schedule.shiftsById),
+      0
+    )
     // Mirrors Pay.tsx's computePeriodTotals: weather_emergency folds into the
-    // same "didn't work, still paid" bucket as family_cancellation, and only
-    // exceptions marked affects_pay count.
-    familyCancellationHours = schedule.exceptions
-      .filter(
-        (e) =>
-          e.date === date &&
-          e.status === 'approved' &&
-          e.affects_pay &&
-          (e.exception_type === 'family_cancellation' || e.exception_type === 'weather_emergency')
-      )
-      .reduce((sum, e) => sum + exceptionHours(e, schedule.shiftsById), 0)
+    // same "didn't work, still paid" bucket as family_cancellation, only
+    // exceptions marked affects_pay count, and neither counts at all unless
+    // the caregiver's guarantee flag is on.
+    familyCancellationHours = schedule.familyCancellationCountsTowardGuarantee
+      ? dayExceptions
+          .filter(
+            (e) =>
+              e.status === 'approved' &&
+              e.affects_pay &&
+              (e.exception_type === 'family_cancellation' || e.exception_type === 'weather_emergency')
+          )
+          .reduce((sum, e) => sum + exceptionHours(e, schedule.shiftsById), 0)
+      : 0
   }
 
   return {
