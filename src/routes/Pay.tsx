@@ -911,12 +911,13 @@ export function Pay() {
       ])
       if (entriesRes.error) throw entriesRes.error
       if (leaveRes.error) throw leaveRes.error
+      const caregiver = caregivers.find((c) => c.id === timesheet.caregiver_id)
       setDailyDetailRows(
         buildTimesheetDailyBreakdown(
           timesheet,
           (entriesRes.data ?? []) as TimeEntry[],
           (leaveRes.data ?? []) as LeaveRequest[],
-          schedule
+          { ...schedule, familyCancellationCountsTowardGuarantee: caregiver?.family_cancellation_counts_toward_guarantee ?? false }
         )
       )
       setDailyDetailForId(timesheet.id)

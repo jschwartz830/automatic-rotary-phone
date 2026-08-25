@@ -180,7 +180,19 @@ with an existing non-destructive alternative (`employment_status`), not a
 bug — see `SPEC_CHANGE_LOG.md` 2026-08-24 for detail. No new judgment calls
 were surfaced. Per the same standing instruction, every item below was
 presented again in chat with its options and recommendation, and nothing
-was built unilaterally this session.
+was built unilaterally this session. The 2026-08-25 session re-confirmed
+the pre-fill once more (still correct), then ran an adversarial code-review
+pass over the slice of diff the 2026-08-24 review hadn't yet covered
+(`0037ee8..HEAD`, i.e. the 2026-08-22/23 sessions' work) and found and fixed
+two real, previously-undocumented bugs in the new "Daily detail" per-day
+view (item 36): its scheduled-hours and family-cancellation-hours columns
+each independently failed to mirror logic `Pay.tsx`'s period-total
+calculation already applies (one-off shift-exception deltas, and the
+`family_cancellation_counts_toward_guarantee` gate, respectively) — see
+`SPEC_CHANGE_LOG.md` 2026-08-25 for full detail. No new judgment calls were
+surfaced. Per the same standing instruction, every item below was presented
+again in chat with its options and recommendation, and nothing was built
+unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
