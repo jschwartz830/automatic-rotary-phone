@@ -8,6 +8,70 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-26 — Time-entry schedule pre-fill re-confirmed again (still correct); full literal audit of spec 13.7 (PTO/Sick/Unpaid Leave) finds and fixes one real bug (parent/nanny leave-request notes were one-sided); one new judgment call surfaced; all 15 open Q&A items presented in chat again, none built unilaterally
+
+**This session's scope, per the standing recurring-task instructions:**
+re-confirm the manual time-entry pre-fill behavior, then run the first
+dedicated full literal audit of spec 13.7 (PTO/Sick/Unpaid Leave) against
+`PTO.tsx`, `lib/leave.ts`, and the `leave_policies`/`leave_requests`/
+`leave_ledger` schema — the one core workflow section that hadn't yet had a
+section-specific pass of its own (it had only ever been touched incidentally
+by items 24/29/35's narrower findings).
+
+**Pre-fill: still correct, no change.** Same `Time.tsx` behavior as every
+prior re-confirmation — `date` defaults to today, and the `useEffect` keyed
+on `[date, templates, shiftsByTemplate]` fills `startTime`/`endTime`/
+`breakMinutes` from the selected date's generated shift occurrence, falling
+back to a sane default when nothing's scheduled.
+
+**Fixed: a parent's "Comment" and a nanny's own request note were each only
+ever visible to their author, never to the other party (spec 13.7's PTO
+Request Workflow, "Parent can: ... Comment").** `PTO.tsx`'s list row and
+detail modal both rendered `isNanny ? nanny_note : parent_note` — i.e. each
+role only ever saw its *own* note. A parent's "Comment" (labeled as such in
+the edit form) was never shown back to the nanny it was meant for, and vice
+versa. `Time.tsx` already solved this exact shape of problem for
+`time_entries.nanny_note`/`parent_note` (2026-08-15 session): both notes
+render in the row, labeled by author for whichever party isn't the writer,
+and the other party's note renders read-only in the detail modal above the
+editable field for your own. Applied the same pattern to `PTO.tsx`: the list
+row now shows both `nanny_note` and `parent_note` when present (labeled
+"Nanny:"/"Parent:" for the reader who isn't the author, unlabeled for the
+author, matching `Time.tsx`'s exact convention); the detail modal now shows
+the *other* party's note read-only above the edit form (labeled "Parent
+note:"/"Nanny note:"), and the modal's read-only (non-editable) view no
+longer duplicates the request's own note since it's already visible in the
+row, again matching `Time.tsx`'s precedent exactly.
+
+**One new judgment call surfaced — item 40 (nanny can request Holiday/Other
+Paid leave, not just PTO/Sick/Unpaid).** See
+`QUESTIONS_AND_CLARIFICATIONS.md`.
+
+**Not new findings, folded into existing items rather than re-flagged:**
+`leave_policies.enabled`/`.paid`/`.active` are dead columns (confirmed via
+grep — zero reads/writes outside `types.ts`), an unnamed extension of item
+24's broader "`leave_policies` mostly unwired" finding, same root cause, not
+a separate issue. Of the 9 spec-listed `leave_ledger` event types, only
+`opening_balance`, `manual_adjustment`, `used`, `correction`, and `reversal`
+are ever written; `accrual`/`carryover`/`expiration` are dead — this is the
+direct, already-documented consequence of item 24's "no accrual automation"
+gap. Spec's 4 PTO Balance Views (as of today / end of current pay period /
+after approved upcoming PTO / end-of-year estimate) collapse into the one
+ambiguous number `PTO.tsx` already shows — considered as part of the
+existing balance-display ambiguity rather than a new item, since fixing it
+runs into the same period-boundary questions items 31-33 already flag as
+unresolved. The "modify and approve" spec line isn't a single atomic action
+(a parent edits, then separately clicks Approve, both reachable in the same
+modal) — functionally equivalent to a combined action in two clicks rather
+than one, judged too minor for its own item.
+
+No spec text was changed this session — all findings were implementation
+gaps, not spec ambiguities needing a wording fix. Every open Q&A item was
+presented again in chat and via notification, per the standing instruction
+not to decide any of them unilaterally.
+
+---
+
 ## 2026-08-25 — Time-entry schedule pre-fill re-confirmed again (still correct); adversarial code-review of the 2026-08-22/23 diff finds and fixes two real bugs in the new "Daily detail" view (spec 13.5/13.6); all 14 open Q&A items presented in chat again, none built unilaterally
 
 **This session's scope, per the standing recurring-task instructions:**

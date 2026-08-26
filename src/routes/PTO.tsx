@@ -703,9 +703,16 @@ export function PTO() {
                         {r.start_date}
                         {r.end_date !== r.start_date ? ` – ${r.end_date}` : ''} · {r.hours_requested ?? '—'} hrs
                       </p>
-                      {(isNanny ? r.nanny_note : r.parent_note) && (
+                      {r.nanny_note && (
                         <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
-                          {isNanny ? r.nanny_note : r.parent_note}
+                          {isNanny ? '' : 'Nanny: '}
+                          {r.nanny_note}
+                        </p>
+                      )}
+                      {r.parent_note && (
+                        <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
+                          {isNanny ? 'Parent: ' : ''}
+                          {r.parent_note}
                         </p>
                       )}
                     </div>
@@ -743,6 +750,13 @@ export function PTO() {
                 </span>
               )}
             </div>
+
+            {(isNanny ? detailRequest.parent_note : detailRequest.nanny_note) && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {isNanny ? 'Parent note: ' : 'Nanny note: '}
+                {isNanny ? detailRequest.parent_note : detailRequest.nanny_note}
+              </p>
+            )}
 
             {canEdit(detailRequest) ? (
               <form onSubmit={handleEditSubmit} className="space-y-3">
@@ -793,11 +807,6 @@ export function PTO() {
                   {detailRequest.end_date !== detailRequest.start_date ? ` – ${detailRequest.end_date}` : ''} ·{' '}
                   {detailRequest.hours_requested ?? '—'} hrs
                 </p>
-                {(isNanny ? detailRequest.nanny_note : detailRequest.parent_note) && (
-                  <p className="text-xs text-gray-400 dark:text-gray-500">
-                    {isNanny ? detailRequest.nanny_note : detailRequest.parent_note}
-                  </p>
-                )}
                 {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
               </div>
             )}

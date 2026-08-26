@@ -192,7 +192,20 @@ calculation already applies (one-off shift-exception deltas, and the
 `SPEC_CHANGE_LOG.md` 2026-08-25 for full detail. No new judgment calls were
 surfaced. Per the same standing instruction, every item below was presented
 again in chat with its options and recommendation, and nothing was built
-unilaterally this session.
+unilaterally this session. The 2026-08-26 session re-confirmed the pre-fill
+once more (still correct), then ran the first dedicated full literal audit
+of spec 13.7 (PTO/Sick/Unpaid Leave) against `PTO.tsx`/`lib/leave.ts` — the
+one core workflow section that hadn't yet had a section-specific pass of its
+own. It found and fixed one real, previously-undocumented bug: a parent's
+"Comment" and a nanny's own request note were each visible only to their
+author, never to the other party, the same one-sided-note shape `Time.tsx`
+already had fixed for `time_entries` (2026-08-15) — applied the identical
+fix pattern to `PTO.tsx`. It surfaced one new judgment call, item 40 below
+(a nanny can request Holiday/Other Paid leave today, though spec 13.7
+reserves those two types for parent-only creation). See
+`SPEC_CHANGE_LOG.md` 2026-08-26 for full detail. Per the same standing
+instruction, every item below was presented again in chat with its options
+and recommendation, and nothing else was built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
@@ -963,6 +976,53 @@ this column for anything (no calculation, no display, no export), A is a
 perfectly defensible choice too if there's no concrete need for the
 audit-trail link yet; this is why it's flagged here rather than built
 unilaterally.
+
+### 40. A nanny can request Holiday and Other Paid leave, not just PTO/Sick/Unpaid time off (spec 13.7)
+
+Spec 13.7's PTO Request Workflow is explicit about which three leave types a
+nanny can request: "Nanny can request: PTO, Sick time, Unpaid time off." The
+other two leave types spec 13.7 lists ("Leave Types": PTO/vacation, sick
+time, holiday pay, unpaid time off, family cancellation/guaranteed-hours pay,
+other paid leave) read as parent-authored categories — holiday pay and
+"other paid leave" are the kind of thing a household grants, not something a
+nanny would self-request the way they'd request a vacation day. `PTO.tsx`'s
+`LEAVE_TYPES` constant is used unfiltered by role in both the create form and
+the edit form, so a nanny sees all five types (everything except family
+cancellation, which isn't in this list at all — it's handled separately via
+`schedule_exceptions`) in the same dropdown a parent uses, including Holiday
+and Other Paid. Found via this session's full literal audit of spec 13.7
+against `PTO.tsx`.
+
+This isn't a mechanical fix because there's no existing precedent in this
+codebase for role-filtering a dropdown's option set (`LEAVE_TYPES` is a flat
+array used identically everywhere), and because "should a nanny be able to
+even ask for a holiday-pay day, functioning as a request the parent can then
+approve or decline" is a real product question, not just a spec-literalism
+question — a household might reasonably want that self-service path even
+though the spec's own wording doesn't grant it.
+
+- **Option A — leave as-is.** Any household relying on the literal spec text
+  ("nanny can only request PTO/sick/unpaid") sees a nanny able to request two
+  extra categories the spec reserves for parent-only creation; in practice a
+  nanny selecting "Holiday" or "Other paid leave" and having a parent approve
+  or reject it is a harmless self-service convenience, not a security or
+  money-accuracy issue, since a parent still has to approve it either way.
+  Zero new work.
+- **Option B — role-filter the dropdown to match spec exactly.** Nanny's
+  create/edit forms only offer PTO, Sick, and Unpaid; Holiday and Other Paid
+  become parent/co-admin-only options, reachable only via the parent's own
+  "create as approved" path (already used for e.g. company holidays).
+  Closest literal match to spec 13.7, and a small, low-risk change (filter
+  one array by role in two form spots), but removes a self-service path a
+  household might already be relying on without realizing it was technically
+  out-of-spec.
+
+**Recommendation: A.** The gap causes no incorrect pay or balance math (a
+parent still reviews and approves every request regardless of type, the same
+gate that applies to PTO/sick/unpaid today), and restricting it removes
+functionality a household may already be using without any signal that it's
+actually causing a problem. Worth revisiting only if a household explicitly
+wants Holiday/Other-Paid kept parent-only.
 
 ---
 
