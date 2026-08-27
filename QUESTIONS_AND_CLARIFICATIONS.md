@@ -206,6 +206,20 @@ reserves those two types for parent-only creation). See
 `SPEC_CHANGE_LOG.md` 2026-08-26 for full detail. Per the same standing
 instruction, every item below was presented again in chat with its options
 and recommendation, and nothing else was built unilaterally this session.
+The 2026-08-27 session re-confirmed the pre-fill once more (still correct),
+ran the repo's health check (clean), then swept every field name in
+`src/lib/types.ts` against its usage across `src` in one pass, rather than
+one table at a time as prior dead-column sweeps had done. It found three
+previously-undocumented dead columns (`schedule_exceptions.affects_pto`,
+`leave_ledger.related_schedule_exception_id`/`.related_timesheet_id`,
+`reminders.channel`/`.trigger_rule`/`.last_sent_at`) but every one of them
+was already fully explained by an existing resolved decision (the 2026-07-02
+"PTO stays out of schedule_exceptions" call, or item 17's "in-app only,
+deferred" reminders decision) or by an already-open item (29's unbuilt
+"deduct on timesheet approval" timing) — see `SPEC_CHANGE_LOG.md` 2026-08-27
+for the full mapping. No new judgment call was opened. Per the same standing
+instruction, every item below was presented again in chat with its options
+and recommendation, and nothing was built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 

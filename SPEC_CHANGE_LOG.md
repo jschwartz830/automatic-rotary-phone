@@ -8,6 +8,84 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-27 — Time-entry schedule pre-fill re-confirmed again (still correct); health check clean; a full field-by-field dead-column sweep across every `types.ts` interface finds three previously-undocumented dead columns, each already explained by an existing resolved decision or open item; all 15 open Q&A items presented in chat again, none built unilaterally
+
+**This session's scope, per the standing recurring-task instructions:**
+re-confirm the manual time-entry pre-fill behavior, run the repo's health
+check, and look for previously-undocumented gaps using a different technique
+than a spec-section literal audit — most sections have now had at least one
+dedicated literal pass with "no gaps found," so a section-by-section re-read
+was likely low-yield again (as the 2026-08-24 session's adversarial-review
+pivot already anticipated for that same reason). Instead, this session ran
+the dead-column grep sweep that has previously found real gaps (items 27,
+34, 35, 37, `users.last_login_at`) across *every* field name in
+`src/lib/types.ts`, not just one table at a time — comparing each field name
+against its usage everywhere else in `src`.
+
+**Pre-fill: still correct, no change.** Same `Time.tsx` behavior as every
+prior re-confirmation — `date` defaults to today, and the pre-fill
+`useEffect` keyed on `[date, templates, shiftsByTemplate]` fills
+`startTime`/`endTime`/`breakMinutes` from the selected date's generated
+shift occurrence, falling back to a sane default when nothing's scheduled.
+
+**Health check:** `npm install`, `npx tsc -b`, `npm run build`
+(`tsc -b && vite build`), and `npx oxlint` all ran clean — no new TypeScript
+or lint errors, same six pre-existing warnings prior sessions have already
+noted.
+
+**Dead-column sweep found three previously-undocumented dead columns —
+confirmed via grep (zero reads/writes outside `types.ts`) — but all three
+already have an unambiguous explanation from an existing resolved decision
+or open item, so none needed a new `QUESTIONS_AND_CLARIFICATIONS.md` entry:**
+
+- **`schedule_exceptions.affects_pto` (spec 13.3/15.7).** Explained by the
+  2026-07-02 resolved decision to keep PTO/sick/unpaid-time-off exceptions
+  out of the `schedule_exceptions` UI entirely (`leave_requests` is the sole
+  entry point for those three exception types) — `affects_pto` only has a
+  plausible use for exactly the exception types that decision routes
+  elsewhere, so no code path was ever going to set it. Same root cause as
+  that resolution, not a new gap.
+- **`leave_ledger.related_schedule_exception_id` (spec 15.12).** Same
+  explanation as `affects_pto` above — the only schedule-exception types
+  that could plausibly drive a PTO ledger entry are the ones the 2026-07-02
+  decision already keeps off this table. `related_leave_request_id`, this
+  column's sibling on the same table, *is* fully wired (`PTO.tsx`'s
+  `applyUsedLedger`/`zeroOutLedgerForRequest`), confirming the gap is
+  specific to this one column, not the linking mechanism in general.
+- **`leave_ledger.related_timesheet_id` (spec 15.12).** This is the exact
+  link a "deduct on timesheet approval" ledger entry (open item 29, options
+  B/C) would set when writing a real deduction tied to the timesheet that
+  triggered it. Today's deduct-on-approval model (item 29's status quo)
+  never ties a ledger write to a timesheet at all, so nothing has ever
+  populated it. Folds into item 29's already-open scope rather than opening
+  a new item — building item 29 option B or C is exactly the work that would
+  wire this column up.
+- **`reminders.channel`/`.trigger_rule`/`.last_sent_at` (spec 15.14).** All
+  three stay at their DB default forever — `More.tsx`'s `toggleReminderType`
+  only ever inserts/updates `household_id`, `recipient_user_id`, `type`,
+  `enabled`. Explained by the already-resolved item 17 ("stay in-app only
+  for now... defer recipients and quiet hours until there's an email/SMS
+  backend, since they have no delivery channel today"): `channel` is
+  literally that delivery-channel choice (`'in_app' | 'email'`, only
+  `'in_app'` ever built); `last_sent_at` would track a dispatch event that
+  doesn't exist for an in-app reminder recomputed live on every page load
+  rather than "sent" once; `trigger_rule` (a per-row configurable condition)
+  was superseded by the same resolution's choice to hardcode each reminder
+  type's trigger logic in `reminders.ts` instead of reading a stored rule.
+  All three are the same "in-app-only, deferred" shape item 17 already
+  covers, not a new one.
+
+**No new judgment calls surfaced.** Every finding this session had an
+existing, already-decided explanation to fold into rather than a fresh
+ambiguity. Every open Q&A item (22-26, 29, 31-35, 37-40) was presented again
+in chat this session per the standing instruction — none resolved, none
+newly opened; the existing recommendations are still current for every item.
+
+No source files were changed this session — only `SPEC_CHANGE_LOG.md` and
+`QUESTIONS_AND_CLARIFICATIONS.md`.
+
+---
+
 ## 2026-08-26 — Time-entry schedule pre-fill re-confirmed again (still correct); full literal audit of spec 13.7 (PTO/Sick/Unpaid Leave) finds and fixes one real bug (parent/nanny leave-request notes were one-sided); one new judgment call surfaced; all 15 open Q&A items presented in chat again, none built unilaterally
 
 **This session's scope, per the standing recurring-task instructions:**
