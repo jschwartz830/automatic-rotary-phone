@@ -8,6 +8,93 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-08-29 — Time-entry schedule pre-fill re-confirmed again (still correct); health check clean after fixing a missing `oxlint` install; adversarial code-review of the small `58a4419..HEAD` diff finds no bugs; a fresh full read of spec 13.6 (Guaranteed Hours) surfaces one new judgment call, item 41; all 16 open Q&A items presented in chat again, none built unilaterally
+
+**This session's scope, per the standing recurring-task instructions:**
+re-confirm the manual time-entry pre-fill behavior, run the repo's health
+check, and review the diff since the last session (`58a4419..HEAD`, commits
+`942d4f9` and `83def34`) for real correctness bugs. That diff turned out to
+be mostly doc-only (a dead-column sweep write-up) plus one small,
+already-reviewed code change, so — per this run's own fallback instruction —
+broadened to a fresh full literal read of spec 13.6 (Guaranteed Hours), plus
+an exported-symbol usage sweep across `src/lib/*.ts` as a second look for
+dead code from a different angle than the 2026-08-27 field-name sweep.
+
+**Pre-fill: still correct, no change.** Same `Time.tsx` behavior as every
+prior re-confirmation — `date` defaults to today, and the pre-fill
+`useEffect` keyed on `[date, templates, shiftsByTemplate]` fills
+`startTime`/`endTime`/`breakMinutes` from the selected date's generated
+shift occurrence (`generateShiftsForRange`), falling back to
+09:00–17:00/0-minute break when nothing's scheduled.
+
+**Health check: found and fixed a broken local install, otherwise clean.**
+`node_modules` was present but `oxlint` (and, on closer look, everything
+else) was missing from it despite `package.json`/the lockfile listing it —
+`npm run lint` failed with `sh: 1: oxlint: not found`. A fresh `npm install`
+(433 packages) fixed it. After that, `tsc -b`, `vite build`, and `oxlint` all
+ran clean: no new TypeScript or lint errors, the same pre-existing warnings
+(`react(only-export-components)` in the three context files and `Card.tsx`,
+`react-hooks(exhaustive-deps)` in `Schedule.tsx`) prior sessions have already
+noted, and the same "chunk larger than 500 kB" build advisory that isn't a
+lint/type error.
+
+**Adversarial code-review of `58a4419..HEAD` found no bugs.** The diff's
+only non-doc change was `PTO.tsx`'s note-visibility fix from the 2026-08-26
+session (making both parties' leave-request notes visible to each other).
+Read the changed hunks line-by-line: the request-list rows now render both
+`nanny_note` and `parent_note` (each labeled only for the non-authoring
+viewer), and the detail modal shows the counterpart's note above the
+edit-or-view branch. Compared this against `Time.tsx`'s already-established
+note-display pattern (built 2026-08-15, the precedent this fix was explicitly
+copying per the 2026-08-26 log entry) line-by-line — including the detail
+modal's non-editable branch, which shows only the counterpart's note and not
+the viewer's own (own note is only ever shown pre-filled inside the editable
+form, or in the outer list). `Time.tsx`'s non-modifiable branch has the
+identical shape (no own-note text in that branch either), confirming this is
+`PTO.tsx` correctly mirroring an intentional, already-shipped pattern rather
+than a new regression.
+
+**Fresh read of spec 13.6 (Guaranteed Hours) surfaced one new gap, opened as
+item 41 below rather than built:** the "Per-Shift Guaranteed Flag" section
+names three per-shift flags a scheduled shift should carry. Two —
+`counts_toward_guaranteed_hours` and `paid_if_family_canceled` — are real
+`schedule_shifts` columns, the second fully wired via resolved item 27. The
+third, "Counts toward overtime calculation yes/no," was never added to the
+schema at all (confirmed against `supabase/migrations/0001_schema.sql` and
+`src/lib/types.ts`'s `ScheduleShift` interface) — not a dead column sitting
+unused, but a field the spec names that has no schema representation
+whatsoever. Not mechanical: `calculateTimesheet` computes overtime from one
+summed `actualWorkedHours` for the whole period, with no per-shift awareness,
+so honoring the flag for real would mean the same kind of per-shift
+overtime-calc restructuring item 31 already flags as high-stakes surgery on
+a live money calculation — and today's behavior already matches the flag's
+own stated default ("worked hours always count toward overtime
+calculations"), so there's no known case the missing flag is actually
+blocking. Everything else read in 13.6 (the calculation formulas, all four
+worked examples, schedule-linked guarantee rules, timesheet/payment-record
+display, and the parent/nanny permission list) matched the code exactly —
+`guarantee_adjustment_hours` is correctly excluded from the overtime
+calculation per the spec's explicit "should not suppress overtime" note, and
+nanny visibility of the guarantee-adjustment line is already gated by
+`nanny_can_view_guaranteed_hours` (resolved item 20).
+
+**Exported-symbol sweep across `src/lib/*.ts` found nothing new.** Grepped
+every top-level `export` in each `lib` file against its usage elsewhere in
+`src`; every symbol with zero external references turned out to be either a
+type used only for internal annotations or a helper function used only
+within its own defining file (e.g. `csv.ts`'s `toCsv` inside `downloadCsv`,
+`payExport.ts`'s `computeDailyBreakdown` inside its own two exported
+builders) — normal file-private helper shape, not dead code. No findings
+here beyond confirming the 2026-08-27 field-name sweep already caught what
+was actually dead at the column level.
+
+No source files were changed this session — only `SPEC_CHANGE_LOG.md` and
+`QUESTIONS_AND_CLARIFICATIONS.md`. Every open Q&A item (22-26, 29, 31-35,
+37-40) was presented again in chat per the standing instruction, plus the
+newly-opened item 41; none resolved, none built unilaterally.
+
+---
+
 ## 2026-08-27 — Time-entry schedule pre-fill re-confirmed again (still correct); health check clean; a full field-by-field dead-column sweep across every `types.ts` interface finds three previously-undocumented dead columns, each already explained by an existing resolved decision or open item; all 15 open Q&A items presented in chat again, none built unilaterally
 
 **This session's scope, per the standing recurring-task instructions:**

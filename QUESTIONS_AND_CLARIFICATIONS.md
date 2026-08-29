@@ -219,7 +219,36 @@ deferred" reminders decision) or by an already-open item (29's unbuilt
 "deduct on timesheet approval" timing) — see `SPEC_CHANGE_LOG.md` 2026-08-27
 for the full mapping. No new judgment call was opened. Per the same standing
 instruction, every item below was presented again in chat with its options
-and recommendation, and nothing was built unilaterally this session.
+and recommendation, and nothing was built unilaterally this session. The
+2026-08-29 session re-confirmed the pre-fill once more (still correct), ran
+the health check (found `node_modules` present but `oxlint` missing from it
+despite the lockfile listing it — a fresh `npm install` fixed the install;
+`tsc -b`/`vite build`/`oxlint` all then ran clean, same pre-existing warnings
+as prior sessions), then ran an adversarial code-review pass over the diff
+since the last one (`58a4419..HEAD`, the 2026-08-26 session's spec-13.7 note
+fix) — too small to yield a bug; the changed `PTO.tsx` note-visibility logic
+was checked line-by-line against `Time.tsx`'s already-established note-display
+pattern and matches it exactly, not a regression. Broadened to a fresh full
+read of spec 13.6 (Guaranteed Hours) end-to-end, the one core-workflow
+section that hadn't had a dedicated fresh literal pass since resolved item 27
+and the 2026-08-25 Daily-detail bug fixes (which touched 13.5/13.6's display
+math, not the settings/permissions text itself). Also ran an exported-symbol
+usage sweep across every `src/lib/*.ts` file (a different granularity than
+the 2026-08-27 field-name sweep) — it found nothing dead beyond
+file-internal helpers, which aren't a gap. The 13.6 read found one
+previously-undocumented gap: spec 13.6's "Per-Shift Guaranteed Flag" section
+names a third per-shift flag, "Counts toward overtime calculation yes/no,"
+that — unlike its two siblings, `counts_toward_guaranteed_hours` and
+`paid_if_family_canceled` — was never added to the `schedule_shifts` schema
+at all, not even as an unused column. Opened as item 41 below rather than
+built, since even a mechanical schema-only add would sit inert until the
+overtime calculation is made per-shift-aware, the same high-stakes
+calc-engine surgery item 31 already flags as too risky to do speculatively.
+Everything else in 13.6 (calculation formulas, schedule-linked guarantee
+rules, timesheet/payment display, permissions) matched the code exactly. Per
+the same standing instruction, every item below was presented again in chat
+with its options and recommendation, and nothing else was built unilaterally
+this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
@@ -506,6 +535,71 @@ reading to mechanically implement — the spec contradicts itself.
 fine-grained toggles for restriction scenarios no household has asked for
 adds new RLS surface area (always a higher-stakes change than UI-only work)
 without a concrete need driving it.
+
+### 41. `schedule_shifts` has no `counts_toward_overtime` column — spec 13.6's third per-shift guaranteed flag was never added to the schema at all (spec 13.6/15.6)
+
+Spec 13.6's "Per-Shift Guaranteed Flag" section says each scheduled shift
+should have three flags: "Counts toward guaranteed hours yes/no," "Paid if
+family canceled yes/no," and "Counts toward overtime calculation yes/no."
+The first two exist as real `schedule_shifts` columns
+(`counts_toward_guaranteed_hours`, `paid_if_family_canceled`, spec 15.6) and
+are both fully wired — the second one via resolved item 27. The third was
+never added to the schema at all: `schedule_shifts` in
+`supabase/migrations/0001_schema.sql:135-152` and the matching `ScheduleShift`
+interface in `src/lib/types.ts` have no `counts_toward_overtime` field of any
+kind — confirmed by grep across `src` and the migrations directory (the only
+`counts_toward_overtime` column that exists anywhere is on the unrelated
+`leave_policies` table, spec 15.10, already covered by open item 24). This is
+distinct from every other "dead column" finding in this file, which are all
+columns that exist but are unused — here the column itself is simply absent.
+
+The same section's own "Default" bullets give the flag's stated default
+behavior: "Worked hours always count toward overtime calculations. Guarantee
+adjustment hours do not count as actual worked overtime hours." `calc.ts`'s
+`calculateTimesheet` already matches that default exactly — it computes
+`overtimeWorkedHours` from `actualWorkedHours` (real worked hours only, with
+guarantee-adjustment hours added separately and never run through the
+overtime math) — so today's behavior is indistinguishable from what the
+missing flag would produce if every shift were left at its spec-implied
+default. The only thing actually missing is a way for a parent to mark a
+*specific* shift as the exception (not counting its hours toward overtime),
+and `calculateTimesheet` has no per-shift awareness at all today — it takes
+one summed `actualWorkedHours` number for the whole period, not a list of
+shifts with their own flags, so honoring a per-shift override would mean
+teaching the overtime calculation to work off individual time entries/shifts
+instead of a period total, the same kind of calc-engine restructuring item 31
+already flags as necessary for its own (unrelated) per-week overtime problem.
+Found via this session's fresh read of spec 13.6 in full.
+
+- **Option A — leave unbuilt.** No household has a scenario where a worked
+  shift shouldn't count toward overtime (the flag would only matter for an
+  edge case the spec never elaborates on, e.g. a shift explicitly worked as a
+  favor/off-the-books hour a family doesn't want counted toward overtime
+  premium), and today's calc already matches the flag's own stated default.
+  Mirrors the precedent of resolved item 27's `default_category` half (left
+  unbuilt: "no calculation or display anywhere reads shift category").
+- **Option B — add the column and a checkbox, default `true`, but don't wire
+  it into `calculateTimesheet` yet.** Closes the literal schema gap (spec
+  15.6 lists it as a real field) without touching the money calculation,
+  mirroring how `paid_break`/`counts_toward_guaranteed_hours` were mechanically
+  added in the 2026-08-11 session before their calc-side wiring existed.
+  Leaves a second dead column in place until a real use justifies the
+  overtime-calc rework.
+- **Option C — full build.** Add the column, and restructure
+  `calculateTimesheet`'s overtime math to sum only flagged-in shift hours
+  toward the overtime threshold, excluding flagged-out shift hours (while
+  still counting all of it toward `actualWorkedHours`/guarantee/pay). Real
+  surgery on the same already-relied-upon overtime calculation item 31 is
+  already cautious about touching, for a flag with no concrete household
+  need yet.
+
+**Recommendation: A.** Today's behavior already matches the flag's own
+spec-stated default with no household need signaled for the override case,
+and — unlike a typical dead-column fill-in — even the cheap "add the column"
+half of a build (option B) would leave the flag inert until option C's
+calc-engine rework happens anyway, and that rework touches the same
+overtime-math surface item 31 already flags as too high-stakes to change
+without a concrete, driving need.
 
 ### 22. Calendar: build a real month view, or keep the week-grid-only simplification (spec 13.10/14.4)?
 
