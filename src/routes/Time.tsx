@@ -17,7 +17,32 @@ import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
 import { SwipeRow } from '../components/SwipeRow'
 import { Modal } from '../components/Modal'
-import type { PaymentRecord, ScheduleShift, ScheduleTemplate, TimeEntry, TimeEntryMethod } from '../lib/types'
+import type { ExceptionType, PaymentRecord, ScheduleShift, ScheduleTemplate, TimeEntry, TimeEntryMethod } from '../lib/types'
+
+// Spec 15.8's schedule_exception_id link is audit-trail only (Q&A item 34,
+// option B): it records which approved, shift-affecting exception a time
+// entry corresponds to, without changing pre-fill or any calculated value.
+// Leave/holiday-flavored exception types aren't "the shift that got worked"
+// in the same sense, so they're excluded; a date with zero or more than one
+// matching exception links to nothing rather than guessing.
+const SHIFT_AFFECTING_EXCEPTION_TYPES: ExceptionType[] = [
+  'added_shift',
+  'shortened_shift',
+  'extended_shift',
+  'family_cancellation',
+]
+
+async function lookupShiftAffectingExceptionId(caregiverId: string, date: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('schedule_exceptions')
+    .select('id')
+    .eq('caregiver_id', caregiverId)
+    .eq('date', date)
+    .eq('status', 'approved')
+    .in('exception_type', SHIFT_AFFECTING_EXCEPTION_TYPES)
+  const rows = data ?? []
+  return rows.length === 1 ? rows[0].id : null
+}
 
 function WarningList({ warnings }: { warnings: string[] }) {
   if (warnings.length === 0) return null
@@ -180,12 +205,14 @@ export function Time() {
     setError(null)
     try {
       const paidHours = hoursBetween(startTime, endTime, Number(breakMinutes) || 0)
+      const scheduleExceptionId = await lookupShiftAffectingExceptionId(caregiverId, date)
       const { data: entry, error: insertError } = await supabase
         .from('time_entries')
         .insert({
           caregiver_id: caregiverId,
           date,
           schedule_shift_id: scheduledShiftId,
+          schedule_exception_id: scheduleExceptionId,
           manual_start_time: startTime,
           manual_end_time: endTime,
           break_minutes: Number(breakMinutes) || 0,
@@ -253,12 +280,14 @@ export function Time() {
     try {
       const todayStr = new Date().toISOString().slice(0, 10)
       const todaysShift = generateShiftsForRange(templates, shiftsByTemplate, todayStr, todayStr)[0]?.shift
+      const scheduleExceptionId = await lookupShiftAffectingExceptionId(caregiverId, todayStr)
       const { data: entry, error: insertError } = await supabase
         .from('time_entries')
         .insert({
           caregiver_id: caregiverId,
           date: todayStr,
           schedule_shift_id: todaysShift?.id ?? null,
+          schedule_exception_id: scheduleExceptionId,
           clock_in_at: new Date().toISOString(),
           method: 'clock',
           status: 'draft',

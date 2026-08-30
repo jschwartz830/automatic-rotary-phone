@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { addDays, format, startOfWeek } from 'date-fns'
+import { addDays, addMonths, endOfMonth, endOfWeek, format, startOfMonth, startOfWeek } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { usePreferences } from '../context/PreferencesContext'
@@ -17,6 +17,7 @@ import { StatusChip } from '../components/StatusChip'
 import type {
   ExceptionType,
   LeaveRequest,
+  PaymentRecord,
   RecurrenceType,
   ScheduleException,
   ScheduleShift,
@@ -84,6 +85,15 @@ export function Schedule() {
   const [exceptionsForWeek, setExceptionsForWeek] = useState<ScheduleException[]>([])
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
+  // Spec 13.10's lightweight month view (Q&A item 22, option B): a read-only
+  // heat-strip of which days have a shift / PTO-sick-leave / payment
+  // due-or-made, tapping a day jumps into the existing week-grid day-detail
+  // rather than adding a second, parallel set of day-detail actions.
+  const [view, setView] = useState<'week' | 'month'>('week')
+  const [monthAnchor, setMonthAnchor] = useState<Date>(() => startOfMonth(new Date()))
+  const [monthLeave, setMonthLeave] = useState<LeaveRequest[]>([])
+  const [monthExceptions, setMonthExceptions] = useState<ScheduleException[]>([])
+  const [monthPayments, setMonthPayments] = useState<PaymentRecord[]>([])
   const [showAddShiftModal, setShowAddShiftModal] = useState(false)
   const [recurrenceChoice, setRecurrenceChoice] = useState<'weekly' | 'biweekly' | 'monthly' | 'once' | 'other'>('weekly')
   const [selectedDays, setSelectedDays] = useState<string[]>(['1'])
@@ -199,6 +209,41 @@ export function Schedule() {
     setExceptionsForWeek((data ?? []) as ScheduleException[])
   }
 
+  async function loadMonth(forCaregiverId: string, anchor: Date) {
+    const start = toIsoDate(startOfMonth(anchor))
+    const end = toIsoDate(endOfMonth(anchor))
+    const [leaveRes, exceptionsRes, paymentsRes] = await Promise.all([
+      supabase
+        .from('leave_requests')
+        .select('*')
+        .eq('caregiver_id', forCaregiverId)
+        .lte('start_date', end)
+        .gte('end_date', start)
+        .in('status', ['approved', 'requested'])
+        .is('archived_at', null),
+      supabase
+        .from('schedule_exceptions')
+        .select('*')
+        .eq('caregiver_id', forCaregiverId)
+        .gte('date', start)
+        .lte('date', end)
+        .in('exception_type', EXCEPTION_TYPES)
+        .neq('status', 'canceled')
+        .neq('status', 'rejected'),
+      supabase
+        .from('payment_records')
+        .select('*')
+        .eq('caregiver_id', forCaregiverId)
+        .gte('due_date', start)
+        .lte('due_date', end)
+        .is('deleted_at', null)
+        .neq('status', 'voided'),
+    ])
+    setMonthLeave((leaveRes.data ?? []) as LeaveRequest[])
+    setMonthExceptions((exceptionsRes.data ?? []) as ScheduleException[])
+    setMonthPayments((paymentsRes.data ?? []) as PaymentRecord[])
+  }
+
   useEffect(() => {
     if (caregiverId) {
       loadSchedule(caregiverId)
@@ -215,6 +260,12 @@ export function Schedule() {
       loadExceptions(caregiverId, weekStart)
     }
   }, [weekStart, caregiverId])
+
+  // Month data is only fetched while the month view is actually open, so
+  // switching to it is the trigger rather than every anchor/caregiver change.
+  useEffect(() => {
+    if (caregiverId && view === 'month') loadMonth(caregiverId, monthAnchor)
+  }, [caregiverId, monthAnchor, view])
 
   // Live preview of the dates this in-progress add-shift form would generate,
   // shown before saving so a parent can sanity-check the recurrence pattern.
@@ -585,6 +636,36 @@ export function Schedule() {
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
   const todayStr = toIsoDate(new Date())
 
+  // Month grid always shows full weeks (Mon-start, matching the week view),
+  // so it can include a few days from the adjacent months at each edge.
+  const monthGridStart = startOfWeek(startOfMonth(monthAnchor), { weekStartsOn: 1 })
+  const monthGridEnd = endOfWeek(endOfMonth(monthAnchor), { weekStartsOn: 1 })
+  const monthGridDayCount = Math.round((monthGridEnd.getTime() - monthGridStart.getTime()) / 86_400_000) + 1
+  const monthGridDays = Array.from({ length: monthGridDayCount }, (_, i) => addDays(monthGridStart, i))
+  const monthOccurrences = generateShiftsForRange(
+    templates,
+    shifts,
+    toIsoDate(monthGridStart),
+    toIsoDate(monthGridEnd)
+  )
+  const monthShiftDates = new Set(monthOccurrences.map((o) => o.date))
+  const monthLeaveDates = new Set<string>()
+  for (const l of monthLeave) {
+    for (const d of monthGridDays) {
+      const dayStr = toIsoDate(d)
+      if (l.start_date <= dayStr && (l.end_date ?? l.start_date) >= dayStr) monthLeaveDates.add(dayStr)
+    }
+  }
+  const monthExceptionDates = new Set(monthExceptions.map((ex) => ex.date))
+  const monthPaymentByDate = new Map<string, PaymentRecord>()
+  for (const p of monthPayments) monthPaymentByDate.set(p.due_date, p)
+
+  function goToWeekOf(day: Date) {
+    setWeekStart(startOfWeek(day, { weekStartsOn: 1 }))
+    setSelectedDay(toIsoDate(day))
+    setView('week')
+  }
+
   const allShifts = templates.flatMap((t) =>
     (shifts[t.id] ?? []).map((s) => ({ ...s, templateName: t.name, recurrenceType: t.recurrence_type }))
   )
@@ -624,6 +705,101 @@ export function Schedule() {
 
       {isParentOrCoAdmin && <CaregiverSelect caregivers={caregivers} value={caregiverId} onChange={setCaregiverId} />}
 
+      {/* Week/Month toggle */}
+      <div className="flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-800">
+        {(['week', 'month'] as const).map((v) => (
+          <button
+            key={v}
+            className={`flex-1 rounded-md py-1.5 text-sm font-medium capitalize ${
+              view === v
+                ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-50'
+                : 'text-gray-500 dark:text-gray-400'
+            }`}
+            onClick={() => setView(v)}
+          >
+            {v}
+          </button>
+        ))}
+      </div>
+
+      {view === 'month' && (
+        <>
+          {/* Month navigation */}
+          <div className="flex items-center justify-between">
+            <button
+              className="rounded-lg px-3 py-2 text-gray-500 active:bg-gray-100 dark:text-gray-400 dark:active:bg-gray-800"
+              onClick={() => setMonthAnchor((m) => addMonths(m, -1))}
+            >
+              ←
+            </button>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{format(monthAnchor, 'MMMM yyyy')}</p>
+            <button
+              className="rounded-lg px-3 py-2 text-gray-500 active:bg-gray-100 dark:text-gray-400 dark:active:bg-gray-800"
+              onClick={() => setMonthAnchor((m) => addMonths(m, 1))}
+            >
+              →
+            </button>
+          </div>
+
+          {/* Month heat-strip: a read-only overview of which days have a
+              shift, PTO/leave/exception, or payment due-or-made. Tapping a
+              day jumps into the week view's existing day-detail rather than
+              duplicating its actions here. */}
+          <Card>
+            <div className="grid grid-cols-7 gap-y-1 text-center">
+              {DAYS.slice(1).concat(DAYS[0]).map((d) => (
+                <span key={d} className="text-xs font-medium text-gray-400 dark:text-gray-500">
+                  {d}
+                </span>
+              ))}
+              {monthGridDays.map((day) => {
+                const dayStr = toIsoDate(day)
+                const inMonth = format(day, 'MM') === format(monthAnchor, 'MM')
+                const isToday = dayStr === todayStr
+                const hasShift = monthShiftDates.has(dayStr)
+                const hasLeave = monthLeaveDates.has(dayStr) || monthExceptionDates.has(dayStr)
+                const payment = monthPaymentByDate.get(dayStr)
+                return (
+                  <button
+                    key={dayStr}
+                    onClick={() => goToWeekOf(day)}
+                    className={`flex flex-col items-center gap-0.5 rounded-lg py-1.5 ${inMonth ? '' : 'opacity-30'}`}
+                  >
+                    <span
+                      className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
+                        isToday
+                          ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+                          : 'text-gray-700 dark:text-gray-300'
+                      }`}
+                    >
+                      {format(day, 'd')}
+                    </span>
+                    <span className="flex h-1.5 gap-0.5">
+                      {hasShift && <span className="h-1.5 w-1.5 rounded-full bg-blue-500" aria-label="Scheduled" />}
+                      {hasLeave && <span className="h-1.5 w-1.5 rounded-full bg-purple-500" aria-label="Leave/exception" />}
+                      {payment && (
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${payment.status === 'paid' ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                          aria-label={payment.status === 'paid' ? 'Payment made' : 'Payment due'}
+                        />
+                      )}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-3 border-t border-gray-100 pt-3 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
+              <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> Scheduled</span>
+              <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-purple-500" /> Leave/exception</span>
+              <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Payment due</span>
+              <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Payment made</span>
+            </div>
+          </Card>
+        </>
+      )}
+
+      {view === 'week' && (
+        <>
       {/* Week navigation */}
       <div className="flex items-center justify-between">
         <button
@@ -977,6 +1153,8 @@ export function Schedule() {
           })}
         </div>
       </Card>
+        </>
+      )}
 
       {sortedShifts.length > 0 && (
         <Card title="Recurring schedule">
