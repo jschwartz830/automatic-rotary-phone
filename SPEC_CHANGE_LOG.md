@@ -8,7 +8,58 @@ items that need your decision rather than ones already resolved.
 
 ---
 
-## 2026-08-27 — Time-entry schedule pre-fill re-confirmed again (still correct); health check clean; a full field-by-field dead-column sweep across every `types.ts` interface finds three previously-undocumented dead columns, each already explained by an existing resolved decision or open item; all 15 open Q&A items presented in chat again, none built unilaterally
+## 2026-08-31 — Time-entry schedule pre-fill re-confirmed again (still correct); health check clean; adversarial code-review of the 2026-08-26/27 diff finds and fixes one real bug in PTO.tsx's "show both parties' notes" fix (spec 13.7); all 15 open Q&A items presented in chat again, none built unilaterally
+
+**This session's scope, per the standing recurring-task instructions:**
+re-confirm the manual time-entry pre-fill behavior, run the repo's health
+checks (`tsc -b`, `vite build`, `oxlint`), then continue the
+adversarial-code-review approach recent sessions have used once literal
+spec-vs-code audits stopped turning up new ground — this time over the
+slice of diff the 2026-08-25 review hadn't yet covered: commits `942d4f9`
+(2026-08-26, "show both parties' PTO/leave request notes") and `83def34`
+(2026-08-27, dead-column sweep, docs-only), i.e. `dd3db77..HEAD`.
+
+**Pre-fill: still correct, no change.** Same `Time.tsx` behavior as every
+prior re-confirmation — `date` defaults to today, and the `useEffect` keyed
+on `[date, templates, shiftsByTemplate]` fills `startTime`/`endTime`/
+`breakMinutes` from the selected date's generated shift occurrence, falling
+back to a sane default when nothing's scheduled.
+
+**Health check: clean.** `tsc -b` and `vite build` both succeed with no
+errors; `oxlint` reports only the same pre-existing warnings prior sessions
+have already looked at and left alone (fast-refresh export warnings on
+context/Card files, one `exhaustive-deps` warning on `Schedule.tsx`'s week
+navigation `useEffect` — none are new, none touch code changed this session).
+
+**One real, previously-undocumented bug found in `PTO.tsx`'s leave-request
+detail modal, introduced by the 2026-08-26 fix for item 40's audit finding
+(one-sided PTO request notes) — fixed:**
+
+- **A nanny's own note vanished from view once her request left the
+  `'requested'` status.** `canEdit()` returns `true` for a nanny only while
+  `status === 'requested'` and the request isn't archived; once a request is
+  approved, rejected, or archived, the nanny hits the modal's read-only
+  branch instead of the edit form. Before 2026-08-26, that read-only branch
+  rendered the viewer's own note (`isNanny ? nanny_note : parent_note`). The
+  2026-08-26 change replaced it with an unconditional block above the
+  edit/view split that shows only the *other* party's note
+  (`isNanny ? parent_note : nanny_note`) — so for the read-only case the two
+  changes didn't compose into "show both," they just swapped which single
+  note was visible. A nanny opening any of her own approved/rejected/
+  archived leave requests could see the parent's comment but no longer her
+  own submission note. (Parent/co-admin never hit this: `canEdit()` is
+  always `true` for them, so they only ever see the edit-form branch, whose
+  input field is pre-filled with their own note via `openDetail()`'s
+  `setNote(...)` — that path was unaffected.) Fixed by restoring the own-note
+  display inside the read-only branch, alongside (not instead of) the
+  other-party's-note block the 2026-08-26 session added — both parties' notes
+  now render in every case: own note in the edit form or the read-only
+  block, other party's note in the block above either.
+
+No new judgment call was surfaced. Per the standing instruction, every open
+item in `QUESTIONS_AND_CLARIFICATIONS.md` was presented again in chat with
+its options and recommendation, and nothing else was built unilaterally
+this session.
 
 **This session's scope, per the standing recurring-task instructions:**
 re-confirm the manual time-entry pre-fill behavior, run the repo's health

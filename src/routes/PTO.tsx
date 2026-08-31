@@ -807,6 +807,11 @@ export function PTO() {
                   {detailRequest.end_date !== detailRequest.start_date ? ` – ${detailRequest.end_date}` : ''} ·{' '}
                   {detailRequest.hours_requested ?? '—'} hrs
                 </p>
+                {(isNanny ? detailRequest.nanny_note : detailRequest.parent_note) && (
+                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                    {isNanny ? detailRequest.nanny_note : detailRequest.parent_note}
+                  </p>
+                )}
                 {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
               </div>
             )}

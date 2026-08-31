@@ -220,6 +220,20 @@ deferred" reminders decision) or by an already-open item (29's unbuilt
 for the full mapping. No new judgment call was opened. Per the same standing
 instruction, every item below was presented again in chat with its options
 and recommendation, and nothing was built unilaterally this session.
+The 2026-08-31 session re-confirmed the pre-fill once more (still correct),
+ran the repo's health check (clean — `tsc -b`/`vite build` pass, `oxlint`
+shows only pre-existing warnings), then ran an adversarial code-review pass
+over the diff slice the 2026-08-25 review hadn't yet covered (`dd3db77..HEAD`,
+i.e. the 2026-08-26/27 sessions' work). It found and fixed one real,
+previously-undocumented bug: the 2026-08-26 fix for item 40's audit finding
+(one-sided PTO/leave request notes) replaced, rather than added to, the
+nanny's own-note display in `PTO.tsx`'s read-only detail view — so a nanny
+viewing any of her own approved/rejected/archived leave requests could see
+the parent's comment but no longer her own submission note. See
+`SPEC_CHANGE_LOG.md` 2026-08-31 for full detail. No new judgment call was
+surfaced. Per the same standing instruction, every item below was presented
+again in chat with its options and recommendation, and nothing else was
+built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
