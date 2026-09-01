@@ -219,7 +219,29 @@ deferred" reminders decision) or by an already-open item (29's unbuilt
 "deduct on timesheet approval" timing) — see `SPEC_CHANGE_LOG.md` 2026-08-27
 for the full mapping. No new judgment call was opened. Per the same standing
 instruction, every item below was presented again in chat with its options
-and recommendation, and nothing was built unilaterally this session.
+and recommendation, and nothing was built unilaterally this session. The
+2026-09-01 session re-confirmed the time-entry schedule pre-fill once more
+(still correct, no change), ran the repo's health check (clean, same six
+pre-existing oxlint warnings), then ran the first dedicated full literal
+audit of spec 22 (UX Requirements — General, Status Chips, Parent UX
+Priorities, Nanny UX Priorities) against the actual React UI, the one spec
+section that hadn't yet had its own pass (it had only ever been touched
+incidentally, as a "presented not built" reference point, by items 23/28).
+Nearly every bullet already matched the code — the status-chip color/label
+vocabulary, the Home screen's Today/This-Week/reminder-feed cards covering
+every parent and nanny "should immediately see" priority, and mobile-first/
+loading/empty-state conventions were all already in place — but it found and
+mechanically fixed two real, previously-undocumented "status chips
+everywhere" gaps: `Schedule.tsx`'s day-detail panel rendered a worked time
+entry's status as plain inline text (inconsistent with the `StatusChip` its
+own leave-request rows two blocks above already use for the identical
+scenario) and `Pay.tsx`'s "unapproved entries" warning list rendered a raw,
+non-humanized `status` string; both now use the existing `StatusChip`
+component, matching the pattern already established elsewhere in each same
+file. No new judgment call was surfaced. Per the same standing instruction,
+every item below was presented again in chat with its options and
+recommendation, and nothing was built unilaterally this session beyond those
+two section-22 fixes.
 
 ### Recommendations added 2026-08-08, per explicit request
 

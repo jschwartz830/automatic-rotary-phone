@@ -1571,10 +1571,13 @@ export function Pay() {
                 <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
                   {pendingUnapproved.length} unapproved {pendingUnapproved.length === 1 ? 'entry' : 'entries'} in this period
                 </p>
-                <ul className="space-y-0.5">
+                <ul className="space-y-1">
                   {pendingUnapproved.map((e) => (
-                    <li key={e.id} className="text-xs text-amber-700 dark:text-amber-400">
-                      {e.date} · {e.paid_hours?.toFixed(2) ?? '0.00'} hrs · {e.status}
+                    <li key={e.id} className="flex items-center justify-between gap-2 text-xs text-amber-700 dark:text-amber-400">
+                      <span>
+                        {e.date} · {e.paid_hours?.toFixed(2) ?? '0.00'} hrs
+                      </span>
+                      <StatusChip status={e.status} />
                     </li>
                   ))}
                 </ul>

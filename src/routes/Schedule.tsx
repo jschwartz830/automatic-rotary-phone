@@ -849,9 +849,10 @@ export function Schedule() {
                               Worked {start} – {end}
                             </p>
                             <p className="text-xs text-gray-500 dark:text-gray-400">
-                              {(entry.paid_hours ?? 0).toFixed(2)} hrs · {entry.status.replace(/_/g, ' ')}
+                              {(entry.paid_hours ?? 0).toFixed(2)} hrs
                             </p>
                           </div>
+                          <StatusChip status={entry.status} />
                         </div>
                       )
                     })}

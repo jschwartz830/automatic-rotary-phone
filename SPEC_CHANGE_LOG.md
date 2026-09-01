@@ -8,6 +8,117 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-01 — Time-entry schedule pre-fill re-confirmed again (still correct); health check clean; first dedicated full literal audit of spec 22 (UX Requirements) finds and fixes two "status chips everywhere" gaps; no new judgment call surfaced; all 15 open Q&A items presented in chat again, none built unilaterally
+
+**This session's scope, per the standing recurring-task instructions:**
+re-confirm the manual time-entry pre-fill behavior, run the repo's health
+check, and run the first dedicated full literal audit of spec 22 (UX
+Requirements) against the actual React/TypeScript UI — the "General"/"Status
+Chips"/"Parent UX Priorities"/"Nanny UX Priorities" subsections, bullet by
+bullet. Section 22 had never had its own dedicated spec-vs-code pass before:
+it had only ever come up as a reference point for other items (23's Home
+screen literal-layout question cites its "Is nanny clocked in?" priority;
+28's onboarding checklist cites it as the origin of the Today/This-Week
+cards), never audited as a section in its own right.
+
+**Pre-fill: still correct, no change.** Same `Time.tsx` behavior as every
+prior re-confirmation (`src/routes/Time.tsx` lines 51 and 121-136) — `date`
+defaults to today, and the pre-fill `useEffect` keyed on
+`[date, templates, shiftsByTemplate]` fills `startTime`/`endTime`/
+`breakMinutes` from the selected date's generated shift occurrence, falling
+back to a sane default when nothing's scheduled.
+
+**Health check:** `npm install`, `npx tsc -b`, `npm run build`
+(`tsc -b && vite build`), and `npx oxlint` all ran clean — no new TypeScript
+or lint errors, the same six pre-existing warnings prior sessions have
+already noted (`AuthContext.tsx`/`HouseholdContext.tsx`/`PreferencesContext.tsx`/
+`Card.tsx` `react(only-export-components)`, `Schedule.tsx`
+`react-hooks(exhaustive-deps)` on the week-navigation effect).
+
+**Spec 22 audit findings.** Most of the section already matched the code
+exactly:
+
+- **General** (mobile-first, large tap targets, one-handed use, fast clock
+  in/out, minimal required typing, status chips everywhere, clear
+  scheduled/actual/approved/payable/paid distinction) — `Time.tsx`'s clock
+  in/out is a single tap plus an optional note field; the manual-entry form
+  uses date/time pickers rather than free-typed hours; `Pay.tsx`'s
+  `HoursBreakdown` renders Scheduled/Actual worked/Payable regular/Payable
+  overtime as distinct labeled rows; every screen already uses the shared
+  `Button`/`Card` components' consistent tap-target sizing. "Status chips
+  everywhere" is the one bullet that turned up real gaps — see below.
+- **Status Chips.** `src/components/StatusChip.tsx`'s color map already
+  covers every spec-listed label's semantic (scheduled/clocked-in/missing
+  clock-out = blue/green/amber; draft/submitted/needs correction/approved =
+  gray/blue/amber/green; payment due/paid/overdue = amber/green/red; PTO
+  pending/approved reuse the generic `requested`/`approved` leave-request
+  statuses, amber/green) and is used consistently everywhere it's wired up.
+  Two spots weren't wired up — see "Fixed" below.
+- **Parent UX Priorities** (nanny clocked in? hours missing? timesheet
+  waiting? what do I owe? did I mark payment paid? how much PTO left?) — all
+  six are answerable from `Home.tsx` without navigating away: the "Today"
+  card (`buildTodayStatuses`) answers the first two via its `clocked_in`/
+  `missing_clock_out`/`scheduled` chip, "This Week" answers the third via
+  `timesheetStatus`, the reminder feed's `payment_due`/`payment_overdue`
+  cards and the Pay dashboard tile answer the fourth and fifth, and the
+  `weekly_summary` card (item 19, resolved 2026-07-25) answers the sixth.
+- **Nanny UX Priorities** (scheduled today? need to clock in/out? submitted
+  timesheet? was it approved? was payment made? how much PTO, if visible?) —
+  same set of `Home.tsx` cards, gated by the existing `nanny_can_view_*`
+  flags (item 20, resolved 2026-07-26) for the pay/PTO lines specifically.
+
+**Fixed: two "status chips everywhere" gaps, both plain-text status where
+every sibling row in the same view already uses `StatusChip` (spec 22
+"General" and "Status Chips").**
+
+- `Schedule.tsx`'s week-grid day-detail panel rendered a worked time entry's
+  status as inline text (`entry.status.replace(/_/g, ' ')`) directly below a
+  `dayLeave.map(...)` block two dozen lines above it that already renders
+  `<StatusChip status={l.status} />` for the exact same kind of row (a
+  status-bearing record in the same expanded day panel) — an internal
+  inconsistency within one component, not just a spec-vs-code gap. Replaced
+  with `<StatusChip status={entry.status} />`, moved out to the row's
+  trailing slot to match the leave-request row's layout.
+- `Pay.tsx`'s "N unapproved entries in this period" warning list (shown on
+  the "Generate timesheet" form when time entries in the period aren't yet
+  approved) rendered the raw, non-humanized `TimeEntryStatus` value
+  (`{e.status}`, e.g. a literal `needs_correction`/`submitted` with the
+  underscore visible) instead of a chip — inconsistent with the same file's
+  own `HourRow`/daily-detail rendering (line 143) which already uses
+  `<StatusChip key={s} status={s} />` for the identical `TimeEntryStatus`
+  type. Replaced with `<StatusChip status={e.status} />`, reflowed the `<li>`
+  to a flex row so the chip sits at the trailing edge.
+
+**Considered and deliberately not changed, not a gap:** the leave-request
+chip's label is the generic `requested`/`approved` (rendering as "Requested"/
+"Approved") rather than spec's literal "PTO pending"/"PTO approved" wording —
+but `leave_requests` covers PTO, sick, unpaid, holiday, and other-paid leave
+through the same status field and the same `StatusChip`, so a PTO-specific
+label would be wrong for the other four leave types; the generic wording is
+the more correct generalization of spec's example copy, not a defect. Chip
+label casing (Tailwind's `capitalize` utility title-cases every word, e.g.
+"Needs Correction" rather than spec's literal "Needs correction") is a
+uniform, consistent convention across every chip in the app, not an
+inconsistency the spec is calling out. Time.tsx's active-clock-in chip always
+shows `clocked_in`, never the schedule-aware `missing_clock_out` state
+`reminders.ts`/`Home.tsx`'s "Today" card already compute for the exact same
+entry — Home.tsx is the literal "should immediately see" surface spec 22
+names for this priority, and duplicating `reminders.ts`'s grace-period
+computation (which needs occurrences resolved per-date, not just for today)
+into `Time.tsx`'s own per-row chip is a real feature addition, not a
+one-line swap, so it was left alone rather than either built unilaterally or
+escalated as a judgment call for what's a minor secondary-surface polish
+item.
+
+**No new judgment call surfaced.** Both real findings had an unambiguous,
+same-file precedent to copy (`StatusChip`, already used one block away in
+each case), so nothing here needed a `QUESTIONS_AND_CLARIFICATIONS.md` entry.
+Every open Q&A item (22-26, 29, 31-35, 37-40) was presented again in chat
+this session per the standing instruction — none resolved, none newly
+opened; the existing recommendations are still current for every item.
+
+---
+
 ## 2026-08-27 — Time-entry schedule pre-fill re-confirmed again (still correct); health check clean; a full field-by-field dead-column sweep across every `types.ts` interface finds three previously-undocumented dead columns, each already explained by an existing resolved decision or open item; all 15 open Q&A items presented in chat again, none built unilaterally
 
 **This session's scope, per the standing recurring-task instructions:**
