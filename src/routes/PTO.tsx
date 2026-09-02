@@ -751,10 +751,16 @@ export function PTO() {
               )}
             </div>
 
-            {(isNanny ? detailRequest.parent_note : detailRequest.nanny_note) && (
+            {detailRequest.nanny_note && (
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                {isNanny ? 'Parent note: ' : 'Nanny note: '}
-                {isNanny ? detailRequest.parent_note : detailRequest.nanny_note}
+                {isNanny ? '' : 'Nanny note: '}
+                {detailRequest.nanny_note}
+              </p>
+            )}
+            {detailRequest.parent_note && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {isNanny ? 'Parent note: ' : ''}
+                {detailRequest.parent_note}
               </p>
             )}
 
