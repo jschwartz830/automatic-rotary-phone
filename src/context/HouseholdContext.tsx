@@ -29,12 +29,22 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
   const [households, setHouseholds] = useState<Household[]>([])
   const [memberships, setMemberships] = useState<HouseholdUser[]>([])
   const [activeHouseholdId, setActiveHouseholdIdState] = useState<string | null>(
-    () => localStorage.getItem('nanny-ledger:active-household')
+    () => {
+      try {
+        return localStorage.getItem('nanny-ledger:active-household')
+      } catch {
+        return null
+      }
+    }
   )
   const [caregiverProfile, setCaregiverProfile] = useState<CaregiverProfile | null>(null)
 
   const setActiveHouseholdId = useCallback((id: string) => {
-    localStorage.setItem('nanny-ledger:active-household', id)
+    try {
+      localStorage.setItem('nanny-ledger:active-household', id)
+    } catch {
+      // The in-memory selection still works when browser storage is blocked.
+    }
     setActiveHouseholdIdState(id)
   }, [])
 
@@ -86,6 +96,16 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
     households.find((h) => h.id === activeHouseholdId) ?? households[0] ?? null
   const membership =
     memberships.find((m) => m.household_id === household?.id) ?? null
+
+  // PostgREST does not guarantee row order without an explicit order clause.
+  // Remember the fallback chosen on first load so a refresh (including the one
+  // after saving household settings) cannot silently switch to another
+  // household and make that household's caregiver history appear to vanish.
+  useEffect(() => {
+    if (household && household.id !== activeHouseholdId) {
+      setActiveHouseholdId(household.id)
+    }
+  }, [activeHouseholdId, household, setActiveHouseholdId])
 
   const value: HouseholdContextValue = {
     loading,
