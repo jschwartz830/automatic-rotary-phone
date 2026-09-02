@@ -1,5 +1,10 @@
 import { addDays, format, parseISO } from 'date-fns'
-import { exceptionHours, scheduleExceptionHoursDelta, shiftHours, type GeneratedShiftOccurrence } from './schedule'
+import {
+  scheduleExceptionHoursDelta,
+  shiftHours,
+  sumExceptionHoursByType,
+  type GeneratedShiftOccurrence,
+} from './schedule'
 import type { LeaveRequest, PaymentRecord, ScheduleException, ScheduleShift, TimeEntry, Timesheet } from './types'
 
 type PayExportRecord = Timesheet | PaymentRecord
@@ -68,6 +73,10 @@ export function computeDailyBreakdown(
   schedule?: DailyScheduleContext
 ): DailyBreakdown {
   const dayEntries = entries.filter((entry) => entry.date === date)
+  // Mirrors Pay.tsx's computePeriodTotals: only approved entries count toward
+  // paid hours, so a day with a pending/rejected entry alongside an approved
+  // one doesn't show a "Worked" total that exceeds the period total above it.
+  const approvedDayEntries = dayEntries.filter((entry) => entry.status === 'approved')
   const dayLeave = leaveRequests.filter((leave) => date >= leave.start_date && date <= leave.end_date)
   const leaveHours = (type: LeaveRequest['leave_type']) =>
     dayLeave.filter((leave) => leave.leave_type === type).reduce((sum, leave) => sum + leaveHoursForDate(leave, date), 0)
@@ -89,14 +98,8 @@ export function computeDailyBreakdown(
     // exceptions marked affects_pay count, and neither counts at all unless
     // the caregiver's guarantee flag is on.
     familyCancellationHours = schedule.familyCancellationCountsTowardGuarantee
-      ? dayExceptions
-          .filter(
-            (e) =>
-              e.status === 'approved' &&
-              e.affects_pay &&
-              (e.exception_type === 'family_cancellation' || e.exception_type === 'weather_emergency')
-          )
-          .reduce((sum, e) => sum + exceptionHours(e, schedule.shiftsById), 0)
+      ? sumExceptionHoursByType(dayExceptions, schedule.shiftsById, 'family_cancellation', { requireAffectsPay: true }) +
+        sumExceptionHoursByType(dayExceptions, schedule.shiftsById, 'weather_emergency', { requireAffectsPay: true })
       : 0
   }
 
@@ -107,7 +110,7 @@ export function computeDailyBreakdown(
       (entry) => `${entry.manual_start_time ?? entry.clock_in_at ?? ''}–${entry.manual_end_time ?? entry.clock_out_at ?? ''}`
     ),
     entryCount: dayEntries.length,
-    actualWorkedHours: dayEntries.reduce((sum, entry) => sum + (entry.paid_hours ?? 0), 0),
+    actualWorkedHours: approvedDayEntries.reduce((sum, entry) => sum + (entry.paid_hours ?? 0), 0),
     ptoHours: leaveHours('pto'),
     sickHours: leaveHours('sick'),
     holidayHours: leaveHours('holiday'),

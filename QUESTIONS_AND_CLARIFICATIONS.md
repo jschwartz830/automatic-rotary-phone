@@ -219,7 +219,23 @@ deferred" reminders decision) or by an already-open item (29's unbuilt
 "deduct on timesheet approval" timing) — see `SPEC_CHANGE_LOG.md` 2026-08-27
 for the full mapping. No new judgment call was opened. Per the same standing
 instruction, every item below was presented again in chat with its options
-and recommendation, and nothing was built unilaterally this session.
+and recommendation, and nothing was built unilaterally this session. The
+2026-09-02 session re-confirmed the pre-fill once more (still correct), then
+continued the adversarial-code-review rotation over the diff since the
+2026-08-24 review's endpoint that hadn't yet been reviewed
+(`58a4419..83def34`) and found and fixed two real bugs: `payExport.ts`'s
+`computeDailyBreakdown` summed a day's worked hours over every time entry
+regardless of status instead of approved-only, the same period-vs-daily
+mismatch shape already fixed twice before in this file, now fixed for
+`actualWorkedHours` too; and `PTO.tsx`'s leave-detail modal lost its display
+of the viewer's own note in a prior session's "show both parties' notes"
+change, now showing both again. It also deduplicated an inline
+exception-hours filter in the same function against the shared
+`sumExceptionHoursByType` helper to prevent a repeat of the same drift bug.
+No new judgment call was opened. See `SPEC_CHANGE_LOG.md` 2026-09-02 for full
+detail. Per the same standing instruction, every item below was presented
+again in chat with its options and recommendation, and nothing else was
+built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 

@@ -8,6 +8,66 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-02 — Time-entry schedule pre-fill re-confirmed again (still correct); adversarial code-review pass over the diff since the 2026-08-24 review finds and fixes two real bugs plus one duplication cleanup; all 15 open Q&A items presented in chat again, none built unilaterally
+
+**This session's scope, per the standing recurring-task instructions:**
+re-confirm the manual time-entry pre-fill behavior, then continue the
+adversarial-code-review rotation the 2026-08-24/25 sessions started (spec
+audits have returned "no gaps" for most sections for several sessions
+running, so reviewing new diff for correctness bugs has been the
+higher-yield technique lately). The 2026-08-25 pass covered
+`45be0fe..58a4419`; this session covered the three sessions' worth of work
+merged since then that hadn't yet had a review pass: `58a4419..83def34`
+(the 2026-08-25 Daily-detail fix itself, the 2026-08-26 PTO both-parties-notes
+change, and the 2026-08-27 dead-column sweep).
+
+**Pre-fill: still correct, no change.** Same `Time.tsx` behavior as every
+prior re-confirmation.
+
+**Two real, previously-undocumented bugs found and fixed:**
+
+- **`payExport.ts`'s `computeDailyBreakdown` summed `actualWorkedHours` over
+  every time entry for the day regardless of status, while `Pay.tsx`'s
+  `computePeriodTotals` (used for the period total shown directly above the
+  Daily-detail table) only sums `paid_hours` for entries with
+  `status === 'approved'`.** A day with a pending or rejected entry
+  alongside an approved one would show a per-day "Worked" figure exceeding
+  what the period total above it implies — the same class of bug the
+  2026-08-25 session already found and fixed for that function's
+  `scheduledHours`/`familyCancellationHours` fields, left unfixed here for
+  `actualWorkedHours` because it was a separate field in the same function.
+  Fixed by filtering to `status === 'approved'` before summing, matching
+  `computePeriodTotals` exactly. The per-day status chips (`entryStatuses`)
+  and entry notes/time ranges are intentionally left unfiltered — a
+  pending/rejected entry still needs to be visible on the day it happened,
+  it just shouldn't count toward the paid-hours total.
+- **`PTO.tsx`'s leave-request detail modal stopped showing the viewer's own
+  note when the 2026-08-26 "show both parties' notes" change landed** — the
+  old read-only block (which showed `isNanny ? nanny_note : parent_note`,
+  i.e. your own note) was replaced with a block showing only
+  `isNanny ? parent_note : nanny_note` (the other party's note), rather than
+  both. A nanny opening a processed request she'd left a note on could no
+  longer see her own note anywhere in the modal, even though the equivalent
+  list-row view (a few lines up in the same file) already renders both
+  notes labeled. Fixed by rendering both `nanny_note` and `parent_note` in
+  the modal, each labeled the same way the list row already does.
+
+**One duplication cleanup, no behavior change:** `computeDailyBreakdown`'s
+family-cancellation/weather-emergency hours reimplemented
+`sumExceptionHoursByType`'s approved+`affects_pay` filter inline instead of
+calling the helper `Pay.tsx`'s `computePeriodTotals` already uses for the
+identical calculation — the two copies would silently drift apart if the
+filtering rules ever changed in one place and not the other, the exact
+failure mode that produced the 2026-08-25 bug in the first place. Replaced
+the inline filter with two `sumExceptionHoursByType(...)` calls, identical
+to `Pay.tsx`'s own usage.
+
+No new judgment call was opened — both bugs had an unambiguous fix implied
+by an exact precedent already established elsewhere in the same file/module.
+Per the same standing instruction, every open Q&A item was presented again
+in chat with its options and recommendation; nothing else was built
+unilaterally this session.
+
 ## 2026-08-27 — Time-entry schedule pre-fill re-confirmed again (still correct); health check clean; a full field-by-field dead-column sweep across every `types.ts` interface finds three previously-undocumented dead columns, each already explained by an existing resolved decision or open item; all 15 open Q&A items presented in chat again, none built unilaterally
 
 **This session's scope, per the standing recurring-task instructions:**
