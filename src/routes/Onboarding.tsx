@@ -11,7 +11,7 @@ type Mode = 'choose' | 'create' | 'join'
 
 export function Onboarding() {
   const { user } = useAuth()
-  const { refresh } = useHousehold()
+  const { refresh, setActiveHouseholdId } = useHousehold()
   const navigate = useNavigate()
   const [mode, setMode] = useState<Mode>('choose')
 
@@ -57,6 +57,7 @@ export function Onboarding() {
         if (caregiverError) throw caregiverError
       }
 
+      setActiveHouseholdId(household.id)
       await refresh()
       navigate('/', { replace: true })
     } catch (err) {
@@ -76,6 +77,8 @@ export function Onboarding() {
         p_code: joinCode.trim().toUpperCase(),
       })
       if (rpcError) throw rpcError
+
+      setActiveHouseholdId(householdId)
 
       // Spec 20 requires a "user invited" audit event; this app has no formal
       // invite step (resolved Q&A item 7), so the moment someone actually

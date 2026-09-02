@@ -62,7 +62,14 @@ const COMMON_TIMEZONES = [
 export function More() {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
-  const { household, isParentAdmin, isParentOrCoAdmin, refresh: refreshHousehold } = useHousehold()
+  const {
+    household,
+    households,
+    isParentAdmin,
+    isParentOrCoAdmin,
+    refresh: refreshHousehold,
+    setActiveHouseholdId,
+  } = useHousehold()
   const { theme, setTheme, timeFormat, setTimeFormat } = usePreferences()
   const { caregivers, refresh } = useCaregivers(household?.id)
   const [showVersionDetail, setShowVersionDetail] = useState(false)
@@ -436,6 +443,28 @@ export function More() {
   return (
     <div className="space-y-4 p-4">
       <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">More</h1>
+
+      {households.length > 1 && (
+        <Card title="Active household">
+          <Field label="Show records for">
+            <select
+              className={inputClass}
+              value={household?.id ?? ''}
+              onChange={(e) => setActiveHouseholdId(e.target.value)}
+            >
+              {households.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            Caregivers, time history, pay records, and PTO stay attached to their household. Switch here if the
+            records you expect are not showing.
+          </p>
+        </Card>
+      )}
 
       {isParentOrCoAdmin && (
         <Card title="Household settings">
