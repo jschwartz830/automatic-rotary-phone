@@ -8,6 +8,88 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-03 — Time-entry schedule pre-fill re-confirmed again (still correct); adversarial review of `03f4544` (the household switcher) finds and fixes a real stale-caregiver-selection bug; a fresh literal audit of spec 18/19 (Authorization/RLS) finds a severe, previously-undocumented gap — nannies can never actually satisfy `is_caregiver_user()` — surfaced as new item 41; all 16 open Q&A items presented in chat again, none built unilaterally
+
+**This session's scope, per the standing recurring-task instructions:**
+re-confirm the manual time-entry pre-fill behavior, continue the
+adversarial-code-review rotation over the diff since the 2026-09-02 review's
+endpoint (`83def34..a944bcb`, i.e. `99099d6` — already reviewed as the fix
+for that session's findings — and `03f4544`, a different agent's household
+switcher, not yet reviewed by this rotation), then run a fresh literal
+spec-vs-code audit of a section overdue for one: spec 18 (Authorization
+Requirements) and 19 (Supabase RLS Requirements), last given a dedicated pass
+2026-08-10/2026-08-08 respectively — the two oldest-audited core sections,
+and thematically adjacent to what this session's code review turned up.
+
+**Pre-fill: still correct, no change.** Same `Time.tsx` behavior as every
+prior re-confirmation — `date` defaults to today, and the pre-fill
+`useEffect` keyed on `[date, templates, shiftsByTemplate]` fills
+`startTime`/`endTime`/`breakMinutes` from the selected date's generated
+shift occurrence, falling back to a sane default when nothing's scheduled.
+
+**Adversarial review of `03f4544` ("Prevent household refresh from hiding
+records") found and fixed one real, previously-undocumented bug:** that
+commit made `activeHouseholdId` switching actually functional for the first
+time — a new "Active household" `<select>` in `More.tsx`, shown whenever a
+user belongs to 2+ households, plus a `HouseholdContext` effect that pins the
+resolved household to `localStorage` so a later refresh with a
+differently-ordered `households` query can't silently flip the active
+household on its own (PostgREST doesn't guarantee row order without an
+explicit `order()`, which this query doesn't have). That part of the fix is
+correct as built. But `Time.tsx`, `Pay.tsx`, `PTO.tsx`, and `Schedule.tsx`
+each independently keep their own `caregiverId` selection state with the
+identical effect: `if (isNanny && caregiverProfile) setCaregiverId(...); else
+if (!caregiverId && caregivers.length > 0) setCaregiverId(caregivers[0].id)`.
+For a parent or co-admin, that `!caregiverId` guard only ever fires once —
+the moment `caregiverId` is first set, it's never revisited, so switching the
+active household (now a real, reachable action thanks to `03f4544`) leaves
+`caregiverId` pointed at the *previous* household's caregiver, which
+`useCaregivers(household?.id)`'s freshly-reloaded list for the new household
+doesn't contain at all. Every query in all four files that filters on
+`caregiver_id: caregiverId` then silently returns nothing for the new
+household — exactly the "records appear to vanish on refresh" symptom
+`03f4544`'s own commit message describes, just one layer deeper (caregiver
+selection instead of household selection) and left unfixed by it. Fixed
+identically in all four files: the fallback-selection branch now also fires
+whenever the current `caregiverId` isn't among the freshly-loaded
+`caregivers` list (`caregivers.length > 0 && !caregivers.some((c) => c.id ===
+caregiverId)`), re-selecting the new household's first caregiver instead of
+silently keeping the stale one; a third branch clears `caregiverId` back to
+`null` if the new household has no caregivers at all, so a subsequent switch
+back to a household that does have one still re-selects correctly.
+
+**Same audit also surfaced, but deliberately did not fix, a second and much
+more severe finding, written up as new Q&A item 41 below:**
+`caregiver_profiles.user_id` — the column `is_caregiver_user()` (and
+therefore every nanny-scoped RLS policy spec 18/19 requires) reads — is never
+written by any code path in `src`, including the one nanny join flow that
+exists (`Onboarding.tsx`'s `handleJoin` → `join_household_by_code()`, all
+three migrated versions of it). A nanny who signs up and joins by code today
+gets a correct `household_users` row but a `caregiver_profiles.user_id` that
+stays `NULL` forever, meaning `is_caregiver_user()` can never return true for
+them and every nanny-branch RLS policy — reading their own caregiver profile,
+inserting their own time entries, creating their own leave requests, reading
+their own payment records — silently rejects them under real (non-service-
+role) RLS. This is a functionality break, not a security hole (nothing is
+over-exposed; the nanny is simply unable to do anything scoped to "their
+own" record), but it means the self-service nanny flow this app has been
+built around across dozens of sessions has likely never actually worked
+against a live Supabase connection with real RLS enforced. Prior sessions'
+spec 18/19 audits (2026-08-08, 2026-08-10) checked that the RLS helper
+functions exist and are wired into the right policies — a real but purely
+static check — not whether anything ever populates the column those
+functions depend on, which is why this wasn't caught until this session
+traced every `caregiver_profiles` write site in `src` end to end. Not
+mechanically fixed — see item 41 in `QUESTIONS_AND_CLARIFICATIONS.md` for
+why (the "obvious" auto-link-by-email fix doesn't repair every
+already-affected household, and a manual link/repair UI is a real, if small,
+new feature surface).
+
+No other new judgment calls were surfaced. Per the same standing
+instruction, every open Q&A item was presented again in chat with its
+options and recommendation; nothing else was built unilaterally this
+session.
+
 ## 2026-09-02 — Time-entry schedule pre-fill re-confirmed again (still correct); adversarial code-review pass over the diff since the 2026-08-24 review finds and fixes two real bugs plus one duplication cleanup; all 15 open Q&A items presented in chat again, none built unilaterally
 
 **This session's scope, per the standing recurring-task instructions:**

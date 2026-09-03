@@ -308,8 +308,15 @@ export function Pay() {
   useEffect(() => {
     if (isNanny && caregiverProfile) {
       setCaregiverId(caregiverProfile.id)
-    } else if (!caregiverId && caregivers.length > 0) {
+    } else if (caregivers.length > 0 && !caregivers.some((c) => c.id === caregiverId)) {
+      // Also fires when a previously-selected caregiver no longer appears in
+      // this list -- e.g. after switching the active household -- so a stale
+      // id from the old household can't silently scope every query below to
+      // a caregiver that doesn't exist here, hiding all of this household's
+      // records.
       setCaregiverId(caregivers[0].id)
+    } else if (caregivers.length === 0 && caregiverId) {
+      setCaregiverId(null)
     }
   }, [caregivers, isNanny, caregiverProfile, caregiverId])
 

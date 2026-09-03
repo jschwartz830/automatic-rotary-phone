@@ -235,7 +235,32 @@ exception-hours filter in the same function against the shared
 No new judgment call was opened. See `SPEC_CHANGE_LOG.md` 2026-09-02 for full
 detail. Per the same standing instruction, every item below was presented
 again in chat with its options and recommendation, and nothing else was
-built unilaterally this session.
+built unilaterally this session. The 2026-09-03 session re-confirmed the
+pre-fill once more (still correct), then continued the adversarial-code-
+review rotation over the diff since 2026-09-02's endpoint (`83def34..a944bcb`)
+that hadn't yet been reviewed — `99099d6` was already reviewed as that
+session's own fix, leaving `03f4544` ("Prevent household refresh from hiding
+records," a different agent's household switcher). Found and fixed one real
+bug: that commit made switching the active household actually functional for
+the first time, but `Time.tsx`/`Pay.tsx`/`PTO.tsx`/`Schedule.tsx` each keep
+their own `caregiverId` selection state that only ever auto-selects once
+(`!caregiverId && caregivers.length > 0`), so switching households left
+`caregiverId` pointed at the old household's caregiver, silently returning
+empty results everywhere in the new household — the same "records hidden by
+refresh" symptom one layer deeper. Fixed identically in all four files: the
+fallback now also re-fires whenever the current `caregiverId` isn't in the
+freshly-loaded caregiver list. It then ran a fresh literal audit of spec 18
+(Authorization Requirements) and 19 (Supabase RLS Requirements) — the two
+oldest-audited core sections (last given a dedicated pass 2026-08-10/
+2026-08-08) and thematically adjacent to what the code review had just
+turned up — and found a much more severe, previously-undocumented gap:
+`caregiver_profiles.user_id`, the column every nanny-scoped RLS policy reads
+via `is_caregiver_user()`, is never written by any code path in `src`,
+including the app's one actual nanny join flow. Deliberately not
+mechanically fixed — see item 41 below. See `SPEC_CHANGE_LOG.md` 2026-09-03
+for full detail. Per the same standing instruction, every item below was
+presented again in chat with its options and recommendation, and nothing
+else was built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
@@ -1053,6 +1078,94 @@ gate that applies to PTO/sick/unpaid today), and restricting it removes
 functionality a household may already be using without any signal that it's
 actually causing a problem. Worth revisiting only if a household explicitly
 wants Holiday/Other-Paid kept parent-only.
+
+### 41. `caregiver_profiles.user_id` is never set by any code path — a nanny can never satisfy `is_caregiver_user()`, so every nanny-scoped RLS policy spec 18/19 requires silently rejects them (spec 15.4/18/19)
+
+Spec 15.4 lists `user_id uuid references users(id)` on `caregiver_profiles` as
+the field that ties a caregiver's record to the login they actually use, and
+spec 18/19 build the entire nanny-authorization model directly on top of it:
+"A nanny can only read their own caregiver profile," "A nanny can only
+insert/update their own draft time entries," "A nanny can create leave
+requests for themselves," "A nanny can read visible payment records for
+their own caregiver profile." Every one of those is enforced exclusively
+through `is_caregiver_user(p_caregiver_id)` (migration 0002), which is a
+plain `caregiver_profiles.user_id = auth.uid()` check — nothing more. But
+grepping every `.insert(`/`.update(` call against `caregiver_profiles`
+across `src`, and all three migrated versions of the app's only nanny-join
+mechanism (`join_household_by_code()`, migrations 0011/0013/0019, called
+from `Onboarding.tsx`'s `handleJoin`), turns up zero writes to `user_id`,
+anywhere. The join function inserts a `household_users` row with
+`role: 'nanny'` and stops there; it never touches `caregiver_profiles` at
+all. Neither does `More.tsx`'s "Add caregiver" form (parent-created profiles
+start with `user_id` unset) nor `CaregiverDetail.tsx`'s profile editor
+(no `user_id` field anywhere in its form state).
+
+Practical effect: a caregiver_profiles row's `user_id` stays `NULL` forever
+under every path this app actually exposes. Once a nanny signs up and joins
+by code, `household_users` correctly reflects `role: 'nanny'`, but
+`is_caregiver_user()` can never return true for them regardless — so
+`caregiver_profiles_select_member`'s nanny branch (migration 0018, `not
+is_nanny_user(household_id) or is_caregiver_user(id)`) returns zero rows for
+their own `caregiver_profiles` SELECT under real RLS, `useCaregivers(...)`
+comes back empty for them, `HouseholdContext`'s `caregiverProfile` stays
+`null`, and the matching `time_entries_insert`/`leave_requests_insert`
+policies' nanny branches (migration 0018/0002) reject every insert a nanny
+would try to make on their own behalf. This is a functionality break, not a
+security hole — nothing is exposed that shouldn't be, the nanny is simply
+unable to act on "their own" record at all — but it means the self-service
+nanny flow this app has been built and iterated on across dozens of sessions
+has, as far as this session can tell, never actually been exercised against
+a live Supabase connection with RLS enforced (as opposed to a service-role
+connection, or the app UI alone, which never notices since it just renders
+an empty list rather than a visible RLS error). Prior spec 18/19 audits
+(2026-08-08, 2026-08-10) checked that the RLS helper functions exist and are
+wired into the correct policies — a real, but purely static, check — not
+whether anything actually populates the column those functions read at
+runtime, which is why this wasn't caught until this session traced every
+`caregiver_profiles` write site end to end. Found via this session's fresh
+literal audit of spec 18/19 against `src` and every `join_household_by_code()`
+migration.
+
+- **Option A — leave as-is / document only.** Zero risk of a bad migration or
+  a wrong auto-link, but the nanny role remains unusable against real RLS for
+  every household that has ever used the join-by-code flow, past or future.
+- **Option B — auto-link at join time only.** Teach `join_household_by_code()`'s
+  nanny branch to run `UPDATE caregiver_profiles SET user_id = auth.uid()
+  WHERE household_id = v_household_id AND user_id IS NULL AND email IS NOT
+  NULL AND lower(email) = lower(<the joining user's email>)` immediately
+  after inserting the `household_users` row (the function is already
+  `SECURITY DEFINER`, so it can see the row regardless of the caller's
+  not-yet-existing membership). Small, self-contained migration; closes the
+  gap for every future nanny join. Does nothing for a caregiver_profiles row
+  with no `email` set (not required today, so plausibly common) or one whose
+  email doesn't exactly match what the nanny actually signs up with — and
+  does nothing at all for a household whose nanny already joined before this
+  fix ships, since that join already happened with no linking logic to run.
+- **Option C — add a manual link/create control.** A parent-facing "Link to
+  caregiver profile" action (e.g. in `More.tsx`'s household-members list,
+  next to a member with `role: 'nanny'`) offering the household's
+  not-yet-linked `caregiver_profiles` rows, or "create new," settable at any
+  time. Repairs both new and already-broken households and doesn't depend on
+  email matching being exact, mirroring the pattern parents already use to
+  manage every other `caregiver_profiles` field. More UI work than B, and
+  needs its own small decision about what happens when a row is already
+  linked to a different user (block re-linking, or allow it and treat the
+  newer link as authoritative).
+- **Option D — both B and C.** B as the zero-friction default for new joins,
+  C as the one-time repair path for whatever's already broken today and the
+  fallback whenever B's email match fails.
+
+**No recommendation given** — not because the "right" mechanism is
+unclear (D is very likely correct: B alone can't repair already-affected
+households, and C alone means a step a parent can simply forget to do,
+leaving the exact same silent break), but because of what this finding
+actually implies: this isn't a preference or a nice-to-have like most items
+on this list, it's the discovery that a core, long-relied-upon piece of
+authorization plumbing has likely never worked end to end, on every
+household that has ever used it. That's worth a deliberate look — and,
+realistically, a check of whether any real household's nanny access is
+currently broken because of it — before a fix (or a backfill of already-
+affected data) ships unsupervised.
 
 ---
 
