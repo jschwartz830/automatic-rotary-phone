@@ -235,6 +235,20 @@ exception-hours filter in the same function against the shared
 No new judgment call was opened. See `SPEC_CHANGE_LOG.md` 2026-09-02 for full
 detail. Per the same standing instruction, every item below was presented
 again in chat with its options and recommendation, and nothing else was
+built unilaterally this session. The 2026-09-04 session re-checked the
+time-entry schedule pre-fill directly (still correct — date defaults to
+today, times pre-fill from the scheduled shift when one exists), since this
+run's prompt asked about it explicitly again, then reviewed the one commit
+since 2026-09-02 not yet covered by this rotation's diff review
+(`03f4544`, "Prevent household refresh from hiding records," landed via a
+different agent's PR while this rotation was covering other diff) and found
+no bug — the fix (pin the household chosen by an order-unstable fallback
+back into `localStorage` the moment it resolves, so a later refresh can't
+silently switch households) is correct. Health check (`npm run build`,
+`npm run lint`) came back clean. No new judgment call was opened. See
+`SPEC_CHANGE_LOG.md` 2026-09-04 for full detail. Every item below was
+presented again — via chat and a push notification, since this was an
+unattended scheduled run — with its options and recommendation; nothing was
 built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request

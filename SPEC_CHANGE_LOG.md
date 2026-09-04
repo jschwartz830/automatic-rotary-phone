@@ -8,6 +8,58 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-04 — Time-entry schedule pre-fill re-confirmed again (still correct, matches this session's own request); adversarial review of the one diff since 2026-09-02 not yet covered (a fix authored outside this session's rotation) finds no bugs; health check clean; all 15 open Q&A items presented in chat/notification again, none built unilaterally
+
+**This session's scope:** the recurring-task owner's prompt this run
+explicitly asked (again) whether manual time entry pre-fills from the
+caregiver's scheduled hours, defaulting the date to today. Re-checked
+`Time.tsx` directly rather than trusting the running history: the date
+field still defaults to `todayStr`, and the start/end/break fields still
+pre-fill from `generateShiftsForRange(...)` for that date, falling back to
+the 09:00–17:00 constants only when nothing is scheduled — unchanged since
+2026-06-30, same as every prior re-confirmation. No code change needed;
+already built exactly as requested.
+
+**Diff review:** the 2026-09-02 session's own review pass covered
+`58a4419..83def34`. Since then, `main` advanced by one more real commit not
+authored by this rotation — `03f4544` ("Prevent household refresh from
+hiding records", merged via PR #93 from a `codex/...` branch, i.e. a
+different agent/tool, not this recurring session) — plus merge commits and
+`99099d6`, which is simply the 2026-09-02 session's own fix landing as a
+commit (already reviewed when written, not re-reviewed here).
+
+`03f4544` wraps the `localStorage` reads/writes in `HouseholdContext.tsx` in
+try/catch (so a blocked-storage browser degrades to in-memory-only instead
+of throwing), and adds an effect that pins the household chosen by the
+`households.find(...) ?? households[0]` fallback back into
+`activeHouseholdId`/`localStorage` the moment it resolves. The bug this
+fixes: when a user has multiple households and no `activeHouseholdId` is
+yet stored, PostgREST doesn't guarantee row order, so `households[0]` could
+resolve to a different household across refreshes — including the refresh
+that runs right after saving household settings — making a household's
+caregivers/time history/pay/PTO appear to silently vanish. Traced the fix
+through every call site (`Onboarding.tsx`'s create and join flows both now
+call `setActiveHouseholdId` before `refresh()`, avoiding the race at its
+source; `More.tsx`'s new household switcher only lists households already
+present in `households`) and through the re-render/effect-dependency
+behavior (the new effect's guard compares `household.id !== activeHouseholdId`,
+so it only writes state when the id actually changes — no infinite-loop or
+extra-render risk from `household` being a new object reference each
+refresh). No bug found; the fix is correct and matches the pattern already
+used elsewhere in this file (`setActiveHouseholdId`'s own try/catch).
+
+**Health check:** `npm run build` (tsc -b && vite build) and `npm run lint`
+(oxlint) both clean — the same three longstanding `only-export-components`
+warnings and one `exhaustive-deps` warning as prior sessions, nothing new.
+
+No new judgment call was opened, and no bug was found to fix. Per the same
+standing instruction, every open Q&A item was presented again — this run,
+via `PushNotification` as well as in chat, since this is a scheduled/
+unattended run — with its options and recommendation; nothing was built
+unilaterally this session.
+
+---
+
 ## 2026-09-02 — Time-entry schedule pre-fill re-confirmed again (still correct); adversarial code-review pass over the diff since the 2026-08-24 review finds and fixes two real bugs plus one duplication cleanup; all 15 open Q&A items presented in chat again, none built unilaterally
 
 **This session's scope, per the standing recurring-task instructions:**
