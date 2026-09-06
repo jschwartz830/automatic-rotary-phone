@@ -249,7 +249,18 @@ silently switch households) is correct. Health check (`npm run build`,
 `SPEC_CHANGE_LOG.md` 2026-09-04 for full detail. Every item below was
 presented again — via chat and a push notification, since this was an
 unattended scheduled run — with its options and recommendation; nothing was
-built unilaterally this session.
+built unilaterally this session. The 2026-09-06 session re-confirmed the
+pre-fill once more (still correct), then found that the prior session's own
+commit was documentation-only, leaving no new diff for the adversarial-review
+rotation to cover; instead gave a first dedicated fresh-eyes review to the
+two pieces of functionality that had only ever been reviewed by the sessions
+that wrote them (the multi-household switcher from `03f4544` and the
+"Finish setup" checklist from `9f63c74`) and found no bugs in either. Health
+check (`npm install` + build + lint) came back clean. No new judgment call
+was opened. See `SPEC_CHANGE_LOG.md` 2026-09-06 for full detail. Every item
+below was presented again — via chat and a push notification, since this is
+an unattended scheduled run — with its options and recommendation; nothing
+was built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 

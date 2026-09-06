@@ -8,6 +8,70 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-06 — Time-entry schedule pre-fill re-confirmed again (still correct); no new diff to review since the last session; fresh-eyes review of the multi-household switcher and "Finish setup" checklist finds no bugs; health check clean; all 15 open Q&A items presented in chat/notification again, none built unilaterally
+
+**This session's scope:** the recurring-task owner's prompt again asked
+whether manual time entry pre-fills from the caregiver's scheduled hours,
+defaulting the date to today. Re-checked `Time.tsx` directly: the date field
+still defaults to `todayStr` (set from `new Date()`), and the start/end/break
+fields still pre-fill from `generateShiftsForRange(...)` for that date,
+falling back to the 09:00–17:00 constants only when nothing is scheduled —
+unchanged since 2026-06-30, same as every prior re-confirmation.
+
+**Diff review:** the 2026-09-04 session's own commit (`99f9bf6`) was
+documentation-only (confirmed via `git show --stat`) — it reviewed `03f4544`
+but made no source change itself. `git diff 83def34..HEAD -- src/ supabase/`
+shows no file changes beyond what `99099d6` (2026-09-02's own fix, already
+reviewed when written) and `03f4544` (reviewed 2026-09-04) already
+contributed. There is therefore no new, previously-unreviewed diff for this
+session's adversarial-review rotation to cover.
+
+**Fresh-eyes review in place of a diff review:** rather than re-review code
+already covered twice, this session read the two pieces of 2026-08-22/09-02
+functionality that had only ever been reviewed by the session that wrote
+them (or, for the Daily-detail feature, sessions fixing a different part of
+the same function) — the multi-household switcher (`HouseholdContext.tsx`'s
+pin-on-resolve effect and `More.tsx`'s "Active household" selector, from
+`03f4544`) and the "Finish setup" checklist (`Home.tsx`'s
+`buildSetupChecklist`, from `9f63c74`) — end to end for correctness bugs.
+
+- **Household switcher:** traced the derivation
+  `household = households.find(h => h.id === activeHouseholdId) ?? households[0]`
+  against the new effect that pins `household.id` back into
+  `activeHouseholdId` whenever they differ. Since the effect keys off `.id`
+  (stable) rather than array position, a `households` array that reorders
+  between PostgREST responses can't cause repeated writes or a render loop;
+  an explicit switch via the new dropdown updates `activeHouseholdId`
+  first, so `household` re-resolves to the chosen household and the effect
+  is a no-op on the next render. No bug found.
+- **Finish setup checklist:** traced `buildSetupChecklist`'s five `done`
+  conditions against their data sources (caregiver count, active
+  `schedule_templates` per caregiver, `leave_policies` per caregiver scoped
+  to `BALANCE_LEAVE_TYPES`, household timezone vs. the `America/New_York`
+  default, any customized `reminders` row) and the `caregiverIds.length === 0`
+  early-return branch that also has to build the checklist (the one case
+  where a parent/co-admin household genuinely has zero caregivers yet — this
+  is exactly the state the checklist's first item exists to catch, not an
+  edge case that was missed). No bug found. The timezone check's "not done
+  until changed from the default" logic can't distinguish "never configured"
+  from "explicitly confirmed America/New_York," which is an inherent,
+  previously-accepted tradeoff of that detection method (the same shape used
+  for other "still at default" checks in this codebase), not a new finding.
+
+**Health check:** `npm install` (fresh checkout, no `node_modules`
+committed), then `npm run build` (`tsc -b && vite build`) and `npm run lint`
+(oxlint) both clean — the same three longstanding `only-export-components`
+warnings and one `exhaustive-deps` warning as every prior session, nothing
+new.
+
+No new judgment call was opened, and no bug was found to fix. Per the same
+standing instruction, every open Q&A item was presented again — this run,
+via `PushNotification` as well as in chat, since this is a scheduled/
+unattended run — with its options and recommendation; nothing was built
+unilaterally this session.
+
+---
+
 ## 2026-09-04 — Time-entry schedule pre-fill re-confirmed again (still correct, matches this session's own request); adversarial review of the one diff since 2026-09-02 not yet covered (a fix authored outside this session's rotation) finds no bugs; health check clean; all 15 open Q&A items presented in chat/notification again, none built unilaterally
 
 **This session's scope:** the recurring-task owner's prompt this run
