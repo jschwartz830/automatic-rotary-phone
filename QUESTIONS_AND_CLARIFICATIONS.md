@@ -249,7 +249,27 @@ silently switch households) is correct. Health check (`npm run build`,
 `SPEC_CHANGE_LOG.md` 2026-09-04 for full detail. Every item below was
 presented again — via chat and a push notification, since this was an
 unattended scheduled run — with its options and recommendation; nothing was
-built unilaterally this session.
+built unilaterally this session. The 2026-09-05 session re-confirmed the
+time-entry pre-fill once more (still correct), then ran the first dedicated
+full literal re-audit of spec section 16 (Calculation Rules, 16.1-16.9)
+against `calc.ts`/`schedule.ts`/`Pay.tsx`/`payExport.ts` since the section's
+last full pass (2026-08-05/08-09) — every formula (16.1 Paid Hours through
+16.9 PTO Accrual, excluding already-open items 24/31) matched spec exactly,
+except one previously-undocumented gap: `other_paid` is the only one of
+spec 13.7's five leave types `computePeriodTotals`/`calc.ts` never sums into
+`actual_paid_hours`/`payable_regular_hours`, so an approved "other paid
+leave" request is silently paid $0 despite `payExport.ts`'s own Daily Detail
+view showing a nonzero "Other paid" hours line for the same day — opened as
+new judgment call item 41 below rather than built, since spec 16.4/16.7's
+formulas themselves don't name a fifth term and the closest fix (mirroring
+holiday's caregiver-level guarantee-offset flag) would need a new schema
+column with no existing precedent to copy. Health check
+(`npm install`, `npm run build`, `npm run lint`) came back clean — same six
+pre-existing warnings as every prior session. See `SPEC_CHANGE_LOG.md`
+2026-09-05 for full detail. Every item below was presented again — via chat
+and a push notification, since this was an unattended scheduled run — with
+its options and recommendation; nothing was built unilaterally this
+session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
@@ -1067,6 +1087,88 @@ gate that applies to PTO/sick/unpaid today), and restricting it removes
 functionality a household may already be using without any signal that it's
 actually causing a problem. Worth revisiting only if a household explicitly
 wants Holiday/Other-Paid kept parent-only.
+
+### 41. Approved `other_paid` leave requests contribute zero hours and zero dollars to gross pay — the only one of spec 13.7's five leave types `calc.ts`/`Pay.tsx` never sums into the payroll formula (spec 15.10/16.4/16.7)
+
+Spec 13.7 lists "Other paid leave" as a real leave type alongside PTO/sick/
+holiday/unpaid, and `leave_policies.paid` (spec 15.10, default `true`) and
+`counts_toward_payable_hours` (spec 15.10, default `true`) both imply it's
+meant to be paid out like the others. `PTO.tsx`'s `LEAVE_TYPES` includes
+`'other_paid'` in the same request/approve flow as every other type (a
+request lands in `leave_requests` with `status: 'approved'` exactly like a
+`holiday` request, no `leave_policies` row required for either — holiday
+pay is proof a leave type doesn't need a policy row to be paid). But
+`Pay.tsx`'s `computePeriodTotals` (`src/routes/Pay.tsx:465-482`, the single
+function both "Generate timesheet" and "Approve submitted timesheet" call)
+only ever calls `sumLeave('pto')`, `sumLeave('sick')`, `sumLeave('holiday')`,
+and `sumLeave('unpaid')` when building the `calculateTimesheet` input --
+`sumLeave('other_paid')` is never called anywhere, and `calc.ts`'s
+`TimesheetCalcInput` has no field for it at all. An approved `other_paid`
+leave request sitting inside a pay period is silently excluded from
+`actual_paid_hours` (16.4), `payable_regular_hours` (16.7), and therefore
+`gross_pay_due` (16.8) -- the caregiver is never paid for it, with no
+warning anywhere that it happened. The gap is visible and self-contradicting
+in the app's own output: `payExport.ts`'s `computeDailyBreakdown` (built for
+item 36's Daily Detail view and the CSV export) does compute
+`otherPaidHours: leaveHours('other_paid')` per day and `Pay.tsx` renders it
+as an "Other paid" line in the Daily Detail card
+(`src/routes/Pay.tsx:132`) -- so a parent can see a nonzero "Other paid: 8.00"
+hours line on a day, directly above a period gross-pay total that paid $0
+for those hours. Found via this session's literal audit of spec 16.4/16.7
+against `calc.ts`/`Pay.tsx`, cross-checked against `payExport.ts`.
+
+This isn't a mechanical fill-in with an exact precedent to copy, for two
+reasons. First, spec 16.4's and 16.7's own formulas are themselves silent on
+`other_paid` -- they name exactly four paid-leave-shaped terms
+(`paid_pto_hours`, `paid_sick_hours`, `paid_holiday_hours`,
+`family_cancellation_hours`) and never mention a fifth "other paid" term, so
+it's genuinely ambiguous whether the formula's enumeration is exhaustive (and
+"other paid leave" was only ever meant to be a `leave_requests`/ledger
+tracking category, paid out via `manual_adjustments` if a household wants it
+reflected in a given period's check) or just an incomplete listing that
+should be read as "every paid leave category." Second, even if the answer is
+"it should be paid," `holiday`'s precedent (the closest analog: no
+`leave_policies` row needed) is gated by a real `caregiver_profiles` column,
+`holiday_counts_toward_guarantee`, for the actual-paid-hours/guarantee-offset
+side of the math -- no equivalent `other_paid_counts_toward_guarantee` column
+exists on `caregiver_profiles`, so wiring this up "the holiday way" means
+adding a new schema column (a judgment call in itself, not a pure code fix),
+whereas defaulting it to never count toward the guarantee is a different,
+also-defensible choice with no schema change.
+
+- **Option A -- leave as-is.** `other_paid` stays a request/approve-only
+  category with no payroll effect; a household that wants an approved
+  "other paid leave" reflected in a caregiver's check today has to type it
+  into the existing `manual_adjustments` dollar field by hand. Zero new
+  work, but the Daily Detail view's own "Other paid" hours line keeps
+  visually contradicting the gross pay total shown next to it, and the
+  leave type's own name ("paid") is misleading about what actually happens
+  to it.
+- **Option B -- add it to the payroll formula unconditionally, no new
+  guarantee-offset flag.** Add `paidOtherPaidHours: sumLeave('other_paid')`
+  to `computePeriodTotals` and a new `paidOtherPaidHours` field to
+  `TimesheetCalcInput`, added unconditionally to `payableRegularHours` (16.7)
+  the same unconditional way `paidPtoHours`/`paidSickHours`/
+  `paidHolidayHours` already are, and to `actualPaidHours` (16.4) -- but
+  hardcode it as always counting toward the guarantee rather than adding a
+  new caregiver-level toggle, since no columns exists for one today. Closes
+  the Daily-Detail-vs-gross-pay contradiction and pays what was approved,
+  at the cost of no per-household override for the guarantee-offset
+  question (unlike every other paid-leave category, which all have one).
+- **Option C -- add the missing `caregiver_profiles.other_paid_counts_toward_guarantee`
+  column (a migration) and wire it exactly like `holiday_counts_toward_guarantee`,
+  full parity with the other three categories.** Closest to spec's implied
+  "should behave like the other leave types" reading and the most
+  future-proof, but is real schema surgery on a live-money table for a
+  leave type nothing has flagged as actually blocking a household yet.
+
+**No recommendation given** -- unlike a mechanical fill-in, this changes
+`gross_pay_due` (an already-relied-upon, real-money number) for any
+household with an approved `other_paid` leave request in a pay period, and
+the "should it be paid via the section-16 formula at all" question turns on
+a genuine spec-silence (16.4/16.7 name four categories, not five) rather
+than an implementation oversight with an obvious answer -- worth a
+deliberate choice rather than a guess, the same posture as items 31/37.
 
 ---
 

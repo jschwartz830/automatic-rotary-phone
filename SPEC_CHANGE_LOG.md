@@ -8,6 +8,129 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-05 — Time-entry schedule pre-fill re-confirmed again (still correct); first dedicated full literal re-audit of spec section 16 (Calculation Rules) since 2026-08-05/08-09 finds every formula matches spec except one previously-undocumented gap (`other_paid` leave never reaches gross pay); one new judgment call opened, nothing built unilaterally; health check clean
+
+**This session's scope:** re-confirm the manual time-entry pre-fill
+behavior, then run the full literal, bullet-by-bullet re-audit of spec
+section 16 (`APPLICATION_SPEC.md` lines 2078-2208, 16.1-16.9) the standing
+task instructions called for — this section's last *dedicated* full pass was
+2026-08-05/2026-08-09, and several daily-breakdown/export bug fixes have
+landed in adjacent code since (2026-08-25, 2026-09-02) without a fresh check
+that the core per-period formulas still match spec. Checked `calc.ts`,
+`schedule.ts`, `payExport.ts`, and `Pay.tsx`'s usage of all three.
+
+**Pre-fill: still correct, no change.** Re-checked `Time.tsx` directly —
+`date` still defaults to today (`new Date().toISOString().slice(0, 10)`,
+line 51), and the pre-fill `useEffect` (lines 121-136) still looks up the
+selected date's generated shift via `generateShiftsForRange` and fills
+`startTime`/`endTime`/`breakMinutes` from it, falling back to the
+09:00-17:00 defaults only when nothing's scheduled that day. Same behavior
+re-verified every session since 2026-06-30.
+
+**Section 16 audit, bullet by bullet:**
+
+- **16.1 Paid Hours** (`paid_hours = end_time - start_time -
+  unpaid_break_minutes`, no rounding by default) — matches `calc.ts`'s
+  `hoursBetween`: computes minutes, handles a midnight-crossing shift,
+  subtracts `breakMinutes` unconditionally (time entries have no
+  `paid_break` column, unlike `schedule_shifts` — the spec's own formula
+  treats all break minutes as unpaid for a time entry, so this is correct,
+  not a gap), and only applies `round2` (float-dust cleanup, not real
+  time-unit rounding). **Match.**
+- **16.2 Scheduled Hours** — `Pay.tsx`'s `computePeriodTotals` sums
+  `occurrences.reduce(shiftHours)` plus `scheduleExceptionHoursDelta(...)`,
+  clamped to `>= 0`. **Match.**
+- **16.3 Guaranteed Hours** — `computeGuaranteedHoursBase`
+  (`src/lib/schedule.ts:192-211`) correctly branches on
+  `guaranteed_hours_basis === 'linked_to_schedule'`; for the two fixed
+  bases it falls through
+  `caregiver.fixed_weekly_guaranteed_hours ?? caregiver.fixed_pay_period_guaranteed_hours ?? 0`
+  without re-checking which basis is selected. Traced this against
+  `CaregiverDetail.tsx`'s save handler (`handleSave`,
+  `src/routes/CaregiverDetail.tsx:287-294`): it always writes exactly one of
+  the two fields to a number and the other to `null` based on the currently
+  selected `guaranteedBasis`, so the two columns are a de facto mutually-
+  exclusive pair under every write path the app has — the fallback chain
+  always resolves to the right value in practice. Not a bug, just worth
+  noting the correctness depends on that write-side invariant rather than
+  the read-side switching on `guaranteed_hours_basis` directly. **Match
+  (verified, not just assumed).**
+- **16.4 Actual Paid Hours** — `calc.ts`'s `actualPaidHours` sums
+  `actualWorkedHours` plus PTO/sick/holiday (each gated by its own
+  caregiver-level `*CountsTowardGuarantee` flag) plus
+  `familyCancellationHours` unconditionally (already pre-zeroed upstream by
+  `Pay.tsx` when the caregiver's flag is off). **Match** for every category
+  the formula names — see the one gap below for the category it doesn't
+  name.
+- **16.5 Guarantee Adjustment** — `unpaidTimeOffReducesGuarantee` gate,
+  `adjustedGuaranteedHours = max(guaranteedHoursBase - unpaidTimeOffHours, 0)`,
+  then `guaranteeAdjustmentHours = max(adjustedGuaranteedHours -
+  actualPaidHours, 0)` — matches spec's example formula exactly (the extra
+  intermediate `max(...,0)` is a redundant-but-harmless no-op given the
+  outer `max` that follows). **Match.**
+- **16.6 Overtime** — `regularWorkedHours = min(actualWorkedHours,
+  overtimeThresholdHours)`, `overtimeWorkedHours = max(actualWorkedHours -
+  overtimeThresholdHours, 0)`, computed only from `actualWorkedHours` (never
+  suppressed by the guarantee, and guarantee-adjustment hours land in
+  `payableRegularHours` per 16.7, never in overtime). **Match** (the known,
+  already-documented item 31 gap is about *which hours* get bucketed into
+  this per-period computation for non-weekly pay frequencies, not this
+  formula itself — not re-litigated here).
+- **16.7 Payable Hours** — `payableRegularHours = regularWorkedHours +
+  paidPtoHours + paidSickHours + paidHolidayHours + familyCancellationHours +
+  guaranteeAdjustmentHours`; `payableOvertimeHours = overtimeWorkedHours`;
+  regular hours are capped at the threshold via the `min(...)` in 16.6.
+  **Match** for every category the formula names.
+- **16.8 Gross Pay Due** — `overtimeRate = hourlyRate * overtimeMultiplier`;
+  `grossPayDue = payableRegularHours * hourlyRate + payableOvertimeHours *
+  overtimeRate + reimbursements + manualAdjustments`. **Match**, exactly as
+  written in the spec.
+- **16.9 PTO Accrual** — all four accrual-method formulas remain unbuilt
+  except front-loaded-annual's manual allowance entry; this is the already-
+  open, already-fully-written-up item 24 (no server cron for the other three
+  methods, plus a genuine redundancy question), not re-opened here.
+
+**One previously-undocumented gap found, not mechanically fixed — see new
+`QUESTIONS_AND_CLARIFICATIONS.md` item 41.** `other_paid` (spec 13.7's
+"Other paid leave," fully wired through the same request/approve flow as
+`holiday` in `PTO.tsx`, no `leave_policies` row required for either) is the
+one leave type `Pay.tsx`'s `computePeriodTotals` never sums into the
+`calculateTimesheet` call — `sumLeave('pto')`/`sumLeave('sick')`/
+`sumLeave('holiday')`/`sumLeave('unpaid')` are all called, `sumLeave('other_paid')`
+never is, and `calc.ts`'s `TimesheetCalcInput` has no field for it at all.
+An approved `other_paid` request inside a pay period is silently excluded
+from `actual_paid_hours`/`payable_regular_hours`/`gross_pay_due`, and the
+gap is directly visible in the app's own output: `payExport.ts`'s
+`computeDailyBreakdown` (built for item 36) does compute an `otherPaidHours`
+value per day and `Pay.tsx` renders it as an "Other paid" line in the Daily
+Detail card (`src/routes/Pay.tsx:132`), sitting directly above a period
+gross-pay total that paid $0 for those hours. Not mechanically fixed because
+(a) spec 16.4/16.7's own formulas name exactly four paid-leave terms, never
+a fifth, so it's genuinely ambiguous whether "other paid leave" was ever
+meant to flow through this formula at all versus being a
+tracking-only category paid out via `manual_adjustments`, and (b) even if it
+should be paid, the closest precedent (`holiday`'s caregiver-level
+`holiday_counts_toward_guarantee` flag) has no `other_paid` equivalent
+column on `caregiver_profiles` to copy — wiring it up "the holiday way"
+means a new schema column, a real judgment call, not a code-only fix. Per
+the standing instruction, this is written up as item 41 (options A/B/C, no
+recommendation given, same posture as items 31/37) rather than built.
+
+**Health check:** `npm install`, `npm run build` (`tsc -b && vite build`),
+and `npm run lint` (`oxlint`) all ran clean — no new TypeScript or lint
+errors; the same six pre-existing warnings prior sessions have already
+documented (`react-hooks/exhaustive-deps` in `Schedule.tsx`; Fast Refresh
+`only-export-components` warnings in `AuthContext.tsx`, `HouseholdContext.tsx`,
+`PreferencesContext.tsx`, and `Card.tsx`).
+
+No source files were changed this session — only `SPEC_CHANGE_LOG.md` and
+`QUESTIONS_AND_CLARIFICATIONS.md`. Every open Q&A item (22-26, 29, 31-41)
+was presented again this run — via chat and a push notification, since this
+is a scheduled/unattended session — with its options and recommendation;
+nothing was built unilaterally this session.
+
+---
+
 ## 2026-09-04 — Time-entry schedule pre-fill re-confirmed again (still correct, matches this session's own request); adversarial review of the one diff since 2026-09-02 not yet covered (a fix authored outside this session's rotation) finds no bugs; health check clean; all 15 open Q&A items presented in chat/notification again, none built unilaterally
 
 **This session's scope:** the recurring-task owner's prompt this run
