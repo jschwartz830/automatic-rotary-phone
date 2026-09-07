@@ -8,7 +8,7 @@ items that need your decision rather than ones already resolved.
 
 ---
 
-## 2026-09-07 — Time-entry schedule pre-fill re-confirmed again (still correct); diff-review rotation finds nothing new to review (everything since the last checkpoint was already covered by prior sessions); found and fixed a documentation artifact in this file's companion Q&A intro; health check clean; all 15 open Q&A items presented in chat/notification, none built unilaterally
+## 2026-09-07 — Time-entry schedule pre-fill re-confirmed again (still correct); diff-review rotation finds nothing new to review (everything since the last checkpoint was already covered by prior sessions); found and fixed a documentation artifact in this file's companion Q&A intro, plus a stale open-item count off by one; health check clean; all 16 open Q&A items presented in chat/notification, none built unilaterally
 
 **This session's scope:** re-confirm the manual time-entry pre-fill behavior
 (this run's prompt asked about it again directly), check whether the
@@ -41,6 +41,16 @@ paragraphs, the same class of self-inflicted intro-paragraph bug the
 the paragraph now reads as a single continuous narrative again with no
 content lost (the real sentence describing the 2026-08-20 session's scope,
 at the end of the 2026-08-22 paragraph, was untouched).
+
+Also found the recurring "15 open Q&A items" count quoted in this log and in
+`QUESTIONS_AND_CLARIFICATIONS.md`'s intro since 2026-08-14 has been stale
+since item 37 was added on 2026-08-13: a direct count of every `### N.`
+heading between `## Open items` and the first `## Resolved items` section
+gives **16** (22-26, 29, 31-35, 37-41), not 15 — item 37
+(`payment_records.guarantee_override_note`) was apparently never folded into
+the running count. No item was mis-filed as resolved; this was purely an
+arithmetic drift carried forward unchecked across roughly a dozen sessions.
+Corrected the count going forward in this entry's own title.
 
 **Health check:** `npm install`, `npm run build` (tsc -b && vite build), and
 `npm run lint` (oxlint) all clean — the same six pre-existing warnings as

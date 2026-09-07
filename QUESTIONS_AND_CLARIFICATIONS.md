@@ -279,12 +279,16 @@ commit). It then found and fixed a copy-paste artifact in this very
 paragraph: the fragment "part of that ask beyond item 30." had been
 accidentally duplicated as a dangling prefix at the start of both the
 2026-08-23 and 2026-08-24 entries above; both stray copies are now removed
-with no content lost. Health check (`npm install`, `npm run build`,
-`npm run lint`) came back clean — same six pre-existing warnings as every
-prior session. See `SPEC_CHANGE_LOG.md` 2026-09-07 for full detail. Every
-item below was presented again — via chat and a push notification, since
-this was an unattended scheduled run — with its options and recommendation;
-nothing was built unilaterally this session.
+with no content lost. It also found that the "15 open Q&A items" count this
+running narrative has quoted since 2026-08-14 has been stale since item 37
+was added on 2026-08-13 — a direct count of every open item heading below
+gives **16** (22-26, 29, 31-35, 37-41), not 15; corrected going forward.
+Health check (`npm install`, `npm run build`, `npm run lint`) came back
+clean — same six pre-existing warnings as every prior session. See
+`SPEC_CHANGE_LOG.md` 2026-09-07 for full detail. Every item below was
+presented again — via chat and a push notification, since this was an
+unattended scheduled run — with its options and recommendation; nothing was
+built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
