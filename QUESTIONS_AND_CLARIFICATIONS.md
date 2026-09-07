@@ -148,7 +148,7 @@ time-entry schedule pre-fill once more (still correct, no change), then
 built items 28 and 36 below, each using its own already-standing
 recommendation (option B for both), the same low-ambiguity posture the
 2026-08-20 session used for item 30; no other open item was touched.
-part of that ask beyond item 30. The 2026-08-23 session re-confirmed the
+The 2026-08-23 session re-confirmed the
 time-entry schedule pre-fill once more (still correct, no change), then ran
 a fresh, literal bullet-by-bullet audit of spec 14.5 (PTO Screen) and 14.7
 (Settings Screen) against `PTO.tsx`/`CaregiverDetail.tsx`/`More.tsx` — the
@@ -166,7 +166,7 @@ an existing request was edited to a different leave type, leaving the FK
 stale after such an edit; `PTO.tsx`'s `handleEditSubmit` now re-resolves and
 writes it the same way the insert path already does. No new judgment call
 was opened. See `SPEC_CHANGE_LOG.md` 2026-08-23 for full detail.
-part of that ask beyond item 30. The 2026-08-24 session re-confirmed the
+The 2026-08-24 session re-confirmed the
 pre-fill again (still correct), then — since consecutive sessions' full
 literal spec-vs-code audits had returned "no gaps found" across nearly every
 spec section by this point — ran an adversarial code-review pass over the
@@ -269,7 +269,26 @@ pre-existing warnings as every prior session. See `SPEC_CHANGE_LOG.md`
 2026-09-05 for full detail. Every item below was presented again — via chat
 and a push notification, since this was an unattended scheduled run — with
 its options and recommendation; nothing was built unilaterally this
-session.
+session. The 2026-09-07 session re-confirmed the time-entry schedule
+pre-fill once more (still correct, no change), then checked whether the
+adversarial diff-review rotation had new commits to cover — it didn't: every
+commit merged to `main` since the rotation's last checkpoint (`83def34`)
+had already been reviewed by an earlier session (2026-09-02's own fix,
+2026-09-04's review of `03f4544`, and 2026-09-05's documentation-only
+commit). It then found and fixed a copy-paste artifact in this very
+paragraph: the fragment "part of that ask beyond item 30." had been
+accidentally duplicated as a dangling prefix at the start of both the
+2026-08-23 and 2026-08-24 entries above; both stray copies are now removed
+with no content lost. It also found that the "15 open Q&A items" count this
+running narrative has quoted since 2026-08-14 has been stale since item 37
+was added on 2026-08-13 — a direct count of every open item heading below
+gives **16** (22-26, 29, 31-35, 37-41), not 15; corrected going forward.
+Health check (`npm install`, `npm run build`, `npm run lint`) came back
+clean — same six pre-existing warnings as every prior session. See
+`SPEC_CHANGE_LOG.md` 2026-09-07 for full detail. Every item below was
+presented again — via chat and a push notification, since this was an
+unattended scheduled run — with its options and recommendation; nothing was
+built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 

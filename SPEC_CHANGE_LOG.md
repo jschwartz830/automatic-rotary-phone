@@ -8,6 +8,63 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-07 — Time-entry schedule pre-fill re-confirmed again (still correct); diff-review rotation finds nothing new to review (everything since the last checkpoint was already covered by prior sessions); found and fixed a documentation artifact in this file's companion Q&A intro, plus a stale open-item count off by one; health check clean; all 16 open Q&A items presented in chat/notification, none built unilaterally
+
+**This session's scope:** re-confirm the manual time-entry pre-fill behavior
+(this run's prompt asked about it again directly), check whether the
+adversarial diff-review rotation had new ground to cover, and re-present the
+full open-items list per the standing instruction.
+
+**Time-entry pre-fill:** re-checked `Time.tsx` directly. The date field
+still defaults to today (`todayStr`), and the manual-entry start/end/break
+fields still pre-fill from `generateShiftsForRange(...)` for that date when
+a scheduled shift exists, falling back to 09:00–17:00 otherwise — unchanged
+since 2026-06-30, same conclusion as every prior re-confirmation.
+
+**Diff-review rotation:** the 2026-08-27 session's own pass covered
+`58a4419..83def34`. Everything merged to `main` since then —
+`99099d6` (2026-09-02, that session's own fix, self-reviewed when written),
+`03f4544` (2026-09-02, reviewed by the 2026-09-04 session, no bug found),
+and `cd06fa9` (2026-09-05, documentation-only — two `.md` files, no source
+change) — was already reviewed by a prior session. Confirmed via
+`git log 83def34..HEAD --oneline -- <each changed file>` that no file's
+post-83def34 history is missing a review. Nothing new for this rotation to
+check.
+
+**Documentation fix:** found a copy-paste artifact in this file's companion,
+`QUESTIONS_AND_CLARIFICATIONS.md`'s running intro paragraph — the fragment
+"part of that ask beyond item 30." (the tail end of the 2026-08-20 session's
+sentence) had been accidentally duplicated as a dangling, ungrammatical
+prefix at the start of both the 2026-08-23 and 2026-08-24 sessions'
+paragraphs, the same class of self-inflicted intro-paragraph bug the
+2026-08-13 session found and fixed once before. Removed both stray copies;
+the paragraph now reads as a single continuous narrative again with no
+content lost (the real sentence describing the 2026-08-20 session's scope,
+at the end of the 2026-08-22 paragraph, was untouched).
+
+Also found the recurring "15 open Q&A items" count quoted in this log and in
+`QUESTIONS_AND_CLARIFICATIONS.md`'s intro since 2026-08-14 has been stale
+since item 37 was added on 2026-08-13: a direct count of every `### N.`
+heading between `## Open items` and the first `## Resolved items` section
+gives **16** (22-26, 29, 31-35, 37-41), not 15 — item 37
+(`payment_records.guarantee_override_note`) was apparently never folded into
+the running count. No item was mis-filed as resolved; this was purely an
+arithmetic drift carried forward unchecked across roughly a dozen sessions.
+Corrected the count going forward in this entry's own title.
+
+**Health check:** `npm install`, `npm run build` (tsc -b && vite build), and
+`npm run lint` (oxlint) all clean — the same six pre-existing warnings as
+every prior session (three `only-export-components`, one `exhaustive-deps`),
+nothing new.
+
+No new judgment call was opened, and no source-code bug was found this
+session. Per the same standing instruction, every open Q&A item was
+presented again — via `PushNotification` as well as in chat, since this is
+a scheduled/unattended run — with its options and recommendation; nothing
+was built unilaterally.
+
+---
+
 ## 2026-09-05 — Time-entry schedule pre-fill re-confirmed again (still correct); first dedicated full literal re-audit of spec section 16 (Calculation Rules) since 2026-08-05/08-09 finds every formula matches spec except one previously-undocumented gap (`other_paid` leave never reaches gross pay); one new judgment call opened, nothing built unilaterally; health check clean
 
 **This session's scope:** re-confirm the manual time-entry pre-fill
