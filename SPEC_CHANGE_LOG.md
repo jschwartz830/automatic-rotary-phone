@@ -8,6 +8,85 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-08 — Time-entry schedule pre-fill re-confirmed again (still correct); first dedicated full literal re-audit of spec 17 (Status Rules) and 19 (RLS Requirements) since 2026-08-08 finds everything still matches spec, no new gaps; no new judgment call opened; health check clean; all 16 open Q&A items presented in chat/notification, none built unilaterally
+
+**This session's scope:** re-confirm the manual time-entry pre-fill behavior
+(this run's prompt asked for it again directly, plus asked that it default
+time entry to the scheduled hours — already the existing behavior, see
+below), confirm the diff-review rotation has nothing new to cover, then run
+a fresh full literal audit of spec sections 17 and 19 — the two
+cross-cutting sections whose last dedicated pass (2026-08-08) predates a
+meaningful amount of subsequent churn nearby: the Correct/Void patterns
+added across timesheets/payment records (2026-08-13/19), the co-admin
+`coadminAllowed(...)` client-side permission checks added for
+`approve_timesheet`/`mark_payment_made` (2026-08-19), and the
+household-member soft-delete migration (2026-08-20, item 30).
+
+**Time-entry pre-fill: still correct, no change.** Re-checked `Time.tsx`
+directly. The date field still defaults to today
+(`new Date().toISOString().slice(0, 10)`), and the manual-entry
+start/end/break fields still pre-fill from the caregiver's scheduled shift
+for that date via `generateShiftsForRange(...)` (the `useEffect` at line
+121), falling back to the 09:00–17:00 defaults only when nothing is
+scheduled that day. This is exactly what this run's prompt asked for
+("time entry pre-set to the schedule hours, can still default to current
+day") — it has been in place since 2026-06-30 and re-confirmed unchanged
+every session since.
+
+**Diff-review rotation:** `HEAD` still matches `origin/main` at
+`14f2f53` (the 2026-09-07 session's own last merged commit). No new commits
+landed since; nothing new for the rotation to review.
+
+**Spec 17 (Status Rules) audit:** every status enum in `src/lib/types.ts`
+was checked field-for-field against spec 17's three status lists.
+`TimeEntryStatus` (`draft`/`submitted`/`approved`/`rejected`/`corrected`/
+`locked`), `TimesheetStatus` (`draft`/`submitted`/`needs_correction`/
+`approved`/`payment_due`/`paid`/`locked`), and `PaymentStatus`
+(`upcoming`/`due`/`overdue`/`partially_paid`/`paid`/`corrected`/`voided`)
+all match spec's lists exactly, value for value. Two values with no write
+path in the current UI — `time_entries.status` never reaching `'rejected'`/
+`'corrected'`, `timesheets.status` never reaching `'needs_correction'` — were
+re-checked and confirmed to be the exact same gap open item 25 already
+documents (the 2026-08-13 session found and folded the `time_entries`-level
+finding into item 25's scope rather than opening a separate item); nothing
+new here.
+
+**Spec 19 (RLS Requirements) audit:** read `0002_rls.sql` and `0018_rls_
+nanny_insert_status_and_profile_scope.sql` bullet-by-bullet against every
+line of spec 19's policy list. Household/caregiver-profile read scoping,
+the nanny-can-only-touch-own-draft-entries update policies, the
+insert-side status allow-lists item 21's 2026-08-08 fix added (closing the
+gap where a nanny could otherwise insert a row already at `'approved'`/
+`'paid'`/`'locked'` via a direct API call), the leave-request approve
+restriction, and the parent/co-admin permission-keyed write policies all
+still match spec exactly. Specifically checked `payment_records_select`
+(household-scoped, unfiltered read for both parent/co-admin and the
+caregiver themselves) against spec 19's "a nanny can read *visible* payment
+records for their own caregiver profile" wording — confirmed this is the
+same ground already settled by resolved item 20 (2026-07-26): the
+`nanny_can_view_*` flags gate specific *fields* (gross pay, PTO balance,
+payment method) in the UI layer by deliberate design, not whole-row RLS
+access, so an unfiltered row-level read policy here isn't a gap. Also
+checked the 2026-08-20 household soft-delete migration (`0019`) — it only
+rewrites `join_household_by_code()`'s error message for a `'removed'` user
+attempting to rejoin; every RLS helper already required `status = 'active'`
+before that migration existed (migration 0002), so the household-boundary
+guarantee (`is_household_member`, etc.) was never affected by it.
+
+No new judgment call was opened, and no source-code bug was found this
+session.
+
+**Health check:** `npm install`, `npm run build` (tsc -b && vite build), and
+`npm run lint` (oxlint) all clean — the same six pre-existing warnings as
+every prior session (three `only-export-components`, one `exhaustive-deps`),
+nothing new.
+
+Per the standing instruction, every open Q&A item was presented again — via
+`PushNotification` as well as in chat, since this is a scheduled/unattended
+run — with its options and recommendation; nothing was built unilaterally.
+
+---
+
 ## 2026-09-07 — Time-entry schedule pre-fill re-confirmed again (still correct); diff-review rotation finds nothing new to review (everything since the last checkpoint was already covered by prior sessions); found and fixed a documentation artifact in this file's companion Q&A intro, plus a stale open-item count off by one; health check clean; all 16 open Q&A items presented in chat/notification, none built unilaterally
 
 **This session's scope:** re-confirm the manual time-entry pre-fill behavior

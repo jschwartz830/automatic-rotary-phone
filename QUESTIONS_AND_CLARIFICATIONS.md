@@ -288,6 +288,39 @@ clean — same six pre-existing warnings as every prior session. See
 `SPEC_CHANGE_LOG.md` 2026-09-07 for full detail. Every item below was
 presented again — via chat and a push notification, since this was an
 unattended scheduled run — with its options and recommendation; nothing was
+built unilaterally this session. The 2026-09-08 session re-confirmed the
+time-entry schedule pre-fill once more (still correct, no change — this
+run's prompt asked about it explicitly again), confirmed the diff-review
+rotation had nothing new (`HEAD` still matched `origin/main` at the
+2026-09-07 session's own last commit, no new merges since), then ran the
+first dedicated full literal re-audit of spec sections 17 (Status Rules) and
+19 (Supabase RLS Requirements) since 2026-08-08, the two cross-cutting
+sections with the most subsequent churn nearby (Correct/Void patterns,
+co-admin permission checks, the 2026-08-20 soft-delete migration) without a
+fresh check that the enforcement still matches spec. Every status enum in
+`types.ts` (`TimeEntryStatus`, `TimesheetStatus`, `PaymentStatus`,
+`ExceptionStatus`, `LeaveRequestStatus`) still matches spec 17's lists
+exactly; the `time_entries`/`timesheets`/`leave_requests`/`payment_records`
+RLS policies (`0002_rls.sql`, sharpened by `0018`) still cover every spec 19
+bullet, including the insert-side allow-lists item 21's 2026-08-08 fix
+added; and the 2026-08-20 soft-delete migration (`0019`) only touches
+`join_household_by_code()`'s error message, not any access-control logic,
+so the household-boundary guarantee is unchanged. Two enum values with no
+write path (`time_entries.status` never reaching `'rejected'`/`'corrected'`,
+`timesheets.status` never reaching `'needs_correction'`) were re-confirmed
+as already fully explained by open item 25 (found and documented by the
+2026-08-13 session), not a new finding. `payment_records_select`'s
+household-scoped-but-unfiltered read policy was checked against spec 19's
+"visible payment records" wording and confirmed to be the same ground item
+20 already resolved (row-level RLS grants read access to the whole record;
+the specific field-level `nanny_can_view_*` flags are enforced in the UI by
+design, per that item's 2026-07-26 resolution) — not a gap. No new judgment
+call was opened, and no source-code bug was found this session. Health
+check (`npm install`, `npm run build`, `npm run lint`) came back clean —
+same six pre-existing warnings as every prior session. See
+`SPEC_CHANGE_LOG.md` 2026-09-08 for full detail. Every item below was
+presented again — via chat and a push notification, since this was an
+unattended scheduled run — with its options and recommendation; nothing was
 built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
