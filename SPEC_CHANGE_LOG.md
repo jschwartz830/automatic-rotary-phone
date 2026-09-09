@@ -8,6 +8,136 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-09 — Time-entry schedule pre-fill re-confirmed again (still correct); diff-review rotation finds nothing new to review; first dedicated full literal re-audit of spec 15.9-15.15 (Data Model: timesheets through audit_events) since 2026-08-08 finds every field matches spec except one previously-undocumented gap (`leave_requests.status` never reaches `'canceled'`/`'used'`); one new judgment call opened, nothing built unilaterally; health check clean; all 17 open Q&A items presented in chat/notification
+
+**This session's scope:** re-confirm the manual time-entry pre-fill behavior,
+confirm the adversarial diff-review rotation has nothing new to cover, then
+run a fresh full literal, field-by-field audit of spec 15.9-15.15 (the seven
+Data Model tables from `timesheets` through `audit_events`) against
+`0001_schema.sql`/every later migration touching those tables, `types.ts`,
+and every read/write site in `src` — this section's last *dedicated* pass
+was 2026-08-08, older than the infra/meta sections' last pass (2026-08-10)
+and every other spec section, per the running history in
+`QUESTIONS_AND_CLARIFICATIONS.md`.
+
+**Time-entry pre-fill: still correct, no change.** Re-checked `Time.tsx`
+directly. The date field still defaults to today
+(`new Date().toISOString().slice(0, 10)`, line 51), and the manual-entry
+`useEffect` (lines 121-136) still fills `startTime`/`endTime`/`breakMinutes`
+from `generateShiftsForRange(...)`'s result for the selected date, falling
+back to the 09:00-17:00 defaults only when nothing's scheduled that day. Same
+behavior re-verified every session since 2026-06-30.
+
+**Diff-review rotation:** `origin/main` is still at `03e2b44`, the
+2026-09-08 session's own last merged commit (`217e5c4` merged via PR #99).
+No new commits landed since; nothing new for the rotation to review.
+
+**Spec 15.9-15.15 audit, table by table:** every column in
+`0001_schema.sql`'s `timesheets`, `leave_policies`, `leave_requests`,
+`leave_ledger`, `payment_records`, `reminders`, and `audit_events` tables
+matches spec's literal field list (the only additions are already-documented
+soft-delete/archive columns — `timesheets.deleted_at`,
+`leave_requests.archived_at`/`.archived_by`, `payment_records.deleted_at`).
+Every status/event-type check constraint (`timesheets.status`,
+`leave_policies.leave_type`/`.accrual_method`, `leave_requests.leave_type`/
+`.status`, `leave_ledger.event_type`, `payment_records.status`,
+`reminders.type`/`.channel`) matches `types.ts`'s corresponding union
+exactly, value for value. Checked every field's read/write usage across
+`src` against its spec-described behavior:
+
+- **timesheets** — `submitted_at`/`submitted_by`/`approved_at`/`approved_by`
+  are all written at the matching transitions (`Pay.tsx:569-570,635-636,
+  1067-1068,1162-1165`); `correction_note` is displayed
+  (`Pay.tsx:2058-2059`) but never written, the exact, already-documented
+  shape of open item 25 (no reject/request-correction workflow exists to
+  write it), not a new finding. Hour/pay fields (`scheduled_hours` through
+  `manual_adjustments`) all trace to `calculateTimesheet`'s output or a
+  correction form field, matching the 2026-09-05 audit of section 16's
+  formulas that produce them — not re-litigated here. **Match**, aside from
+  the already-open item 25 gap.
+- **leave_policies** — every field's read/write status matches the
+  already-open item 24's mapping exactly (`front_loaded_annual` fully wired;
+  `negative_balance_allowed`/`waiting_period_days` read but not settable;
+  `enabled`/`paid`/`active` dead per the 2026-08-26 session's finding); no
+  drift since that mapping was last confirmed. **Match** (via item 24).
+- **leave_requests** — `leave_policy_id` re-resolves correctly on both
+  create (`PTO.tsx:210`) and edit (`PTO.tsx:328`, the 2026-08-23 fix);
+  `start_time`/`end_time` remain dead per open item 35, no change.
+  **One previously-undocumented gap: `status` never reaches `'canceled'` or
+  `'used'`, two of its five spec-listed values (spec 15.11).** The
+  create-request insert (`PTO.tsx:215`) writes `'approved'` or `'requested'`,
+  and `reviewRequest` (`PTO.tsx:251`) writes `'approved'` or `'rejected'` —
+  no code path anywhere sets `'canceled'` or `'used'` on this column,
+  confirmed by grep. In practice this means a nanny has no way to withdraw a
+  pending request she no longer wants (`canEdit`, `PTO.tsx:457-458`, lets her
+  edit a `'requested'` row's details but there's no "Withdraw" action — only
+  a parent explicitly rejecting it gets it out of the pending queue), and
+  nothing ever marks an `'approved'` request `'used'` once its date has
+  passed, despite `lib/leave.ts:87`'s balance filter already treating
+  `'approved'`/`'used'` as interchangeable and migration
+  `0015_leave_request_archive.sql`'s own comment describing all five values
+  as "the existing... workflow." Not mechanically fixed — a "Withdraw"
+  button is a real new UI affordance with its own small design question (does
+  it need an audit trail the way every other status transition gets one?),
+  and `'used'` has no serverless trigger point (the same missing-cron shape
+  item 24 already flags for monthly PTO accrual) and no downstream reader
+  that currently distinguishes it from `'approved'`. Written up as new
+  judgment call **item 42** (options A/B/C, recommendation B — add nanny-side
+  "Withdraw" for `'canceled'` only, leave `'used'` unbuilt since nothing
+  reads the distinction today) rather than built. See
+  `QUESTIONS_AND_CLARIFICATIONS.md`.
+- **leave_ledger** — `related_leave_request_id` fully wired
+  (`applyUsedLedger`/`zeroOutLedgerForRequest`); `related_timesheet_id`/
+  `related_schedule_exception_id` remain dead, already folded into open item
+  29's scope per the 2026-08-27 sweep, not re-opened. `event_type` coverage
+  unchanged (`opening_balance`/`manual_adjustment`/`used`/`correction`/
+  `reversal` written; `accrual`/`carryover`/`expiration` dead per item 24).
+  **Match** (via items 24/29).
+- **payment_records** — every status value is reachable
+  (`paymentDisplayStatus()` for `upcoming`/`due`/`overdue`; `Pay.tsx:739`'s
+  `amount < gross_pay_due` check for `partially_paid`; `mark_paid`/`correct`/
+  `void` for the rest). `hourly_rate`/`overtime_rate`/`reimbursements`/
+  `manual_adjustments` are all snapshotted from the generating timesheet or
+  correction form (`Pay.tsx:516-519,537-540,1006-1010`). `guarantee_override_
+  note`/`attachment_url` remain dead per open items 37/26, no change. **Match**
+  (aside from items 26/37).
+- **reminders** — `channel`/`trigger_rule`/`last_sent_at` remain dead per
+  the already-resolved item 17 (in-app-only, deferred), confirmed unchanged.
+  Also checked `caregiver_id`: every row `More.tsx`'s `toggleReminderType`
+  inserts (`More.tsx:222-226`) leaves it unset, so per-type enable/disable is
+  scoped per-user only, not per-caregiver — a household with more than one
+  caregiver can't set different reminder preferences per caregiver. This is
+  a real, previously-unconfirmed dead-column reading, but doesn't rise to its
+  own item this session: it needs a genuine new settings-UI affordance (a
+  per-caregiver picker) with no existing precedent to copy, the majority of
+  households run one caregiver (per this codebase's own history), and no
+  session across ~11 weeks has flagged it as an actual problem — noting it
+  here for the record rather than opening a fourteenth-plus item for a gap
+  nobody's hit yet.
+- **audit_events** — every entity type spec 15.15's "Audit sensitive
+  actions" list implies (`caregiver_profile`, `leave_policy`, `schedule_
+  shift`, `schedule_exception`, `timesheet`, `time_entry`, `payment_record`,
+  `household_user`) has at least one `logAuditEvent(...)` call site; the one
+  named action with no corresponding event ("Timesheet rejection") is the
+  direct, already-documented consequence of item 25's unbuilt reject
+  workflow — nothing to log because the action itself doesn't exist yet, not
+  a separate audit-log gap. **Match** (aside from item 25).
+
+No other new judgment calls or mechanical gaps were found across the seven
+tables.
+
+**Health check:** `npm install`, `npm run build` (`tsc -b && vite build`),
+and `npm run lint` (`oxlint`) all ran clean — the same six pre-existing
+warnings as every prior session (three `only-export-components`, one
+`exhaustive-deps`), nothing new.
+
+Per the standing instruction, every open Q&A item (now 17: 22-26, 29, 31-35,
+37-42) was presented again — via `PushNotification` as well as in chat,
+since this is a scheduled/unattended run — with its options and
+recommendation; nothing was built unilaterally.
+
+---
+
 ## 2026-09-08 — Time-entry schedule pre-fill re-confirmed again (still correct); first dedicated full literal re-audit of spec 17 (Status Rules) and 19 (RLS Requirements) since 2026-08-08 finds everything still matches spec, no new gaps; no new judgment call opened; health check clean; all 16 open Q&A items presented in chat/notification, none built unilaterally
 
 **This session's scope:** re-confirm the manual time-entry pre-fill behavior
