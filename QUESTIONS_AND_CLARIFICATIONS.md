@@ -321,6 +321,27 @@ same six pre-existing warnings as every prior session. See
 `SPEC_CHANGE_LOG.md` 2026-09-08 for full detail. Every item below was
 presented again — via chat and a push notification, since this was an
 unattended scheduled run — with its options and recommendation; nothing was
+built unilaterally this session. The 2026-09-09 session re-confirmed the
+time-entry schedule pre-fill once more (still correct, no change), confirmed
+the diff-review rotation had nothing new (`origin/main` still matched the
+2026-09-08 session's own last merged commit, `03e2b44`, no new commits
+since), then ran the first dedicated full literal re-audit of spec
+15.9-15.15 (Data Model: timesheets through audit_events) since 2026-08-08,
+field by field against `0001_schema.sql`, `types.ts`, and every read/write
+site across `src`. Every field and status/event-type enum checked out
+matching spec and prior sessions' conclusions with one exception:
+`leave_requests.status` (spec 15.11) never reaches two of its five
+spec-listed values, `'canceled'`/`'used'` — opened as new judgment call item
+42 below rather than built, since a "withdraw" affordance is a real new UI
+surface (not a checkbox mapping to an existing flag) with its own small
+design questions, and `'used'` has no serverless trigger point (the same
+missing-cron shape item 24 already flags) and no downstream consumer that
+distinguishes it from `'approved'` today. Health check (`npm install`,
+`npm run build`, `npm run lint`) came back clean — same six pre-existing
+warnings as every prior session. See `SPEC_CHANGE_LOG.md` 2026-09-09 for
+full detail. Every item below (now 17: 22-26, 29, 31-35, 37-42) was
+presented again — via chat and a push notification, since this was an
+unattended scheduled run — with its options and recommendation; nothing was
 built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
@@ -1221,6 +1242,89 @@ the "should it be paid via the section-16 formula at all" question turns on
 a genuine spec-silence (16.4/16.7 name four categories, not five) rather
 than an implementation oversight with an obvious answer -- worth a
 deliberate choice rather than a guess, the same posture as items 31/37.
+
+### 42. `leave_requests.status` never reaches `'canceled'` or `'used'` -- a nanny has no way to withdraw a pending request, and nothing ever marks a request "used" after the fact (spec 13.7/15.11)
+
+Spec 15.11 lists five `leave_requests` status values -- `requested`,
+`approved`, `rejected`, `canceled`, `used` -- and the `0001_schema.sql` check
+constraint and `LeaveRequestStatus` type (`src/lib/types.ts:281`) both name
+all five. Only three are ever written anywhere in `src`: the create-request insert
+(`PTO.tsx:215`) sets `status: isParentOrCoAdmin ? 'approved' : 'requested'`,
+and `reviewRequest` (`PTO.tsx:251`) writes exactly `'approved'` or
+`'rejected'`. Confirmed by grep -- `'canceled'` and `'used'` appear nowhere
+as a write target for this column in `src`, only as type-union members
+(`types.ts:281`) and, for `'used'`, as a read-side equivalence check
+(`lib/leave.ts:87`'s balance filter treats `status === 'approved' || status
+=== 'used'` the same way). `PTO.tsx:103-124`'s `applyUsedLedger` writes a
+`leave_ledger` row with `event_type: 'used'` (`types.ts:308`) -- a different
+table's enum value that happens to share the name, not this column, so it
+doesn't count as ever reaching `leave_requests.status = 'used'`. Migration
+`0015_leave_request_archive.sql`'s own comment lists
+`requested/approved/rejected/canceled/used` as "the existing... workflow"
+when explaining why archiving was kept orthogonal to it -- language that
+assumes the five-value status workflow was already real, when two of its
+five values have never been reachable.
+
+In concrete terms: a nanny who requests a day off by mistake, or a day off
+they no longer need, has no way to take the request back before a parent
+reviews it (`canEdit`, `PTO.tsx:457-458`, lets a nanny edit a `'requested'`
+row's dates/hours/note, but there is no button anywhere that sets
+`status: 'canceled'`) -- the only way a pending request stops being pending
+is a parent explicitly approving or rejecting it, even for a request the
+nanny herself no longer wants. And no code path ever transitions an
+`'approved'` request to `'used'` once its date has passed, despite `used`
+being treated everywhere it's checked as functionally equivalent to
+`'approved'` for balance purposes -- so today it's a status the app was
+clearly built to eventually support (the read side branches on it,
+`archived_at`'s own design comment name-checks it) but never actually
+reaches. Found via this session's field-by-field literal pass over spec
+15.11 against `PTO.tsx`/`lib/leave.ts`.
+
+This isn't a mechanical fill-in on either count. For `'canceled'`: a
+"Withdraw" action is a real new UI affordance (not a checkbox mapping to an
+existing flag), and it raises its own small design questions with no exact
+precedent in this file -- should a nanny be able to withdraw silently, or
+does it need a parent-visible trail (an audit event, same as every other
+status transition already gets)? Does "withdraw" differ from "archive" (the
+existing reversible, display-only hide) enough to be a separate status at
+all, or would writing `archived_at` on a still-`'requested'` row already
+say the same thing with a mechanism that exists today? For `'used'`: nothing
+in the app has a serverless trigger for "this approved leave's end date has
+now passed" (the same class of missing-cron problem item 24 already flags
+for monthly PTO accrual), and it's unclear the distinction even matters
+downstream today, since every place that reads status already treats
+`'approved'` and `'used'` as interchangeable.
+
+- **Option A -- leave both unbuilt.** `'canceled'`/`'used'` stay dead status
+  values; a nanny asks the parent (in person or via a note on the request)
+  to reject a request she no longer wants, and `'approved'` alone continues
+  to mean "this leave counts," whether or not its date has passed. Zero new
+  work, but the literal five-state workflow the schema and migration
+  comments describe is only three-fifths real.
+- **Option B -- add nanny-side "Withdraw" for `'canceled'` only, leave
+  `'used'` unbuilt.** Add a "Withdraw" button next to the existing nanny-only
+  edit affordance on a `'requested'`, un-archived row the nanny herself
+  created, setting `status: 'canceled'` plus a matching `audit_events` row
+  (mirroring every other status transition's audit trail). Excludes
+  `'canceled'` from the default list the same way `archived_at` rows already
+  are. Leaves `'used'` alone since nothing downstream distinguishes it from
+  `'approved'` today, so there's no observable behavior change to gain from
+  building it.
+- **Option C -- build both.** B, plus a periodic "sweep" (computed client-side
+  on app load, the same shape as `reminders.ts`'s own client-computed cards)
+  that flips any `'approved'` request whose `end_date` has passed to
+  `'used'`. Closest literal reading of the schema's five-state design, but
+  invents a real trigger mechanism for a distinction nothing currently reads
+  differently from `'approved'` -- speculative work with no known consumer.
+
+**Recommendation: B.** Withdrawing a mistaken or no-longer-needed request is
+a real, low-risk, self-service gap (a nanny today has no dignified way to
+retract a request short of asking the parent to reject her own ask), and it
+reuses the exact audit-trail pattern every other status change already
+follows. `'used'` is worth leaving alone unless something downstream is
+ever built that actually needs to distinguish "approved, still upcoming"
+from "approved, already happened" -- today nothing does, so C's sweep would
+be trigger-building for a distinction without a consumer.
 
 ---
 
