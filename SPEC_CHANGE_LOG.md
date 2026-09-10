@@ -8,6 +8,87 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-10 — Time-entry schedule pre-fill re-confirmed again (still correct); diff-review rotation finds nothing new to review; first dedicated full literal audit of spec 13.1 (Initial Parent Setup) and 14.3 (Time Screen); finds and fixes one real gap (caregiver with no hourly rate silently generates a $0 timesheet); all 17 open Q&A items presented in chat/notification
+
+**This session's scope:** re-confirm the manual time-entry pre-fill behavior
+(this run's prompt asked for it again directly), confirm the diff-review
+rotation has nothing new to cover, then run the first dedicated full literal
+audit of spec 13.1 (Initial Parent Setup) and 14.3 (Time Screen) — both had
+previously only been touched indirectly, through Q&A items 28 and 32
+respectively, never as their own bullet-by-bullet pass against the current
+code.
+
+**Time-entry pre-fill: still correct, no change.** Re-checked `Time.tsx`
+directly. The date field still defaults to today (line 51), and the manual
+entry `useEffect` (lines 121-136) still pre-fills `startTime`/`endTime`/
+`breakMinutes` from `generateShiftsForRange(...)` for the selected date,
+falling back to 09:00-17:00 defaults only when nothing's scheduled. Same
+behavior re-verified every session since 2026-06-30.
+
+**Diff-review rotation:** `origin/main` is still at `32fd2a1`, the
+2026-09-09 session's own last merged commit (PR #100). No new commits landed
+since; nothing new for the rotation to review.
+
+**Spec 13.1 (Initial Parent Setup) audit — one real gap found and fixed.**
+Walked all 11 steps against `Onboarding.tsx` and the Finish Setup checklist
+built for Q&A item 28 (`Home.tsx`, 2026-08-22). Steps 1/3 (create household,
+add nanny profile) are the onboarding form itself; steps 2/9/8/11 (timezone,
+recurring schedule, PTO/sick policy, reminders) each have their own checklist
+item pointing at the screen that sets them; step 10 (invite, optional) is
+explicitly optional per spec and the household join-code flow already exists
+in `More.tsx`. Steps 4/5/6/7 (start date, pay rate, pay frequency,
+guaranteed hours), however, all live on the caregiver profile form but have
+no checklist coverage of their own — the checklist's `caregiver` item is
+satisfied the instant any `caregiver_profiles` row exists
+(`buildSetupChecklist`, `Home.tsx:209-217`), regardless of whether those
+fields were ever filled in. Both `Onboarding.tsx`'s inline caregiver
+creation (rate is optional, no start-date/frequency/guaranteed-hours fields
+at all) and `CaregiverDetail.tsx`'s fuller form (rate is also not
+`required`) allow saving a caregiver with no hourly rate. Traced the
+consequence: `Pay.tsx`'s `doGenerate` reads `hourlyRate: caregiver.
+default_hourly_rate ?? 0` (line 479) with no guard, so the very first
+timesheet generated for such a caregiver silently calculates to $0 gross pay
+with nothing in the UI explaining why.
+
+Fixed directly rather than opened as a new Q&A item — the fix needed no
+design decision, since `Pay.tsx`'s generate-timesheet form already has the
+exact right precedent immediately below where this was added: a non-blocking
+amber advisory (the existing `pay_frequency !== 'weekly'` overtime-accuracy
+warning). Added the same style of warning, shown whenever
+`activeCaregiver.default_hourly_rate` is falsy, linking straight to that
+caregiver's profile screen to fix it. Purely informational, same as its
+neighbor — doesn't block generation, since a parent may have a legitimate
+reason to generate a $0 placeholder timesheet. The checklist item itself
+(`Home.tsx:209-217`) was left as "row exists" rather than tightened to also
+require a rate, since narrowing it further starts re-litigating what
+"caregiver profile" setup means for the other unchecked fields
+(start date/frequency/guaranteed hours) too — the same shape of judgment
+call items 22/23/32 already flag for other screen-structure questions, not
+worth opening a fourth one over a single dollar-figure warning that already
+closes the actual silent-failure risk.
+
+**Spec 14.3 (Time Screen) audit — no new gap, one clarification.**
+Confirmed Q&A item 32 already covers this section's full scope (no tabs, no
+week grouping, no Corrections view). Added one clarifying note to item 32:
+its "missing time warnings" sub-bullet (quoted from spec but never
+separately examined) is completely unbuilt today, not merely folded into the
+tab-structure question — `Time.tsx` is entry-driven, so a day with a
+scheduled shift and zero logged time has no row and no indicator at all,
+distinct from the per-row "scheduled vs actual" comparison which only
+renders once an entry already exists. Documentation-only change; item 32's
+options/recommendation are unchanged.
+
+**Health check:** `npm install`, `npm run build` (`tsc -b && vite build`),
+and `npm run lint` (`oxlint`) all ran clean — the same six pre-existing
+warnings as every prior session, nothing new.
+
+Per the standing instruction, every open Q&A item (still 17: 22-26, 29,
+31-35, 37-42) was presented again — via `PushNotification` as well as in
+chat, since this is a scheduled/unattended run — with its options and
+recommendation; nothing else was built unilaterally.
+
+---
+
 ## 2026-09-09 — Time-entry schedule pre-fill re-confirmed again (still correct); diff-review rotation finds nothing new to review; first dedicated full literal re-audit of spec 15.9-15.15 (Data Model: timesheets through audit_events) since 2026-08-08 finds every field matches spec except one previously-undocumented gap (`leave_requests.status` never reaches `'canceled'`/`'used'`); one new judgment call opened, nothing built unilaterally; health check clean; all 17 open Q&A items presented in chat/notification
 
 **This session's scope:** re-confirm the manual time-entry pre-fill behavior,

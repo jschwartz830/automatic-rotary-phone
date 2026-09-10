@@ -342,7 +342,33 @@ warnings as every prior session. See `SPEC_CHANGE_LOG.md` 2026-09-09 for
 full detail. Every item below (now 17: 22-26, 29, 31-35, 37-42) was
 presented again — via chat and a push notification, since this was an
 unattended scheduled run — with its options and recommendation; nothing was
-built unilaterally this session.
+built unilaterally this session. The 2026-09-10 session re-confirmed the
+time-entry schedule pre-fill once more (still correct, no change), confirmed
+the diff-review rotation had nothing new (`origin/main` still matched the
+2026-09-09 session's own last merged commit, `32fd2a1`, no new commits
+since), then ran the first dedicated full literal audit of spec 13.1
+(Initial Parent Setup) and 14.3 (Time Screen) since the items they'd
+previously only been touched through (28 and 32) were opened. 13.1 turned up
+one real, previously-undocumented, mechanically-fixable gap: the Finish
+Setup checklist's "Add a caregiver profile" step (item 28's build) is
+satisfied by the mere existence of a `caregiver_profiles` row, so a
+caregiver created with no hourly rate (optional in both `Onboarding.tsx` and
+`CaregiverDetail.tsx`) reads as "done" — and `Pay.tsx`'s `doGenerate` already
+falls back to `default_hourly_rate ?? 0`, so that caregiver's first
+timesheet silently calculates to $0 with no indication why. Fixed directly
+(not opened as a new judgment call) with the same non-blocking amber
+advisory pattern the pay-frequency warning immediately below it in
+`Pay.tsx`'s generate-timesheet form already uses, since it's informational
+only and needed no new design decision. 14.3 confirmed item 32 already
+covers its full scope, with one clarification added to that item: "missing
+time warnings" is completely unbuilt today, not merely folded into the
+still-open tab-structure question — see item 32 below for detail. Health
+check (`npm install`, `npm run build`, `npm run lint`) came back clean — same
+six pre-existing warnings as every prior session. See `SPEC_CHANGE_LOG.md`
+2026-09-10 for full detail. Every item below (still 17: 22-26, 29, 31-35,
+37-42) was presented again — via chat and a push notification, since this
+was an unattended scheduled run — with its options and recommendation;
+nothing else was built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
@@ -965,6 +991,12 @@ result as one reverse-chronological list — no week grouping, no navigation,
 and nothing resembling a "Corrections" view. A household with months of
 history sees every entry it's ever logged in one long scroll, with no way to
 jump to "this week" or page through past weeks the way spec 14.3 implies.
+Re-confirmed 2026-09-10: "missing time warnings" specifically is also fully
+unbuilt today, not just deprioritized as part of the tab question above --
+the screen is entry-driven (one row per existing `time_entries` row), so a
+day with a scheduled shift and zero logged time simply has no row and no
+indicator at all, distinct from the per-row "scheduled vs actual" comparison
+which only ever renders for a day that already has an entry to attach it to.
 
 Why this needs a decision rather than a mechanical fill-in: the "Corrections"
 third of the tab structure has nothing to show yet — Q&A item 25 already

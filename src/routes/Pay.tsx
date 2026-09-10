@@ -1490,6 +1490,27 @@ export function Pay() {
 
       {showForm && (
         <Card title="Generate timesheet from time entries">
+          {activeCaregiver && !activeCaregiver.default_hourly_rate && (
+            // Spec 13.1 step 5 ("Enter pay rate") has no dedicated setup-flow
+            // enforcement -- Onboarding.tsx's rate field is optional and the
+            // Finish Setup checklist (Home.tsx) only checks that a caregiver
+            // profile row exists, not that its rate is filled in. Without
+            // this, `doGenerate` silently falls back to `?? 0` and produces a
+            // $0 timesheet with no indication why. Same non-blocking advisory
+            // style as the pay-frequency warning below, not a hard gate.
+            <p className="mb-3 rounded-md bg-amber-50 p-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+              ⚠ {activeCaregiver.name} has no hourly rate set — this timesheet
+              will calculate to $0. Set a rate on the{' '}
+              <button
+                type="button"
+                className="underline"
+                onClick={() => navigate(`/caregiver/${activeCaregiver.id}`)}
+              >
+                caregiver's profile
+              </button>{' '}
+              first.
+            </p>
+          )}
           {activeCaregiver && activeCaregiver.pay_frequency !== 'weekly' && (
             // Known limitation (QUESTIONS_AND_CLARIFICATIONS.md item 31):
             // overtime and fixed_weekly guaranteed hours are calculated
