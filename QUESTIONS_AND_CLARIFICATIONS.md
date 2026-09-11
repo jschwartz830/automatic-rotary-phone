@@ -342,7 +342,21 @@ warnings as every prior session. See `SPEC_CHANGE_LOG.md` 2026-09-09 for
 full detail. Every item below (now 17: 22-26, 29, 31-35, 37-42) was
 presented again — via chat and a push notification, since this was an
 unattended scheduled run — with its options and recommendation; nothing was
-built unilaterally this session.
+built unilaterally this session. The 2026-09-11 session re-confirmed the
+time-entry schedule pre-fill once more (still correct, no change), confirmed
+the diff-review rotation had nothing new merged to `main` to cover (though it
+noted an unrelated, unmerged PR #101 from a different session/branch sitting
+open against the same base — not this session's to touch), then ran the
+first dedicated full literal audit of spec 15.6 (`schedule_shifts`), the one
+Data Model table the 15.x rotation hadn't yet covered on its own. Every field
+matched spec exactly, including `default_category`, which stays confirmed
+write-only with no described consuming behavior anywhere in the spec (the
+same already-accepted shape as resolved item 27 and open item 37) rather than
+a new gap. No new judgment call was opened. See `SPEC_CHANGE_LOG.md`
+2026-09-11 for full detail. Every item below (still 17: 22-26, 29, 31-35,
+37-42) was presented again — via chat and a push notification, since this
+was an unattended scheduled run — with its options and recommendation;
+nothing was built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 

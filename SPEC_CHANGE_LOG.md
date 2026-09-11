@@ -8,6 +8,92 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-11 — Time-entry schedule pre-fill re-confirmed again (still correct); diff-review rotation finds nothing new on `main` to review (PR #101 from a different session/branch is still open, unmerged); first dedicated full literal field-by-field audit of spec 15.6 (`schedule_shifts`) finds every field matches spec, no new gaps or judgment calls; health check clean; all 17 open Q&A items presented in chat/notification
+
+**This session's scope:** re-confirm the manual time-entry pre-fill behavior
+(this run's prompt asked for it again directly), check the diff-review
+rotation and PR state, then run a fresh full literal, field-by-field audit of
+spec 15.6 (`schedule_shifts`) — the one Data Model table in the 15.1-15.15
+run that had never had its own dedicated pass (15.1-15.4 was audited
+2026-08-12, 15.5/15.7/15.8 2026-08-11, 15.9-15.15 2026-09-09; 15.6 was only
+ever touched incidentally, via the 2026-08-15 `13.2` audit's `paid_break`/
+`counts_toward_guaranteed_hours`/`default_category` fixes).
+
+**Time-entry pre-fill: still correct, no change.** Re-checked `Time.tsx`
+directly. `date` still defaults to today (`Time.tsx:51`,
+`new Date().toISOString().slice(0, 10)`), and the manual-entry pre-fill
+effect still looks up the selected date's generated shift via
+`generateShiftsForRange(...)` and fills `startTime`/`endTime`/`breakMinutes`
+from it (`Time.tsx:254-260` and the earlier `useEffect`), falling back to
+09:00–17:00 only when nothing's scheduled that day. Unchanged since
+2026-06-30, same conclusion as every prior re-confirmation.
+
+**Diff-review rotation / PR state:** `origin/main` is at `32fd2a1` (the
+2026-09-09 session's own merge, PR #100) — no new commits have landed on
+`main` since, so there's nothing new for the rotation to review. There is,
+however, an **open, unmerged PR #101** ("Re-confirm time-entry pre-fill; full
+literal audit of spec 13.1/14.3 fixes $0-timesheet gap," branch
+`claude/sharp-hamilton-0kqg82`, opened 2026-09-10) sitting against `main` at
+the same `32fd2a1` base. That PR is a different session's work on a
+different designated branch, not this session's to touch or merge — noting
+its existence here only so a future session doesn't mistake `main`'s current
+state for having already absorbed a 13.1/14.3 audit. Once it merges, this
+rotation's next session should treat 13.1/14.3 as covered rather than
+re-auditing them.
+
+**Spec 15.6 (`schedule_shifts`) audit, field by field against
+`0001_schema.sql` and every read/write site in `src`:**
+
+- **`day_of_week`/`monthly_day`/`monthly_week`** — all three drive
+  `schedule.ts`'s `matchesRecurrence`/`matchesMonthlyWeek` exactly as their
+  names imply (weekly/biweekly key off `day_of_week`; `monthly_by_date` off
+  `monthly_day`; `monthly_by_weekday` off both `day_of_week` and
+  `monthly_week`, including the `'last'` special case via a
+  next-week-rolls-into-a-new-month check). **Match.**
+- **`start_time`/`end_time`/`break_minutes`/`paid_break`** — `shiftHours()`
+  computes the shift's duration from `start_time`/`end_time` (handling a
+  midnight-crossing shift), subtracting `break_minutes` unless `paid_break`
+  is set. **Match.**
+- **`counts_toward_guaranteed_hours`** — gates both the guarantee-base
+  occurrence filter and the guarantee-adjustment exception-delta filter in
+  `schedule.ts`. **Match.**
+- **`paid_if_family_canceled`** — pre-fills the "affects pay" default when a
+  parent creates a `family_cancellation` exception for a day with a matching
+  shift (`Schedule.tsx:876,896`). **Match.**
+- **`default_category`** — confirmed still write-only (set from a picker on
+  every shift-creation path in `Schedule.tsx`, per the 2026-08-15 session's
+  fix) with no read site anywhere (`calc.ts`, `Pay.tsx`, the schedule grid)
+  ever consuming `ShiftCategory`. Re-checked whether this is a new gap: spec
+  13.2 lists "Default category" only as a shift field with no described
+  downstream behavior anywhere in the spec (no calculation formula in
+  section 16 branches on it, no screen spec in section 14 names a
+  category display), so this is the same shape as the already-resolved
+  item 27 and the already-open item 37 — a column that exists for future
+  use with no consuming behavior described anywhere to build against. Not
+  reopened as a new item.
+- **`notes`** — rendered on the shift's own row in `Schedule.tsx` (`"{shift.notes}"`
+  suffix). **Match.**
+
+No new judgment calls or mechanical gaps were found. `schedule_templates`'
+`recurrence_type` enum (5 of spec's 6 recurrence types — `weekly`,
+`biweekly`, `monthly_by_date`, `monthly_by_weekday`, `custom`) was
+cross-checked once more against spec 13.2's list; "Manual one-off schedule,"
+the sixth type, remains already-resolved as covered by the existing one-off
+`added_shift` exception path (2026-07-06 session, not re-litigated here).
+
+**Health check:** `npm install`, `npm run build` (`tsc -b && vite build`),
+and `npm run lint` (`oxlint`) all ran clean — the same six pre-existing
+warnings as every prior session (three `only-export-components`, one
+`exhaustive-deps`), nothing new.
+
+No source files were changed this session — only `SPEC_CHANGE_LOG.md` and
+`QUESTIONS_AND_CLARIFICATIONS.md`. Every open Q&A item (still 17: 22-26, 29,
+31-35, 37-42) was presented again — via `PushNotification` as well as in
+chat, since this is a scheduled/unattended run — with its options and
+recommendation; nothing was built unilaterally.
+
+---
+
 ## 2026-09-09 — Time-entry schedule pre-fill re-confirmed again (still correct); diff-review rotation finds nothing new to review; first dedicated full literal re-audit of spec 15.9-15.15 (Data Model: timesheets through audit_events) since 2026-08-08 finds every field matches spec except one previously-undocumented gap (`leave_requests.status` never reaches `'canceled'`/`'used'`); one new judgment call opened, nothing built unilaterally; health check clean; all 17 open Q&A items presented in chat/notification
 
 **This session's scope:** re-confirm the manual time-entry pre-fill behavior,
