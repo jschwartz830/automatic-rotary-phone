@@ -1433,10 +1433,19 @@ export function Pay() {
               Due {p.due_date}{showGrossPay ? ` · $${p.gross_pay_due.toFixed(2)}` : ' · amount hidden'}
               {showPaymentMethod && formatPaymentMethod(p.payment_method_label) ? ` · ${formatPaymentMethod(p.payment_method_label)}` : ''}
             </p>
-            {(p.nanny_visible_note || p.parent_note) && (
-              <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
-                {p.nanny_visible_note || p.parent_note}
-              </p>
+            {isNanny ? (
+              p.nanny_visible_note && (
+                <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">{p.nanny_visible_note}</p>
+              )
+            ) : (
+              <>
+                {p.parent_note && (
+                  <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">{p.parent_note}</p>
+                )}
+                {p.nanny_visible_note && (
+                  <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">Nanny sees: {p.nanny_visible_note}</p>
+                )}
+              </>
             )}
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
@@ -2129,10 +2138,19 @@ export function Pay() {
               </div>
             </div>
             <HoursBreakdown record={detailPayment} showGuaranteedHours={showGuaranteedHours} />
-            {(detailPayment.nanny_visible_note || detailPayment.parent_note) && (
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                {detailPayment.nanny_visible_note || detailPayment.parent_note}
-              </p>
+            {isNanny ? (
+              detailPayment.nanny_visible_note && (
+                <p className="text-xs text-gray-500 dark:text-gray-400">{detailPayment.nanny_visible_note}</p>
+              )
+            ) : (
+              <>
+                {detailPayment.parent_note && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{detailPayment.parent_note}</p>
+                )}
+                {detailPayment.nanny_visible_note && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Nanny sees: {detailPayment.nanny_visible_note}</p>
+                )}
+              </>
             )}
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
             {isParentOrCoAdmin && (

@@ -8,7 +8,112 @@ items that need your decision rather than ones already resolved.
 
 ---
 
-## 2026-09-11 — Time-entry schedule pre-fill re-confirmed again (still correct); diff-review rotation finds nothing new on `main` to review (PR #101 from a different session/branch is still open, unmerged); first dedicated full literal field-by-field audit of spec 15.6 (`schedule_shifts`) finds every field matches spec, no new gaps or judgment calls; health check clean; all 17 open Q&A items presented in chat/notification
+## 2026-09-12 — Time-entry schedule pre-fill re-confirmed again (still correct); diff-review rotation finds nothing new on `main` (PR #101 still open, unmerged); first dedicated full literal re-audit of the infra/meta sections (3, 5, 6, 7, 9, 12, 18, 23) since 2026-08-10 finds and fixes a real privacy bug in `Pay.tsx` (a nanny viewer could see a payment's private `parent_note`); health check clean; all 17 open Q&A items presented in chat/notification
+
+**This session's scope:** re-confirm the manual time-entry pre-fill behavior
+(this run's prompt asked for it again directly), check the diff-review
+rotation and PR state, then re-audit the infra/meta spec sections (3
+Deployment, 5 GitHub Pages Config, 6 Supabase Requirements, 7 GitHub Actions
+Deployment, 9 Backend/Reminder Constraint, 12 Core App Navigation, 18
+Authorization Requirements, 23 MVP Build Plan) — the group the 2026-08-10
+session last gave a dedicated pass, over a month ago and longer than any
+other section's gap at this point in the rotation.
+
+**Time-entry pre-fill: still correct, no change.** Re-checked `Time.tsx`
+directly. `date` still defaults to today (`Time.tsx:51`,
+`new Date().toISOString().slice(0, 10)`), and the manual-entry pre-fill
+`useEffect` (`Time.tsx:121-129`) still looks up the selected date's generated
+shift and fills `startTime`/`endTime`/`breakMinutes` from it, leaving the
+09:00–17:00 default untouched only when nothing's scheduled that day.
+Unchanged since 2026-06-30, same conclusion as every prior re-confirmation.
+
+**Diff-review rotation / PR state:** `origin/main` is at `96d4b66` (the
+2026-09-11 session's own merge, PR #102) — no new commits have landed on
+`main` since, so there's nothing new for the rotation to review. PR #101
+("Re-confirm time-entry pre-fill; full literal audit of spec 13.1/14.3 fixes
+$0-timesheet gap," branch `claude/sharp-hamilton-0kqg82`) is still open and
+unmerged, now several commits behind `main` — still a different session's
+work on a different designated branch, not this session's to touch or merge.
+
+**Infra/meta sections 3/5/6/7/9/12/18/23, checked against the repo's actual
+config and code:**
+
+- **Section 3 (Deployment Requirement) / 4 (Tech Stack):** the app is a pure
+  Vite + React + TypeScript + Tailwind + Supabase static build with no
+  server runtime, matching the hard constraints exactly. **Match.**
+- **Section 5 (GitHub Pages Configuration):** `vite.config.ts`'s `base` is
+  `` `/${repoName}/` `` in production (`repoName` hardcoded to
+  `automatic-rotary-phone`, the actual repo name) and `/` in dev, matching
+  spec's project-path example precisely; routing uses `HashRouter`
+  (confirmed via `react-router-dom`'s hash-based routes already in place).
+  **Match.**
+- **Section 6 (Supabase Requirements):** `.env.example` declares exactly
+  `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`, nothing else; no service-role
+  or provider API keys appear anywhere in `src`. **Match.** (Supabase Auth
+  redirect URL configuration itself lives in the Supabase dashboard, outside
+  this repo — out of scope for a code audit.)
+- **Section 7 (GitHub Actions Deployment):** `.github/workflows/deploy.yml`
+  matches spec's template almost verbatim (checkout → setup-node →
+  `npm ci` → `npm run build` with the two secrets injected → configure-pages
+  → upload-pages-artifact → deploy-pages), plus a defensive retry-once-on-failure
+  step around `deploy-pages` that the spec's template doesn't show but doesn't
+  forbid either — a reasonable hardening, not a deviation. **Match.** One
+  pre-existing, long-unremarked difference: `package.json`'s `"lint"` script
+  runs `oxlint` rather than spec's literal `eslint .` example. Every session's
+  health check for the entirety of this rotation's history has already run
+  `npx oxlint` as the project's real lint tool with no prior session ever
+  flagging it as a gap — treating this as an already-settled implementation
+  choice (oxlint is a drop-in, faster lint runner) rather than reopening it as
+  a new finding.
+- **Section 9 (Backend/Reminder Constraint):** no frontend code calls an
+  email/SMS provider directly; reminders are computed client-side only,
+  per the MVP option — already covered by items 17/19/33/resolved item 19.
+  **Match**, nothing new.
+- **Section 12 (Core App Navigation):** `Layout.tsx`'s `PARENT_TABS`
+  (Home/Time/Calendar/Pay/More) and `NANNY_TABS` (Home/Time/PTO/Pay) match
+  spec's five-tab parent alternative and four-tab nanny list exactly,
+  including "More" folding in the items spec names (PTO, Settings, Exports,
+  Audit Log all reachable from `More.tsx`). **Match.**
+- **Section 18 (Authorization Requirements):** found and fixed a real,
+  previously-undocumented gap. Spec 15.13's `payment_records` schema
+  deliberately splits `parent_note` (internal) from `nanny_visible_note` (the
+  nanny-facing channel) — the same private/shared-note split spec 15.7 uses
+  for `schedule_exceptions`, which `Schedule.tsx` already gates correctly by
+  `isNanny` (nanny sees only `nanny_visible_note`; parent/co-admin sees both,
+  labeled). `Pay.tsx`'s payment-row list and payment detail modal, however,
+  rendered `p.nanny_visible_note || p.parent_note` with **no role gate at
+  all** — a nanny viewing a payment whose `nanny_visible_note` was empty but
+  `parent_note` was set (e.g. an internal note the parent left themselves,
+  or the void/correction notes `Pay.tsx` itself writes almost exclusively to
+  `nanny_visible_note` per its own inline comments at lines 782-783/1013)
+  would see that private note — a direct violation of spec 18's "Nanny
+  cannot: View private parent notes." This has nothing to do with RLS (per
+  item 20's already-settled precedent, column-level note visibility is a
+  client-enforced choice, not a row-level one) — it's a plain missing
+  `isNanny` branch, the same shape of bug already fixed for `time_entries`
+  (2026-08-15), `schedule_exceptions` (2026-08-18), and `leave_requests`
+  (2026-08-26), except in the opposite direction: those fixes *added*
+  visibility that was wrongly missing, this one *removes* visibility that
+  was wrongly present. Fixed by applying the exact `isNanny`-gated pattern
+  `Schedule.tsx` already established: nanny sees only `nanny_visible_note`;
+  parent/co-admin sees `parent_note` plus a labeled "Nanny sees: …" line for
+  `nanny_visible_note`, at both call sites (`Pay.tsx`'s `renderPaymentRow`
+  and the payment detail `Modal`). Grepped every other `parent_note`/
+  `nanny_visible_note` render site in `src/routes` (`Time.tsx`, `PTO.tsx`,
+  `Schedule.tsx`) to confirm none of the others has the same unconditional-fallback
+  shape — they don't. The rest of section 18's bullets (nanny cannot access
+  pay/PTO/guaranteed-hours/permission settings, update approved records, mark
+  payments paid, export records, view the audit log) were re-confirmed as
+  already covered by the 2026-08-10 pass and items 20/21/39 — not re-derived
+  from scratch this session.
+- **Section 23 (MVP Build Plan):** all five phases (parent-only tracker
+  through polish/recordkeeping) remain built; nothing regressed. **Match.**
+
+**Health check:** `npm install`, `npx tsc -b`, `npm run build`, and
+`npx oxlint` all ran clean — same six pre-existing warnings as every prior
+session, no new ones from the `Pay.tsx` note-visibility fix.
+
+
 
 **This session's scope:** re-confirm the manual time-entry pre-fill behavior
 (this run's prompt asked for it again directly), check the diff-review

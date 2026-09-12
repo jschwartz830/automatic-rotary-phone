@@ -356,7 +356,31 @@ a new gap. No new judgment call was opened. See `SPEC_CHANGE_LOG.md`
 2026-09-11 for full detail. Every item below (still 17: 22-26, 29, 31-35,
 37-42) was presented again — via chat and a push notification, since this
 was an unattended scheduled run — with its options and recommendation;
-nothing was built unilaterally this session.
+nothing was built unilaterally this session. The 2026-09-12 session
+re-confirmed the time-entry schedule pre-fill once more (still correct, no
+change — this run's prompt asked about it explicitly again), confirmed the
+diff-review rotation had nothing new merged to `main` to cover (PR #101 is
+still open, unmerged, and now further behind `main` than when last noted —
+still not this session's to touch), then ran the first dedicated re-audit of
+the infra/meta sections (3, 5, 6, 7, 9, 12, 18, 23) since 2026-08-10. Most of
+that ground matched the repo's actual config and code exactly, but section
+18 (Authorization Requirements) turned up a real, previously-undocumented
+privacy bug rather than a judgment call: `Pay.tsx`'s payment-row list and
+payment detail modal rendered `nanny_visible_note || parent_note` with no
+role gate at all, so a nanny viewing a payment record could see its private
+`parent_note` whenever `nanny_visible_note` happened to be empty — a direct
+violation of spec 18's "Nanny cannot: View private parent notes," and the
+same private/shared-note split spec 15.13 defines for `payment_records` that
+`Schedule.tsx` already gates correctly for `schedule_exceptions`. Fixed by
+applying that same `isNanny`-gated pattern to both `Pay.tsx` call sites; no
+other `parent_note`/`nanny_visible_note` render site in `src` had the same
+shape. No new judgment call was opened — this was a mechanical fix with an
+unambiguous correct behavior (the existing `Schedule.tsx` precedent), not a
+product decision. See `SPEC_CHANGE_LOG.md` 2026-09-12 for full detail. Every
+item below (still 17: 22-26, 29, 31-35, 37-42) was presented again — via chat
+and a push notification, since this was an unattended scheduled run — with
+its options and recommendation; nothing was built unilaterally this
+session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
