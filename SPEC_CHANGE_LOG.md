@@ -8,6 +8,111 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-13 — Time-entry schedule pre-fill re-confirmed again (still correct); diff-review rotation finds nothing new on `main` (two other unmerged PRs noted, neither touched); first dedicated full literal re-audit of spec 13.9 (Reminders and Notifications) since the 2026-08-18 spot-check finds everything still matches spec/prior conclusions, no new gaps; health check clean; all 17 open Q&A items presented in chat/notification
+
+**This session's scope:** re-confirm the manual time-entry pre-fill behavior,
+check the diff-review rotation and open-PR state, then run a fresh full
+literal, bullet-by-bullet audit of spec 13.9 (Reminders and Notifications)
+against `src/lib/reminders.ts`, `More.tsx`'s reminder-settings UI, and
+`CaregiverDetail.tsx`'s payment-reminder-days field — this section's last
+pass (2026-08-18) was a lighter spot-check ("13.9 ... matched the code
+exactly, with nothing left to find beyond what items 17/19/21/33 already
+settled"), not a fresh line-by-line read of the current file.
+
+**Time-entry pre-fill: still correct, no change.** Re-checked `Time.tsx`
+directly. `date` still defaults to today (`Time.tsx:51`,
+`new Date().toISOString().slice(0, 10)`), and the manual-entry pre-fill
+`useEffect` (`Time.tsx:122-136`) still looks up the selected date's
+generated shift via `generateShiftsForRange(...)` and fills
+`startTime`/`endTime`/`breakMinutes` from it, falling back to 09:00–17:00
+only when nothing's scheduled that day. Unchanged since 2026-06-30.
+
+**Diff-review rotation / PR state:** `origin/main` is still at `96d4b66`
+(the 2026-09-11 session's own merge, PR #102) — no new commits have landed
+on `main` since, so there's nothing new for the rotation to review. Two
+open, unmerged PRs sit against `main` from other sessions/branches, neither
+touched (not this session's to merge or fix, same posture the 2026-09-11
+entry already established for PR #101):
+
+- **PR #101** ("Re-confirm time-entry pre-fill; full literal audit of spec
+  13.1/14.3 fixes $0-timesheet gap," opened 2026-09-10) — still open,
+  still based on the stale `32fd2a1` commit rather than current `main`.
+- **PR #103** ("Re-confirm time-entry pre-fill; audit infra/meta sections;
+  fix payment note privacy leak," opened 2026-09-12 against current `main`
+  at `96d4b66`) — a different session's in-progress work; noted here only
+  so a future session doesn't mistake `main`'s current state for having
+  already absorbed an infra/meta audit or that payment-note fix. Once
+  either PR merges, treat its stated scope as covered rather than
+  re-auditing it.
+
+**Spec 13.9 (Reminders and Notifications) audit, bullet by bullet against
+`reminders.ts`/`More.tsx`/`CaregiverDetail.tsx`:**
+
+- **Reminder Types** — all ten of spec 15.14's types
+  (`missing_clock_out`, `unsubmitted_timesheet`, `pending_timesheet_approval`,
+  `pending_pto_request`, `payment_due`, `payment_overdue`, `upcoming_pto`,
+  `schedule_change`, `pto_balance_low`, `weekly_summary`) are listed in
+  `REMINDER_TYPE_INFO` and have working trigger logic in `computeReminders`/
+  `buildWeeklySummaryCards`. **Match.**
+- **MVP Reminder Approach** ("in-app alert cards calculated client-side when
+  the user opens the app") — `computeReminders`/`buildWeeklySummaryCards`
+  are both pure functions called fresh on every `Home.tsx`/`More.tsx` load,
+  with no stored "already shown" state. **Match.**
+- **Optional Email Reminder Approach** — no email is ever sent from the
+  frontend; no Edge Function/cron exists to send one either. Already the
+  accepted "in-app only, deferred" posture of resolved item 17, not
+  re-litigated. **Match** (by design).
+- **Reminder Settings** — "Enable/disable each reminder type" is fully
+  built (`More.tsx:514-524`'s per-type checkboxes, backed by
+  `toggleReminderType`/the `reminders` table). "Recipients" and "Quiet
+  hours, optional" are the already-resolved item 17 deferral (no
+  email/SMS backend exists to route to or suppress). **"Timing" and
+  "Reminder cadence" are only configurable for one of the ten types** —
+  `payment_due`'s lead-time window is a real per-caregiver setting
+  (`caregiver_profiles.payment_reminder_days_before`, editable in
+  `CaregiverDetail.tsx`, read by `reminders.ts:121-126`) — every other
+  type's threshold is a hardcoded constant:
+  `SCHEDULE_GRACE_MINUTES`/`FALLBACK_GRACE_HOURS` (missing clock-out), the
+  literal `7`-day window (upcoming PTO, `reminders.ts:191`),
+  `LOW_BALANCE_THRESHOLD_HOURS` (PTO balance low), and
+  `SCHEDULE_CHANGE_LOOKBACK_DAYS` (schedule changed). Checked whether this
+  is a new gap: it isn't — each constant already carries its own in-code
+  comment acknowledging the spec doesn't specify a value, and there's no
+  stored "cadence" concept to build in the first place given the MVP
+  approach's own client-side-recompute design (a card is present or absent
+  each time the app reloads state; nothing is ever "sent" on a schedule to
+  need a cadence setting). Folds into the already-resolved item 17 posture
+  ("in-app pieces only... defer[ring]" the settings surface beyond
+  enable/disable), not a new judgment call — this session's contribution is
+  confirming that reading holds up against the current code, since no prior
+  session had checked "Timing"/"cadence" specifically rather than just
+  "enable/disable."
+- **Example Reminder Copy** — spot-checked `reminders.ts`'s message
+  strings against the five examples; the date-range formatting
+  (`formatDateRange`, `"Jun 22–28"`) and per-type phrasing
+  ("Timesheet for … is ready for review.", "Payment for … is due
+  tomorrow.", "… request pending for …", "Clock-out missing for …") all
+  follow the same style as spec's examples, with the already-accepted
+  variation that `payment_due`'s "due Friday" becomes "due today"/"due
+  tomorrow"/"due in N days" depending on `daysUntilDue` rather than a
+  literal weekday name — a pre-existing, unremarkable copy choice, not a
+  new finding. **Match.**
+
+No new judgment calls or mechanical gaps were found.
+
+**Health check:** `npm install`, `npm run build` (`tsc -b && vite build`),
+and `npm run lint` (`oxlint`) all ran clean — the same six pre-existing
+warnings as every prior session (three `only-export-components`, one
+`exhaustive-deps`), nothing new.
+
+No source files were changed this session — only `SPEC_CHANGE_LOG.md` and
+`QUESTIONS_AND_CLARIFICATIONS.md`. Every open Q&A item (still 17: 22-26, 29,
+31-35, 37-42) was presented again — via `PushNotification` as well as in
+chat, since this is a scheduled/unattended run — with its options and
+recommendation; nothing was built unilaterally.
+
+---
+
 ## 2026-09-11 — Time-entry schedule pre-fill re-confirmed again (still correct); diff-review rotation finds nothing new on `main` to review (PR #101 from a different session/branch is still open, unmerged); first dedicated full literal field-by-field audit of spec 15.6 (`schedule_shifts`) finds every field matches spec, no new gaps or judgment calls; health check clean; all 17 open Q&A items presented in chat/notification
 
 **This session's scope:** re-confirm the manual time-entry pre-fill behavior

@@ -356,7 +356,43 @@ a new gap. No new judgment call was opened. See `SPEC_CHANGE_LOG.md`
 2026-09-11 for full detail. Every item below (still 17: 22-26, 29, 31-35,
 37-42) was presented again — via chat and a push notification, since this
 was an unattended scheduled run — with its options and recommendation;
-nothing was built unilaterally this session.
+nothing was built unilaterally this session. The 2026-09-13 session
+re-confirmed the time-entry schedule pre-fill once more (still correct, no
+change), noted two open, unmerged PRs sitting against `main` from other
+sessions/branches (#101, stale against an old base since 2026-09-10; #103,
+opened 2026-09-12 against the current base, claiming an infra/meta audit and
+a payment-note privacy fix) — neither is this session's branch to touch or
+merge, and `origin/main` itself has not advanced past `96d4b66` (this
+rotation's own last merge), so there was no new commit for the diff-review
+rotation to check — then ran the first full literal, bullet-by-bullet
+re-audit of spec 13.9 (Reminders and Notifications) against `reminders.ts`/
+`More.tsx`/`CaregiverDetail.tsx` since the 2026-08-18 session's lighter
+spot-check. All ten of spec 15.14's reminder types are represented in
+`REMINDER_TYPE_INFO` and have working trigger logic in `computeReminders`/
+`buildWeeklySummaryCards`; of the four "Reminder Settings" spec 13.9 asks
+for, "Enable/disable each reminder type" is fully built (`More.tsx`'s
+per-type toggles) and "Recipients"/"Quiet hours" are the already-resolved
+item 17 deferral. "Timing" and "Reminder cadence" are the one area with
+something worth recording: they're only configurable for `payment_due` (via
+`caregiver_profiles.payment_reminder_days_before`) — every other type's
+threshold (missing-clock-out's 30-minute/12-hour grace, upcoming-PTO's
+7-day window, low-balance's 8-hour threshold, schedule-change's 3-day
+lookback) is a hardcoded constant with its own already-in-code comment
+acknowledging the spec doesn't specify a value. This isn't a new
+undocumented gap, though: item 17's "in-app only, deferred" resolution and
+the file's own MVP framing ("in-app alert cards calculated client-side when
+the user opens the app," no push/dispatch mechanism) already explain why a
+stored per-type "cadence" setting doesn't apply here — a card is simply
+present or absent each time the app recomputes state live, there's nothing
+to re-send on a cadence. Not reopened as a new item; noted here for the
+record since this was the first session to check "Timing"/"cadence"
+specifically rather than just "enable/disable." Health check (`npm install`,
+`npm run build`, `npm run lint`) came back clean — same six pre-existing
+warnings as every prior session. No new judgment call was opened. See
+`SPEC_CHANGE_LOG.md` 2026-09-13 for full detail. Every item below (still 17:
+22-26, 29, 31-35, 37-42) was presented again — via chat and a push
+notification, since this was an unattended scheduled run — with its options
+and recommendation; nothing was built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
