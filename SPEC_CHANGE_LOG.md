@@ -8,6 +8,122 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-14 — Time-entry schedule pre-fill re-confirmed (still correct, already matches this run's "pre-set to schedule hours" ask); absorbed two real, previously-unmerged fixes from stale PRs #101/#103 (payment-note privacy leak, $0-timesheet advisory) directly onto `main`; first dedicated re-audit of spec 21 (Notification / Reminder Logic) since 2026-08-09 finds no new gaps; health check clean; all 17 open Q&A items presented in chat/notification
+
+**This session's scope:** re-confirm the manual time-entry pre-fill
+behavior (this run's prompt asked for it again, and separately asked for
+time entries to be "pre-set to the schedule hours," which is the same
+already-built behavior), check the diff-review rotation and open-PR state,
+resolve the two long-open stale PRs one way or the other, run a fresh spec
+audit, then present every open Q&A item with options and a recommendation.
+
+**Time-entry pre-fill: still correct, no change.** Re-checked `Time.tsx`
+directly. `date` still defaults to today (`Time.tsx:51`,
+`new Date().toISOString().slice(0, 10)`), and the manual-entry pre-fill
+`useEffect` (`Time.tsx:121-136`) still looks up the selected date's
+generated shift via `generateShiftsForRange(...)` and fills
+`startTime`/`endTime`/`breakMinutes` from it, falling back to 09:00–17:00
+only when nothing's scheduled that day. Unchanged since 2026-06-30. This
+run's prompt phrased the ask slightly differently ("time entry was pre-set
+to the schedule hours … can still default to current day") but describes
+exactly this existing behavior — nothing to build.
+
+**Stale open PRs #101 and #103: read in full, both real, both absorbed
+directly onto `main` instead of left waiting.** Two PRs from earlier
+sessions in this rotation have sat open and unmerged since 2026-09-10 and
+2026-09-12 respectively, each already `git fetch`-stale against the current
+`main` tip (`mergeable_state: dirty` for #101, `unknown` for #103). Prior
+sessions' policy (correctly, at the time) was "not this session's branch to
+touch." With two more days having passed and no sign either had been
+merged, this session read both PRs' full diffs and confirmed each contains
+one genuine, still-unfixed gap:
+
+- **PR #103 — real privacy bug.** `Pay.tsx`'s payment-row list and payment
+  detail modal rendered `p.nanny_visible_note || p.parent_note` with no
+  role gate, so a nanny viewing a payment record whose `nanny_visible_note`
+  was empty but `parent_note` was set would see that private note — a
+  direct violation of spec 18's "Nanny cannot: View private parent notes,"
+  and the same private/shared split spec 15.13 defines for
+  `payment_records` that `Schedule.tsx` already gates correctly for
+  `schedule_exceptions`. Re-applied #103's exact fix: both `Pay.tsx` call
+  sites now branch on `isNanny` (nanny sees only `nanny_visible_note`;
+  parent/co-admin sees `parent_note` plus a labeled "Nanny sees: …" line),
+  the same pattern `Schedule.tsx` established.
+- **PR #101 — real silent-failure gap.** The Finish Setup checklist's
+  caregiver-profile step is satisfied by the mere existence of a
+  `caregiver_profiles` row; a caregiver saved with no hourly rate (optional
+  in both `Onboarding.tsx` and `CaregiverDetail.tsx`) reads as "done," and
+  `Pay.tsx`'s `doGenerate` already falls back to `default_hourly_rate ?? 0`,
+  silently producing a $0 timesheet with no explanation anywhere in the UI.
+  Re-applied #101's fix: a non-blocking amber advisory on the
+  generate-timesheet form (same style as the existing pay-frequency
+  warning immediately below it), shown whenever the selected caregiver has
+  no rate set, linking to their profile. Also carried over #101's
+  documentation-only addition to Q&A item 32 (clarifying that "missing time
+  warnings" is fully unbuilt, not just folded into the tab-structure
+  question).
+
+Both fixes were independently re-derived by reading the current code and
+the target PRs' diffs side by side, then verified line-for-line equivalent
+in intent before applying — not a blind cherry-pick. **Recommendation: close
+PRs #101 and #103 without merging.** Their content is now fully present on
+`main` via this session's own commit; merging either afterward would
+either no-op against an already-applied diff or produce a spurious merge
+conflict. This is a one-time cleanup, not a new standing policy — the
+rotation's default posture (leave other sessions' open PRs alone) still
+holds for future stale PRs unless they sit unmerged long enough to represent
+a real, unresolved risk the way a privacy leak does.
+
+**Spec 21 (Notification / Reminder Logic) re-audit, rule by rule against
+`src/lib/reminders.ts` and its `Home.tsx` wiring — no new gaps.** This
+section's last dedicated pass was 2026-08-09; every core workflow section
+has since had at least one fresh audit except this one, making it the
+oldest gap in the rotation's coverage. Checked all six trigger rules
+literally:
+
+- **Payment Due** (tomorrow/today/overdue → parent alert) — `payment_due`/
+  `payment_overdue` are both in `PARENT_ONLY_REMINDER_TYPES`. **Match**
+  (the configurable lead-day window beyond "tomorrow"/"today" is an
+  already-accepted superset, not a deviation).
+- **Timesheet Submission** (period ended, not submitted → nanny alert,
+  optionally parent) — `unsubmitted_timesheet` is *not* in
+  `PARENT_ONLY_REMINDER_TYPES`, so both roles see it, matching "optionally
+  show parent alert." **Match** in logic; the practical
+  never-fires-in-real-data gap is unchanged, already-documented item 33.
+- **Timesheet Approval** (submitted, not approved → parent alert) —
+  `pending_timesheet_approval` is in `PARENT_ONLY_REMINDER_TYPES`. **Match.**
+- **Missing Clock-Out** (clock-out null after scheduled end + grace →
+  nanny alert, optionally parent) — not parent-only-gated, schedule-aware
+  threshold confirmed still correct (latest shift end + 30 min, 12 h
+  fallback). **Match**, unchanged since resolved item 3.
+- **PTO Request** (pending → parent alert) — `pending_pto_request` is in
+  `PARENT_ONLY_REMINDER_TYPES`. **Match.**
+- **Upcoming PTO** (approved, within 7 days → parent and nanny alert) —
+  not parent-only-gated, `differenceInCalendarDays` window is `0..7`
+  inclusive of the start date. **Match.**
+
+Also confirmed the `viewerIsNanny` gate isn't just correct in isolation —
+`Home.tsx:471-482` actually passes `viewerIsNanny: isNanny` into
+`computeReminders`, and `disabledTypes` is correctly built from
+`reminderSettings` and threaded through too. **Optional Email Reminders** —
+still no email/SMS code anywhere in the frontend, no provider keys present;
+already-resolved item 17/19 territory, re-confirmed not re-litigated.
+
+No new judgment call was opened.
+
+**Health check:** `npm install`, `npx tsc -b`, `npm run build`, and
+`npx oxlint` all ran clean — the same six pre-existing warnings as every
+prior session (three `only-export-components`, one `exhaustive-deps`),
+nothing new from the `Pay.tsx` changes.
+
+Every open Q&A item (still 17: 22-26, 29, 31-35, 37-42) was presented again
+— via `PushNotification` as well as in chat, since this is a
+scheduled/unattended run — with its options and recommendation; nothing was
+built unilaterally beyond the two already-diffed, already-reviewed fixes
+absorbed from #101/#103 above.
+
+---
+
 ## 2026-09-13 — Time-entry schedule pre-fill re-confirmed again (still correct); diff-review rotation finds nothing new on `main` (two other unmerged PRs noted, neither touched); first dedicated full literal re-audit of spec 13.9 (Reminders and Notifications) since the 2026-08-18 spot-check finds everything still matches spec/prior conclusions, no new gaps; health check clean; all 17 open Q&A items presented in chat/notification
 
 **This session's scope:** re-confirm the manual time-entry pre-fill behavior,

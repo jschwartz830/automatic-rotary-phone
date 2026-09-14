@@ -392,7 +392,51 @@ warnings as every prior session. No new judgment call was opened. See
 `SPEC_CHANGE_LOG.md` 2026-09-13 for full detail. Every item below (still 17:
 22-26, 29, 31-35, 37-42) was presented again — via chat and a push
 notification, since this was an unattended scheduled run — with its options
-and recommendation; nothing was built unilaterally this session.
+and recommendation; nothing was built unilaterally this session. The
+2026-09-14 session re-confirmed the time-entry schedule pre-fill once more
+(still correct, no change — this run's prompt asked for it again, in a form
+that also asked for a "pre-set to schedule hours" behavior that turns out to
+already be exactly what's built). It then read the two open, unmerged PRs
+noted since 2026-09-11 (#101) and 2026-09-13 (#103) in full: both were
+stale against `main` (mergeable_state `dirty`/`unknown`) but each contained
+a real, previously-undocumented, already-fixed-in-diff-form gap that had
+simply never landed because no one had merged them. Rather than leave two
+more days of a real privacy bug and a real silent-$0-timesheet gap sitting
+unapplied in unmerged branches, this session independently re-derived and
+applied both fixes directly against current `main` (verified line-for-line
+identical in intent to each PR's diff before applying): `Pay.tsx`'s payment
+note/detail modal now gates `parent_note` behind `isNanny` the same way
+`Schedule.tsx` already gates `schedule_exceptions` (PR #103's finding), and
+the generate-timesheet form now shows a non-blocking amber advisory when the
+selected caregiver has no hourly rate set (PR #101's finding), plus PR
+#101's documentation-only item 32 clarification. **PRs #101 and #103 are
+now superseded by this session's work and should be closed without
+merging** — merging either afterward would just reintroduce the same diff a
+second time or conflict outright. This session then ran the first dedicated
+re-audit of spec section 21 (Notification / Reminder Logic) since
+2026-08-09 — the single oldest-unaudited core section left in the rotation
+— bullet by bullet against `reminders.ts`'s `computeReminders`,
+`PARENT_ONLY_REMINDER_TYPES` gate, and `Home.tsx`'s wiring of
+`viewerIsNanny`/`disabledTypes` into it. Every one of section 21's six
+trigger rules (Payment Due tomorrow/today/overdue, Timesheet Submission,
+Timesheet Approval, Missing Clock-Out, PTO Request, Upcoming PTO) matches
+the literal alert-audience split (parent-only vs. both) exactly, including
+the `PARENT_ONLY_REMINDER_TYPES` set correctly excluding
+`unsubmitted_timesheet`/`missing_clock_out`/`upcoming_pto` (all "optionally
+show parent alert" or "parent and nanny alert" per spec) while including
+`payment_due`/`payment_overdue`/`pending_timesheet_approval`/
+`pending_pto_request` (all "parent alert" only per spec) — and the gate is
+actually wired end-to-end via `Home.tsx`'s `viewerIsNanny: isNanny`, not
+just correct in isolation. The Timesheet Submission rule's practical
+never-fires gap is unchanged, already-documented item 33, not a new
+finding. No new judgment call was opened. Health check (`npm install`,
+`npm run build`, `npx oxlint`) came back clean — same six pre-existing
+warnings as every prior session, none introduced by the `Pay.tsx` changes.
+See `SPEC_CHANGE_LOG.md` 2026-09-14 for full detail. Every item below
+(still 17: 22-26, 29, 31-35, 37-42) was presented again — via chat and a
+push notification, since this was an unattended scheduled run — with its
+options and recommendation; nothing else was built unilaterally this
+session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
@@ -1015,6 +1059,12 @@ result as one reverse-chronological list — no week grouping, no navigation,
 and nothing resembling a "Corrections" view. A household with months of
 history sees every entry it's ever logged in one long scroll, with no way to
 jump to "this week" or page through past weeks the way spec 14.3 implies.
+Re-confirmed 2026-09-14: "missing time warnings" specifically is also fully
+unbuilt today, not just deprioritized as part of the tab question above --
+the screen is entry-driven (one row per existing `time_entries` row), so a
+day with a scheduled shift and zero logged time simply has no row and no
+indicator at all, distinct from the per-row "scheduled vs actual" comparison
+which only ever renders for a day that already has an entry to attach it to.
 
 Why this needs a decision rather than a mechanical fill-in: the "Corrections"
 third of the tab structure has nothing to show yet — Q&A item 25 already
