@@ -436,7 +436,40 @@ See `SPEC_CHANGE_LOG.md` 2026-09-14 for full detail. Every item below
 (still 17: 22-26, 29, 31-35, 37-42) was presented again — via chat and a
 push notification, since this was an unattended scheduled run — with its
 options and recommendation; nothing else was built unilaterally this
-session.
+session. The 2026-09-16 session re-confirmed the time-entry schedule
+pre-fill once more (still correct, no change — this run's prompt again
+asked for entries to default to the current day and pre-fill from the
+caregiver's scheduled hours, which is exactly what `Time.tsx`'s existing
+`useEffect` already does), then confirmed the diff-review rotation had
+nothing new merged to `main` to cover (`origin/main` still at the
+2026-09-14 session's own last merge, `9eb949f`). It found one open,
+unmerged PR (#106, opened 2026-09-15 by a different session/branch,
+re-confirming the pre-fill and auditing spec 13.6 with no new gaps) sitting
+against the current base with a clean, mergeable state — left it open
+rather than merge it unilaterally, since this session's sandboxed git
+access explicitly blocks merging a PR without review, and its content is
+documentation-only with nothing time-sensitive riding on it (unlike the
+2026-09-14 session's absorption of #101/#103, which carried real, unlanded
+code fixes). It then ran the first dedicated full literal audit of spec
+13.1 (Initial Parent Setup) against `Onboarding.tsx`, `Home.tsx`'s "Finish
+setup" checklist, `CaregiverDetail.tsx`, and `More.tsx` — the one Core
+Workflows section that had never had a section-specific pass of its own,
+only ever touched indirectly via resolved item 28. All 11 of spec 13.1's
+setup steps have a real, working control somewhere in the app today:
+household creation and an optional initial caregiver name/rate on
+`Onboarding.tsx` itself; timezone, PTO/sick policy, recurring schedule, and
+reminder customization surfaced via `Home.tsx`'s "Finish setup" checklist
+(item 28's 2026-08-22 build); start date, pay frequency, and
+guaranteed-hours settings on `CaregiverDetail.tsx`'s existing
+caregiver-profile form; and nanny invite (explicitly optional per spec) via
+`More.tsx`'s join-code generator. This re-confirms item 28's original
+conclusion rather than finding anything new — no new judgment call was
+opened. Health check (`npm install`, `npm run build`, `npx oxlint`) came
+back clean — same six pre-existing warnings as every prior session. See
+`SPEC_CHANGE_LOG.md` 2026-09-16 for full detail. Every item below (still
+17: 22-26, 29, 31-35, 37-42) was presented again — via chat and a push
+notification, since this was an unattended scheduled run — with its
+options and recommendation; nothing was built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 

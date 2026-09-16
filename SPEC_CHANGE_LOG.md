@@ -8,6 +8,85 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-16 — Time-entry schedule pre-fill re-confirmed (still correct); noted an unmerged, clean, documentation-only PR #106 left untouched; first dedicated full literal audit of spec 13.1 (Initial Parent Setup) finds no new gaps; health check clean; all 17 open Q&A items presented in chat/notification
+
+**This session's scope:** re-confirm the manual time-entry pre-fill (this
+run's prompt again asked for entries to be pre-set to the caregiver's
+scheduled hours, defaulting to the current day), check the diff-review
+rotation and outstanding PRs for anything to absorb, run a fresh spec
+audit, then present every open Q&A item with options and a recommendation.
+
+**Time-entry pre-fill: still correct, no change.** Re-checked `Time.tsx`
+directly. `date` defaults to today (`Time.tsx:51`,
+`new Date().toISOString().slice(0, 10)`), and the manual-entry pre-fill
+`useEffect` (`Time.tsx:121-136`) looks up the selected date's generated
+shift via `generateShiftsForRange(...)` and fills
+`startTime`/`endTime`/`breakMinutes` from it, falling back to 09:00–17:00
+only when nothing's scheduled that day. Unchanged since 2026-06-30.
+
+**Diff-review rotation: nothing new.** `origin/main` is still at `9eb949f`
+(the 2026-09-14 session's own last merge) — no new commits landed since.
+
+**PR #106 (opened 2026-09-15, branch `claude/sharp-hamilton-48n315`) found
+open and clean, left unmerged.** It re-confirms the pre-fill and documents
+a no-new-gaps full literal audit of spec 13.6 (Guaranteed Hours) — no code
+changes, documentation only. `mergeable_state: clean`, so it could be
+merged, but this session's git/GitHub access explicitly disallows merging a
+pull request without review, and unlike the 2026-09-14 session's absorption
+of stale PRs #101/#103 (which carried real, unlanded code fixes worth
+independently re-deriving), #106 has nothing time-sensitive in it — leaving
+it open for a human to merge costs nothing. Noted here rather than acted on.
+
+**First dedicated full literal audit of spec 13.1 (Initial Parent Setup)**
+— every prior mention of onboarding was via resolved item 28 ("Onboarding
+implements 2 of spec 13.1's 11 setup steps"), never a fresh bullet-by-bullet
+pass of section 13.1 itself. Checked each of the 11 listed steps against
+the current app:
+
+1. **Create household** — `Onboarding.tsx`'s "Set up my household" form.
+2. **Set household timezone** — defaults to `America/New_York`; surfaced as
+   a "Set your household timezone" checklist item on `Home.tsx` (item 28)
+   linking to `More.tsx`, where it's editable.
+3. **Add nanny profile** — optional name field on `Onboarding.tsx` itself;
+   also a "Add a caregiver profile" checklist item linking to `More.tsx` /
+   `CaregiverDetail.tsx` for households that skip it at signup.
+4. **Enter nanny start date** — `CaregiverDetail.tsx`'s `start_date` field
+   (`CaregiverDetail.tsx:134/252`).
+5. **Enter pay rate** — optional `hourlyRate` field on `Onboarding.tsx`
+   itself; also editable later via `CaregiverDetail.tsx`'s
+   `default_hourly_rate`.
+6. **Choose pay frequency** — `CaregiverDetail.tsx`'s `pay_frequency`
+   selector (`CaregiverDetail.tsx:156/300`).
+7. **Configure guaranteed hours** — `CaregiverDetail.tsx`'s guaranteed-hours
+   card (`guaranteed_hours_enabled`/`_basis`/`fixed_weekly_guaranteed_hours`,
+   `CaregiverDetail.tsx:148-150/285-291`).
+8. **Configure PTO/sick policy** — a "Configure a PTO/sick policy" checklist
+   item on `Home.tsx` (item 28), linking to the caregiver's PTO settings
+   card.
+9. **Create recurring schedule** — a "Set up a recurring schedule" checklist
+   item on `Home.tsx` (item 28), linking to `/calendar` (`Schedule.tsx`).
+10. **Invite nanny, optional** — `More.tsx`'s "Generate join code" control;
+    correctly *not* on the checklist, matching spec 13.1's own "Parent can
+    skip nanny invite" line.
+11. **Configure reminders** — a "Customize reminder settings" checklist item
+    on `Home.tsx` (item 28), linking to `More.tsx`'s per-type toggles.
+
+Every step has a real, working control somewhere in the app; none is a dead
+end or a placeholder. This re-confirms item 28's 2026-08-22 conclusion
+("everything it asks for already has a real, working screen elsewhere")
+rather than finding anything new — no new judgment call was opened.
+
+Health check (`npm install`, `npm run build`, `npx oxlint`) came back
+clean — same six pre-existing warnings as every prior session
+(`AuthContext.tsx`, `HouseholdContext.tsx`, `PreferencesContext.tsx`,
+`Card.tsx` ×2 react-refresh warnings, `Schedule.tsx`'s
+`exhaustive-deps` warning on `weekStart`). Every item below (still 17:
+22-26, 29, 31-35, 37-42) was presented again — via chat and a push
+notification, since this was an unattended scheduled run — with its
+options and recommendation; nothing was built unilaterally this session.
+
+---
+
 ## 2026-09-14 — Time-entry schedule pre-fill re-confirmed (still correct, already matches this run's "pre-set to schedule hours" ask); absorbed two real, previously-unmerged fixes from stale PRs #101/#103 (payment-note privacy leak, $0-timesheet advisory) directly onto `main`; first dedicated re-audit of spec 21 (Notification / Reminder Logic) since 2026-08-09 finds no new gaps; health check clean; all 17 open Q&A items presented in chat/notification
 
 **This session's scope:** re-confirm the manual time-entry pre-fill
