@@ -8,6 +8,94 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-15 — Time-entry schedule pre-fill re-confirmed (still correct); closed two superseded stale PRs (#101, #103); first dedicated full literal audit of spec 13.6 (Guaranteed Hours) since 2026-08-13's bundled pass finds no new gaps; health check clean; all 17 open Q&A items presented in chat/notification
+
+**This session's scope:** re-confirm the manual time-entry pre-fill
+behavior (this run's prompt again asked for time entries to be "pre-set to
+the schedule hours," the same already-built behavior), clean up the two
+PRs the 2026-09-14 session flagged as superseded but left open, run a
+fresh spec audit, then present every open Q&A item with options and a
+recommendation.
+
+**Time-entry pre-fill: still correct, no change.** Re-checked `Time.tsx`
+directly. `date` still defaults to today (`Time.tsx:51`,
+`new Date().toISOString().slice(0, 10)`), and the manual-entry pre-fill
+`useEffect` (`Time.tsx:121-136`) still looks up the selected date's
+generated shift via `generateShiftsForRange(...)` and fills
+`startTime`/`endTime`/`breakMinutes` from it, falling back to 09:00–17:00
+only when nothing's scheduled that day. Unchanged since 2026-06-30.
+
+**Closed PRs #101 and #103 without merging.** The 2026-09-14 session
+absorbed both PRs' real findings directly onto `main` (via PR #105) and
+explicitly noted they were now superseded and should be closed, but didn't
+close them itself. Both were still sitting open, stale against the current
+`main` tip (`mergeable_state: dirty`/`unknown`), a day later with nothing
+new to add. Commented on each explaining the supersession and closed both
+via the GitHub API — no code change, just repo hygiene so they stop
+showing as outstanding work.
+
+**First dedicated full literal audit of spec 13.6 (Guaranteed Hours)** —
+every prior session that touched guaranteed-hours math audited spec
+section 16's formulas (16.1-16.9) against `calc.ts`, but 13.6 itself (the
+workflow-level spec section the header comment in `calc.ts` already cites
+as "the worked examples in section 13.6") had only ever been bundled into
+an unrelated audit (2026-08-13's pass, labeled "13.5/13.6 (Timesheet
+Display)") rather than checked bullet-by-bullet on its own. Went through
+every subsection against `calc.ts`, `schedule.ts`, and `Pay.tsx`:
+
+- **Settings, Recommended Default, Calculation, Examples 1-4, Schedule-
+  Linked Guarantee:** all match `calc.ts`'s `calculateTimesheet` and
+  `schedule.ts`'s `computeGuaranteedHoursBase` exactly — re-confirms, not a
+  new finding.
+- **Per-Shift Guaranteed Flag** lists three shift-level toggles: "counts
+  toward guaranteed hours," "paid if family canceled" (both real
+  `schedule_shifts` columns, the first wired, the second built per resolved
+  item 27), and "counts toward overtime calculation" — this third one has
+  no `schedule_shifts` column at all, and nothing in `src` reads any
+  per-shift overtime-inclusion flag; `calc.ts`'s overtime split
+  (`regularWorkedHours`/`overtimeWorkedHours`) is computed from total
+  `actualWorkedHours` unconditionally. Checked whether this is a gap: the
+  same subsection's own "Default" bullet states, unconditionally, "Worked
+  hours always count toward overtime calculations" — the spec never
+  describes a scenario for turning this off, the same "no described
+  consuming behavior anywhere in the spec" shape resolved item 27 accepted
+  for `default_category` (left unbuilt, option A). Treating this the same
+  way: not a gap, since current behavior already matches the stated
+  default and there's no spec text implying a household would ever need
+  the override. Noted here for the record since no prior session had
+  checked this specific bullet; not opened as a new judgment call.
+- **Timesheet Display for Guaranteed Hours** and **Payment Record Impact**:
+  every listed field (actual worked, guaranteed, guarantee adjustment,
+  payable regular, overtime, PTO/sick/holiday hours, gross pay due) is
+  present on `payment_records` and rendered in `Pay.tsx`'s Daily Detail /
+  payment cards, except "manual override note, if applicable" —
+  `guarantee_override_note` — which is the exact already-open item 37
+  (`payment_records.guarantee_override_note` is a dead column), not a new
+  finding.
+- **Permissions for Guaranteed Hours:** "override guarantee calculation for
+  a pay period" has no UI path either — the "Correct payment" flow only
+  lets a parent adjust the final dollar total with a note, never the
+  underlying guaranteed-hours math — but this is the same underlying gap
+  item 37 already documents (the override note column with no producing
+  workflow), not a second gap. "Recalculate an unlocked pay period" is
+  already satisfied: an unapproved/unpaid timesheet can be archived and
+  regenerated for the same period (`0017_timesheet_period_unique_excludes_archived.sql`
+  lets an archived period's dates be reused), which recomputes every total
+  from scratch. Nanny-side view/edit permissions (`showGuaranteedHours`
+  gated on `nanny_can_view_guaranteed_hours`, no edit path exposed to the
+  nanny anywhere) match spec exactly.
+
+No new judgment call was opened — every previously-unchecked bullet either
+matched spec outright or turned out to already be covered by an existing
+open item (27, 37). Health check (`npm install`, `npm run build`,
+`npx oxlint`) came back clean — same six pre-existing warnings as every
+prior session. Every item below (still 17: 22-26, 29, 31-35, 37-42) was
+presented again — via chat and a push notification, since this was an
+unattended scheduled run — with its options and recommendation; nothing
+else was built unilaterally this session.
+
+---
+
 ## 2026-09-14 — Time-entry schedule pre-fill re-confirmed (still correct, already matches this run's "pre-set to schedule hours" ask); absorbed two real, previously-unmerged fixes from stale PRs #101/#103 (payment-note privacy leak, $0-timesheet advisory) directly onto `main`; first dedicated re-audit of spec 21 (Notification / Reminder Logic) since 2026-08-09 finds no new gaps; health check clean; all 17 open Q&A items presented in chat/notification
 
 **This session's scope:** re-confirm the manual time-entry pre-fill

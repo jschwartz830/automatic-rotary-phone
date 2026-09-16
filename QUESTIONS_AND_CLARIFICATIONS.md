@@ -436,7 +436,36 @@ See `SPEC_CHANGE_LOG.md` 2026-09-14 for full detail. Every item below
 (still 17: 22-26, 29, 31-35, 37-42) was presented again — via chat and a
 push notification, since this was an unattended scheduled run — with its
 options and recommendation; nothing else was built unilaterally this
-session.
+session. The 2026-09-15 session re-confirmed the time-entry schedule
+pre-fill once more (still correct, no change — this run's prompt asked for
+a "pre-set to schedule hours" behavior that again turns out to already be
+exactly what's built), then closed PRs #101 and #103 without merging (both
+commented and closed via the GitHub API) since the 2026-09-14 session had
+already absorbed their real findings onto `main` via PR #105 and explicitly
+flagged them as superseded but hadn't closed them. It then ran the first
+dedicated full literal audit of spec 13.6 (Guaranteed Hours) on its own —
+every prior guarantee-related audit covered section 16's formulas against
+`calc.ts`, but 13.6's own workflow-level bullets had only ever been bundled
+into an unrelated 2026-08-13 pass. Every subsection matched spec exactly
+except one previously-unchecked detail: 13.6's "Per-Shift Guaranteed Flag"
+lists a "counts toward overtime calculation" toggle that has no
+`schedule_shifts` column at all (unlike its two siblings in the same
+bullet, which exist as real columns) — not opened as a new gap, since the
+same subsection's "Default" bullet states unconditionally that worked
+hours always count toward overtime with no described scenario for
+overriding it, the same "no consuming behavior described anywhere" shape
+resolved item 27 already accepted for `default_category`. The "override
+guarantee calculation for a pay period" permission bullet was confirmed to
+be the same already-open item 37 (the `guarantee_override_note` dead
+column), not a second gap, and "recalculate an unlocked pay period" is
+already satisfied via the existing archive-and-regenerate flow. No new
+judgment call was opened. Health check (`npm install`, `npm run build`,
+`npx oxlint`) came back clean — same six pre-existing warnings as every
+prior session. See `SPEC_CHANGE_LOG.md` 2026-09-15 for full detail. Every
+item below (still 17: 22-26, 29, 31-35, 37-42) was presented again — via
+chat and a push notification, since this was an unattended scheduled run —
+with its options and recommendation; nothing else was built unilaterally
+this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
