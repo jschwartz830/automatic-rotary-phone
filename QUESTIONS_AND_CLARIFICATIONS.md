@@ -465,7 +465,33 @@ prior session. See `SPEC_CHANGE_LOG.md` 2026-09-15 for full detail. Every
 item below (still 17: 22-26, 29, 31-35, 37-42) was presented again — via
 chat and a push notification, since this was an unattended scheduled run —
 with its options and recommendation; nothing else was built unilaterally
-this session.
+this session. The 2026-09-17 session re-confirmed the time-entry schedule
+pre-fill once more (still correct, no change — see `Time.tsx`'s `date`
+default at line 51 and the pre-fill `useEffect` at lines 121-136), then
+checked the adversarial diff-review rotation for anything new merged to
+`main` since the 2026-09-15 session's own last merge (`7204a7d`) — there
+was nothing: `origin/main` and this session's branch both still sit at
+that exact commit, so there was no new diff to review this session. It
+then ran the first dedicated full literal audit of spec section 8 (PWA
+Requirement), the more substantive of the two infra/meta sections (4 and
+8) the 2026-08-10 infra rotation had skipped over, checking every bullet
+against an actual production build's output rather than just the source
+config — `manifest.json` (built as `manifest.webmanifest` by
+`vite-plugin-pwa`, functionally identical), app icons (verified actual PNG
+dimensions: 192x192/512x512/180x180, all correct), apple touch icon, theme
+color, mobile viewport settings, service worker (workbox-based, registered
+in `main.tsx` with a foreground-refresh update check), an offline-friendly
+precached app shell, and — checked by actually building — every generated
+URL (script/stylesheet tags, the manifest link, icon paths inside the
+manifest, `start_url`/`scope`, and every precached service-worker URL)
+correctly respecting the GitHub Pages base path. Every bullet matched spec
+exactly; no mechanical gaps were found and no new judgment call was
+opened. Health check (`npm install`, `npm run build`, `npx oxlint`) came
+back clean — same six pre-existing warnings as every prior session. See
+`SPEC_CHANGE_LOG.md` 2026-09-17 for full detail. Every item below (still
+17: 22-26, 29, 31-35, 37-42) was presented again — via chat and a push
+notification, since this was an unattended scheduled run — with its
+options and recommendation; nothing was built unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 

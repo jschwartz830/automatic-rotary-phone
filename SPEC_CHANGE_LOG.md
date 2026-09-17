@@ -8,6 +8,90 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-17 — Time-entry schedule pre-fill re-confirmed (still correct); diff-review rotation has nothing new to cover; first dedicated full literal audit of spec section 8 (PWA Requirement) finds no gaps; health check clean; all 17 open Q&A items presented in chat/notification
+
+**This session's scope:** re-confirm the manual time-entry pre-fill behavior
+(this run's prompt again asked for time entries to be "pre-set to the
+schedule hours," the same already-built behavior), check the adversarial
+diff-review rotation for anything new merged to `main`, run a fresh spec
+audit, then present every open Q&A item with options and a recommendation.
+
+**Time-entry pre-fill: still correct, no change.** Re-checked `Time.tsx`
+directly. `date` still defaults to today (`Time.tsx:51`,
+`new Date().toISOString().slice(0, 10)`), and the manual-entry pre-fill
+`useEffect` (`Time.tsx:121-136`) still looks up the selected date's
+generated shift via `generateShiftsForRange(...)` and fills
+`startTime`/`endTime`/`breakMinutes` from it, falling back to 09:00-17:00
+only when nothing's scheduled that day. Unchanged since 2026-06-30.
+
+**Diff-review rotation: nothing new.** `origin/main` is still exactly
+`7204a7d`, the same commit this rotation's last session (2026-09-15) itself
+last merged, and this session's own branch started from that same commit
+with zero divergence. No new commits landed on `main` since, so there was
+nothing new for the adversarial review rotation to cover this session.
+
+**First dedicated full literal audit of spec section 8 (PWA Requirement)**
+— the two remaining infra/meta-shaped sections the 2026-08-10 infra rotation
+explicitly skipped over were 4 (Tech Stack, mostly a library-choice list
+with little to literally audit bullet-by-bullet) and 8 (PWA Requirement,
+which has concrete, checkable bullets); picked 8 as the more substantive of
+the two and the only core-functionality-adjacent section left with no
+dedicated pass on record. Checked every bullet against the actual build
+output, not just the source config, since spec 8's own last bullet ("should
+work correctly from the GitHub Pages URL and respect the configured base
+path") can only be verified by actually building:
+
+- **`manifest.json`, App icons, Apple touch icon, Theme color, Mobile
+  viewport settings:** all present. `vite-plugin-pwa` (`vite.config.ts`)
+  generates `manifest.webmanifest` at build time (functionally identical to
+  a hand-written `manifest.json`, standard for this plugin) with
+  `name`/`short_name: "Nannager"`, `theme_color`/`background_color`
+  matching `index.html`'s `<meta name="theme-color">`, and both icon sizes
+  spec's suggested metadata calls for (`icons/icon-192.png`,
+  `icons/icon-512.png`); `index.html` separately has `<link rel="icon">`
+  and `<link rel="apple-touch-icon">` plus the viewport meta tag. Verified
+  actual PNG dimensions: `icon-192.png` 192x192, `icon-512.png` 512x512,
+  `apple-touch-icon.png` 180x180 (the standard iOS size) — all correct.
+- **Service worker if appropriate / Offline-friendly shell if practical:**
+  both built. `vite-plugin-pwa`'s `generateSW` mode produces `sw.js` +
+  `workbox-*.js`, precaching the app shell (JS/CSS/HTML/icons/manifest) and
+  registering a navigation-fallback route to `index.html`, i.e. an
+  offline-friendly SPA shell. `src/main.tsx` registers it via
+  `virtual:pwa-register`'s `registerSW`, with an `onRegisteredSW` hook that
+  re-checks for an update every time the installed app is foregrounded
+  (`visibilitychange` -> `registration.update()`) — appropriate for an app
+  that gets redeployed frequently.
+- **Works from the GitHub Pages URL and respects the base path:** ran an
+  actual production build (`NODE_ENV=production npx vite build`) and
+  inspected `dist/index.html`/`dist/manifest.webmanifest`/`dist/sw.js`
+  directly rather than trusting the source config alone. Every generated
+  URL (script/stylesheet `src`/`href`, the manifest link, icon paths inside
+  the manifest, the manifest's own `start_url`/`scope`, and every
+  precached URL in the service worker) is correctly prefixed with
+  `/automatic-rotary-phone/`, matching `vite.config.ts`'s `base` and the
+  manifest's own `start_url: `/${repoName}/`` — the icon `<link>` tags in
+  source `index.html` use root-absolute `href="/icons/..."`, which Vite's
+  HTML transform correctly rewrites to the base-prefixed path at build
+  time (confirmed in the built output), so this isn't the kind of
+  base-path bug the 2026-09-04 session's `03f4544` review context would
+  have flagged.
+
+Every bullet matched spec exactly; no mechanical gaps found and no new
+judgment call was opened. The suggested app metadata's literal
+`name`/`short_name` ("Nanny Ledger"/"Nanny") vs. the app's actual
+"Nannager" is not a gap — spec 8 itself frames that block as "Suggested app
+metadata," not a requirement. Health check (`npm install`, `npm run build`,
+`npx oxlint`) came back clean — same six pre-existing warnings as every
+prior session (`Card.tsx`/`AuthContext.tsx`/`HouseholdContext.tsx`/
+`PreferencesContext.tsx`'s four `react(only-export-components)` warnings,
+`Schedule.tsx:205`'s one `react-hooks(exhaustive-deps)` warning, plus the
+build's one large-chunk-size notice). Every item below (still 17: 22-26,
+29, 31-35, 37-42) was presented again — via chat and a push notification,
+since this was an unattended scheduled run — with its options and
+recommendation; nothing was built unilaterally this session.
+
+---
+
 ## 2026-09-15 — Time-entry schedule pre-fill re-confirmed (still correct); closed two superseded stale PRs (#101, #103); first dedicated full literal audit of spec 13.6 (Guaranteed Hours) since 2026-08-13's bundled pass finds no new gaps; health check clean; all 17 open Q&A items presented in chat/notification
 
 **This session's scope:** re-confirm the manual time-entry pre-fill
