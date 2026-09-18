@@ -8,6 +8,79 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-18 — Time-entry schedule pre-fill re-confirmed (still correct); diff-review rotation has nothing new; first re-audit of the infra/meta/authorization sections (3, 5, 6, 7, 9, 12, 18, 23) since 2026-08-10 finds no gaps; health check clean; all 17 open Q&A items presented in chat/notification
+
+**This session's scope:** re-confirm the manual time-entry pre-fill behavior,
+check whether the adversarial diff-review rotation has new commits to cover,
+run a fresh spec audit, then present every open Q&A item with options and a
+recommendation.
+
+**Time-entry pre-fill: still correct, no change.** Re-checked `Time.tsx`
+directly. `date` still defaults to today, and the manual-entry pre-fill
+`useEffect` (`Time.tsx:117-134`) still looks up the selected date's
+generated shift via `generateShiftsForRange(...)` and fills
+`startTime`/`endTime`/`breakMinutes` from it, tracking `scheduledShiftId`
+separately so a later tweak to the pre-filled values doesn't lose the shift
+link. Unchanged since 2026-06-30.
+
+**Diff-review rotation: nothing new to cover.** `origin/main` is unchanged
+since the 2026-09-15 session's own last merge (`7204a7d`) -- no commits
+landed in the three days between sessions -- so there was nothing for the
+diff-review half of the rotation to check this time. Ran a fresh
+spec-section audit instead, per the standing instruction.
+
+**First re-audit of the infra/meta/authorization sections (3, 5, 6, 7, 9,
+12, 18, 23) since 2026-08-10** -- the oldest dedicated-pass sections left in
+the rotation, over five weeks and roughly two dozen sessions old. Checked
+every bullet against the actual repo:
+
+- **Section 3/5 (GitHub Pages deployment / configuration):**
+  `vite.config.ts`'s `base` and the PWA plugin's `manifest.start_url` both
+  key off `NODE_ENV`/`repoName` exactly as spec 5's project-path snippet
+  recommends, and `HashRouter` is in use (spec 5's routing section). Built
+  `dist/index.html` and confirmed every asset/icon `href` gets the
+  `/automatic-rotary-phone/` base correctly prepended by Vite -- no broken
+  icon paths under the project-path deployment. No gap.
+- **Section 7 (GitHub Actions):** `.github/workflows/deploy.yml` matches
+  spec's workflow almost verbatim, plus a deploy-retry step spec doesn't
+  ask for. No gap.
+- **Section 6/9 (Supabase requirements / backend constraint):**
+  `src/lib/supabase.ts` only ever reads `VITE_SUPABASE_URL`/
+  `VITE_SUPABASE_ANON_KEY`; grepped all of `src` for `service_role`/
+  `RESEND`/`POSTMARK`/`TWILIO` and found nothing -- no private keys and no
+  direct email-provider calls anywhere in the frontend, matching spec 6/9's
+  constraints exactly.
+- **Section 12 (navigation):** `Layout.tsx`'s `PARENT_TABS`
+  (Home/Time/Calendar/Pay/More) and `NANNY_TABS` (Home/Time/PTO/Pay) match
+  spec 12's literal five-tab/four-tab lists exactly.
+- **Section 18 (Authorization Requirements):** spot-checked the bullets not
+  already covered by section 19's 2026-09-08 RLS audit.
+  `CaregiverDetail.tsx` redirects a nanny away (`isNanny` guard) and the
+  underlying `caregiver_profiles_update_manager` RLS policy independently
+  blocks a nanny write regardless of the UI guard; `AuditLog.tsx` is both
+  UI-gated (`isParentOrCoAdmin`) and RLS-gated (`audit_events_select_admin`,
+  keyed off `can_manage_household_setting(..., 'view_audit_log')`), so a
+  nanny can reach neither by URL nor by a direct API call. The "view
+  private parent notes" restriction is enforced by storing `notes_private`
+  in a separate `caregiver_private_notes` table with RLS that excludes the
+  nanny role entirely -- a stronger fix than a literal `notes_private`
+  column could give, since Postgres row-level RLS can't do column-level
+  exclusion on its own -- rather than only hiding the field in the UI,
+  satisfying spec 18's explicit "do not rely only on hiding UI controls"
+  instruction. No gap.
+- **Section 23 (MVP Build Plan):** Phases 1-3 are fully built; Phase 4
+  (email reminders) is correctly left unbuilt per spec's own "do not
+  implement from the static frontend" instruction and already-resolved item
+  17; Phase 5's one remaining gap (payment attachments) is already open
+  item 26, not a new finding.
+
+No mechanical fixes were needed and no new judgment call was opened --
+every bullet checked already matched spec or an already-open/resolved item.
+Health check (`npm install`, `npm run build`, `npx oxlint`) came back clean
+-- same six pre-existing warnings as every prior session.
+
+---
+
 ## 2026-09-15 — Time-entry schedule pre-fill re-confirmed (still correct); closed two superseded stale PRs (#101, #103); first dedicated full literal audit of spec 13.6 (Guaranteed Hours) since 2026-08-13's bundled pass finds no new gaps; health check clean; all 17 open Q&A items presented in chat/notification
 
 **This session's scope:** re-confirm the manual time-entry pre-fill

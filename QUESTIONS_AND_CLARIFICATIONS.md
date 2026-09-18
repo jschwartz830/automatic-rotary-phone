@@ -465,7 +465,35 @@ prior session. See `SPEC_CHANGE_LOG.md` 2026-09-15 for full detail. Every
 item below (still 17: 22-26, 29, 31-35, 37-42) was presented again — via
 chat and a push notification, since this was an unattended scheduled run —
 with its options and recommendation; nothing else was built unilaterally
-this session.
+this session. The 2026-09-18 session re-confirmed the time-entry schedule
+pre-fill once more (still correct, no change), confirmed the diff-review
+rotation had nothing new to cover (`origin/main` unchanged at `7204a7d`
+since the 2026-09-15 session's own last merge, no commits landed in the
+three days between sessions), then ran the first re-audit of the
+infra/meta/authorization sections (3, 5, 6, 7, 9, 12, 18, 23 — deployment,
+GitHub Pages configuration, Supabase requirements, GitHub Actions, the
+backend/reminder constraint, navigation, authorization requirements, and
+the MVP build plan) since their last dedicated pass on 2026-08-10, over
+five weeks and roughly two dozen sessions earlier. Checked `vite.config.ts`,
+`package.json`, `.github/workflows/deploy.yml`, `src/lib/supabase.ts`,
+`Layout.tsx`/`App.tsx`'s route guards, and the `caregiver_profiles`/
+`audit_events` RLS policies against every bullet in those sections
+(including building `dist/index.html` to directly confirm icon/asset `href`s
+get the GitHub Pages project-path base correctly prepended) and found zero
+gaps: the deploy workflow now has retry logic beyond what spec asks for,
+the bottom-tab navigation matches spec 12's five/four-tab lists literally,
+no email-provider keys or calls exist anywhere in the frontend, and
+`caregiver_profiles.notes_private`'s replacement (a separate
+`caregiver_private_notes` table, RLS-excluded from the nanny role) already
+satisfies spec 18's "not just hiding UI controls" requirement for
+employer-only notes. No mechanical fixes were needed and no new judgment
+call was opened. Health check (`npm install`, `npm run build`, `npx
+oxlint`) came back clean — same six pre-existing warnings as every prior
+session. See `SPEC_CHANGE_LOG.md` 2026-09-18 for full detail. Every item
+below (still 17: 22-26, 29, 31-35, 37-42) was presented again — via chat
+and a push notification, since this was an unattended scheduled run — with
+its options and recommendation; nothing was built unilaterally this
+session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
