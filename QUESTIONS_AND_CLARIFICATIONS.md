@@ -465,7 +465,50 @@ prior session. See `SPEC_CHANGE_LOG.md` 2026-09-15 for full detail. Every
 item below (still 17: 22-26, 29, 31-35, 37-42) was presented again — via
 chat and a push notification, since this was an unattended scheduled run —
 with its options and recommendation; nothing else was built unilaterally
-this session.
+this session. The 2026-09-19 session re-confirmed the time-entry schedule
+pre-fill once more directly against `Time.tsx` (still correct, no change —
+`date` defaults to today (`new Date().toISOString().slice(0, 10)`), the
+pre-fill `useEffect` still fills `startTime`/`endTime`/`breakMinutes` from
+`generateShiftsForRange(...)`'s result for the selected date, falling back
+to 09:00–17:00 only when nothing's scheduled), then confirmed the
+diff-review rotation had nothing new to cover (`origin/main` still matched
+this rotation's own last merge, `7204a7d`/PR #106, with no new commits
+since). It then ran the first dedicated full literal audit of spec 13.1
+(Initial Parent Setup) and 14.3 (Time Screen) — both sections PR #101 had
+targeted before it was superseded and closed unmerged on 2026-09-14/15, so
+neither had actually had a section-specific pass land on `main` before now.
+13.1's 11 onboarding steps were checked one by one against the app rather
+than demanding a literal wizard, per resolved item 28's already-accepted
+"Finish setup" checklist shape: household creation, nanny profile, start
+date, pay rate, pay frequency, guaranteed-hours settings, PTO/sick policy,
+household timezone, recurring schedule, join-code invite, and reminder
+settings each have a real, working control somewhere in the app
+(`Onboarding.tsx`, `CaregiverDetail.tsx`, `More.tsx`, `Schedule.tsx`,
+`Home.tsx`'s checklist) — no gap. 14.3's tabs are unchanged, still item 32;
+"Daily rows," "Scheduled vs actual," "Notes," and "Status chips" are all
+present and correct on `Time.tsx` as-is. "Missing time warnings" turned out
+to be two separate gaps bundled under one spec bullet: the
+no-entry-for-a-scheduled-day half item 32 already documents stayed
+unbuilt, but the other half — an open clock session running past its
+schedule-aware grace period had no visible warning on this screen at all,
+even though `Home.tsx`'s Today card already computes exactly that signal
+via `computeReminders`'s `missing_clock_out` rule — was a real,
+previously-undocumented, mechanically fixable gap, fixed by having
+`Time.tsx` reuse that same function for its own active clock entry (now
+shown on the row list, the detail modal, and the Clock In/Clock Out card).
+The two remaining Actions bullets, "Submit week" and "Approve week," were
+confirmed to have no batch, week-scoped equivalent today (entries submit
+and approve one row at a time, with no explicit submit step at all) — added
+as a documentation-only note to item 32 rather than a new item, since it's
+the same missing "week as a unit" shape the tab-structure question already
+covers. No new judgment call was opened. Health check (`npm install`,
+`npm run build`, `npm run lint`) came back clean — same six pre-existing
+warnings as every prior session, none introduced by the `Time.tsx` change.
+See `SPEC_CHANGE_LOG.md` 2026-09-19 for full detail. Every item below
+(still 17: 22-26, 29, 31-35, 37-42) was presented again — via chat and a
+push notification, since this was an unattended scheduled run — with its
+options and recommendation; nothing else was built unilaterally this
+session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
@@ -1094,6 +1137,24 @@ the screen is entry-driven (one row per existing `time_entries` row), so a
 day with a scheduled shift and zero logged time simply has no row and no
 indicator at all, distinct from the per-row "scheduled vs actual" comparison
 which only ever renders for a day that already has an entry to attach it to.
+Re-confirmed 2026-09-19, with one mechanical fix and one further
+documentation-only note: the *other* half of "missing time warnings" -- an
+open clock session running past its schedule-aware grace period -- was
+previously invisible on this screen even though `Home.tsx`'s Today card
+already computed exactly this signal via `computeReminders`'s
+`missing_clock_out` rule; `Time.tsx` now reuses that same function for its
+own active clock entry, so the row list, the detail modal, and the Clock
+In/Clock Out card itself all show the overdue chip too (see
+`SPEC_CHANGE_LOG.md` 2026-09-19). The no-entry-for-a-scheduled-day half
+described above is unchanged and still unbuilt, still tied to the same
+navigation-model question. That session also checked spec 14.3's two
+remaining literal Actions bullets, "Submit week" and "Approve week," against
+`Time.tsx`: neither has a batch, week-scoped equivalent today -- a manual
+entry is inserted directly with `status: 'submitted'` (no separate submit
+step), a completed clock-out likewise transitions straight to `'submitted'`,
+and `approveEntry` only ever acts on one row at a time. This is the same
+missing "week as a unit" shape the tab-structure question above already
+covers, not a second gap worth its own item.
 
 Why this needs a decision rather than a mechanical fill-in: the "Corrections"
 third of the tab structure has nothing to show yet — Q&A item 25 already

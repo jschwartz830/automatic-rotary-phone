@@ -8,6 +8,117 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-19 — Time-entry schedule pre-fill re-confirmed (still correct); diff-review rotation finds nothing new; first dedicated full literal audit of spec 13.1 (Initial Parent Setup) and 14.3 (Time Screen) finds 13.1 fully covered, fixes one previously-undocumented half of 14.3's "missing time warnings" gap, documents the other half under existing items; no new judgment call; health check clean; all 17 open Q&A items presented in chat/notification
+
+**This session's scope:** re-confirm the manual time-entry pre-fill behavior
+(this run's prompt asked for it again), confirm the diff-review rotation has
+nothing new to cover, run the first dedicated full literal audit of spec
+13.1/14.3 — the two sections PR #101 had targeted before it was superseded
+and closed unmerged on 2026-09-14/15, leaving them without an actual
+section-specific pass on `main` despite the intro narrative's mention of
+that PR's title — then present every open Q&A item with options and a
+recommendation.
+
+**Time-entry pre-fill: still correct, no change.** Re-checked `Time.tsx`
+directly, before this session's own edits below shifted its line numbers.
+`date` still defaults to today (`new Date().toISOString().slice(0, 10)`),
+and the manual-entry pre-fill `useEffect` still looks up the selected
+date's generated shift via `generateShiftsForRange(...)` and fills
+`startTime`/`endTime`/`breakMinutes` from it, falling back to 09:00–17:00
+only when nothing's scheduled that day. Unchanged since 2026-06-30. (Post-fix,
+these now live at `Time.tsx:52` and `Time.tsx:122-137` respectively — see
+below.)
+
+**Diff-review rotation: nothing new.** `git log` on this branch and
+`origin/main` both sit at `7204a7d` (PR #106, this rotation's own last
+merge) — no new commits have landed since to review.
+
+**First dedicated full literal audit of spec 13.1 (Initial Parent Setup).**
+Went through all 11 onboarding steps one by one against the current app,
+judging completeness against resolved item 28's already-accepted "Finish
+setup" checklist shape (a lighter surfaced-checklist model, not a literal
+11-step wizard) rather than demanding a linear wizard:
+
+- **Create household / Add nanny profile / Enter pay rate** — `Onboarding.tsx`'s
+  `handleCreate` (lines 29-68) creates the household, optionally the
+  caregiver profile, and its `default_hourly_rate` in one form.
+- **Enter nanny start date** — `CaregiverDetail.tsx`'s profile form reads/
+  writes `caregiver.start_date` (lines 134, 252).
+- **Choose pay frequency** — `CaregiverDetail.tsx` reads/writes
+  `caregiver.pay_frequency` (lines 156, 300).
+- **Configure guaranteed hours / Configure PTO/sick policy** —
+  `CaregiverDetail.tsx`'s guaranteed-hours and PTO-settings cards; the
+  Finish Setup checklist's `leave_policy` item (`Home.tsx:224-229`) tracks
+  the latter directly.
+- **Set household timezone** — `More.tsx`'s household settings form
+  (`timezone` select, line 481); the checklist's `timezone` item
+  (`Home.tsx:230-235`) tracks it against the `America/New_York` default.
+- **Create recurring schedule** — `Schedule.tsx`'s add-shift flow; tracked by
+  the checklist's `schedule` item (`Home.tsx:218-223`).
+- **Invite nanny, optional** — `More.tsx`'s join-code generation
+  (`join_code`, lines 111-117, 342-357).
+- **Configure reminders** — `More.tsx`'s per-type reminder toggles; tracked
+  by the checklist's `reminders` item (`Home.tsx:236-241`).
+
+Every one of the 11 steps has a real, working control somewhere in the app.
+No gap — re-confirms resolved item 28's shape rather than finding a new one.
+
+**First dedicated full literal audit of spec 14.3 (Time Screen).** Checked
+every literal bullet against `Time.tsx`:
+
+- **Tabs (This Week / Previous Weeks / Corrections)** — unchanged, still
+  the already-open item 32 (one flat, unscoped list).
+- **Daily rows** — present, one `SwipeRow`/`Card` per entry.
+- **Scheduled vs actual** — present, `scheduledHoursFor(entry.date)`
+  rendered inline on each row (`Time.tsx:657`, `683-688`).
+- **Notes** — present, both `nanny_note` and `parent_note` render for both
+  viewer roles (`Time.tsx:690-700`), per the 2026-08-15 fix.
+- **Status chips** — present, `StatusChip` on every row and in the detail
+  modal.
+- **Missing time warnings** — turned out to be two separate gaps bundled
+  under one spec bullet. Item 32 already documents the
+  no-entry-for-a-scheduled-day half as unbuilt (unchanged, re-confirmed).
+  The *other* half was a real, previously-undocumented, mechanically
+  fixable gap: an open clock session running past its schedule-aware grace
+  period had no visible warning anywhere on this screen, even though
+  `Home.tsx`'s Today card already computes exactly that signal via
+  `computeReminders`'s `missing_clock_out` rule (`Home.tsx:501-503`) for its
+  own display. Fixed by having `Time.tsx` reuse the same
+  `computeReminders(...)` function for its own active clock entry (new
+  `activeClockChip` memo, `Time.tsx:255-267`) instead of duplicating the
+  grace-period math — the overdue chip now shows on the entry row
+  (`Time.tsx:704`), the detail modal (`Time.tsx:779`), and the Clock In/
+  Clock Out card itself (an "Overdue" chip next to "Clocked in since…",
+  `Time.tsx:585`).
+- **Actions: Add time / Edit draft time** — present (`showForm` toggle;
+  `canModify`'s draft/submitted gate).
+- **Actions: Submit week / Approve week** — checked and confirmed neither
+  has a batch, week-scoped equivalent today: a manual entry is inserted
+  directly with `status: 'submitted'` (no separate submit step), a
+  completed clock-out likewise transitions straight to `'submitted'`, and
+  `approveEntry` only ever acts on one row at a time. Not opened as a new
+  gap — it's the same missing "week as a unit" shape the tab-structure
+  question (item 32) already covers; added as a documentation-only note to
+  that item rather than a new one.
+- **Actions: Request correction** — unchanged, still the already-open item 25.
+
+No new judgment call was opened — the one real gap found had an exact,
+already-built, same-file precedent to reuse (`Home.tsx`'s own
+`computeReminders` call), so it was a mechanical fix rather than a decision.
+
+**Health check:** `npm install`, `npm run build`, and `npm run lint` all ran
+clean — the same six pre-existing warnings as every prior session (three
+`only-export-components` in the context files, two more in `Card.tsx`, one
+`exhaustive-deps` in `Schedule.tsx`), none introduced by the `Time.tsx`
+change.
+
+Every open Q&A item (still 17: 22-26, 29, 31-35, 37-42) was presented again
+— via `PushNotification` as well as in chat, since this is a
+scheduled/unattended run — with its options and recommendation; nothing was
+built unilaterally beyond the one mechanical fix above.
+
+---
+
 ## 2026-09-15 — Time-entry schedule pre-fill re-confirmed (still correct); closed two superseded stale PRs (#101, #103); first dedicated full literal audit of spec 13.6 (Guaranteed Hours) since 2026-08-13's bundled pass finds no new gaps; health check clean; all 17 open Q&A items presented in chat/notification
 
 **This session's scope:** re-confirm the manual time-entry pre-fill
