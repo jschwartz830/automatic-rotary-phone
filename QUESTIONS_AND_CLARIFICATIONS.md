@@ -465,7 +465,43 @@ prior session. See `SPEC_CHANGE_LOG.md` 2026-09-15 for full detail. Every
 item below (still 17: 22-26, 29, 31-35, 37-42) was presented again — via
 chat and a push notification, since this was an unattended scheduled run —
 with its options and recommendation; nothing else was built unilaterally
-this session.
+this session. The 2026-09-20 session re-confirmed the time-entry schedule
+pre-fill once more (still correct, no change — this run's prompt again
+asked for time entries to be "pre-set to the schedule hours," the same
+already-built behavior), confirmed `origin/main` had not advanced past
+`7204a7d` (the 2026-09-15 session's own merge), then found three open,
+unmerged PRs from other sessions/branches sitting against that same base
+(#108, #109, #110, opened 2026-09-17 through 2026-09-19) plus one already
+closed without merging (#107, a redundant duplicate of the 2026-09-16
+session's own already-merged 13.1 audit). Read all three open PRs in full
+rather than leaving them for a future session, per the precedent the
+2026-09-14 session set for #101/#103: #108 (spec 8/PWA audit) and #109
+(infra/meta sections 3/5/6/7/9/12/18/23 audit) are both documentation-only
+with "no gaps found," and #110 pairs a spec 13.1/14.3 audit with one real,
+previously-undocumented, already-fixed-in-diff-form gap — an open clock
+session running past its schedule-aware grace period had no visible
+warning anywhere on the Time screen itself, even though `Home.tsx`'s Today
+card already computes exactly that signal via `computeReminders`'s
+`missing_clock_out` rule. Verified `Time.tsx` still lacked the fix (line-
+for-line matching #110's pre-diff state), then independently re-derived and
+applied the identical fix directly against current `main`: a new
+`activeClockChip` memo reuses `computeReminders` for the caregiver's own
+active clock entry, and the resulting "Overdue" chip now shows on the entry
+row, the detail modal, and the Clock In/Clock Out card itself. **PRs #108,
+#109, and #110 are now superseded by this session's work (the #108/#109
+audit findings are folded into this entry, #110's fix is applied above) and
+were closed without merging** — merging any of them afterward would either
+no-op against an already-applied diff or reintroduce documentation-only
+duplicate entries. No new judgment call was opened; this was an absorb-and-
+close pass rather than a fresh section audit, since three sessions' worth of
+already-completed audit work was sitting unmerged and unpresented. Health
+check (`npm install`, `npm run build`, `npx oxlint`) came back clean — same
+six pre-existing warnings as every prior session, none introduced by the
+`Time.tsx` change. See `SPEC_CHANGE_LOG.md` 2026-09-20 for full detail.
+Every item below (still 17: 22-26, 29, 31-35, 37-42) was presented again —
+via chat and a push notification, since this was an unattended scheduled
+run — with its options and recommendation; nothing else was built
+unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
 
