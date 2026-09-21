@@ -10,6 +10,7 @@ import { errorMessage } from '../lib/errors'
 import { hoursBetween, round2 } from '../lib/calc'
 import { isValidCalendarDate } from '../lib/dates'
 import { generateShiftsForRange, shiftHours } from '../lib/schedule'
+import { computeReminders } from '../lib/reminders'
 import { validateTimeEntry, type ActingRole } from '../lib/timeValidation'
 import { formatDateTime, formatEntryTimeRange } from '../lib/time'
 import { Card, Button, Field, inputClass, dateInputClass, timeInputClass } from '../components/Card'
@@ -245,6 +246,25 @@ export function Time() {
 
   // Per spec 13.4, only the nanny clocks in/out; parents use manual entry.
   const activeClockEntry = entries.find((e) => e.method === 'clock' && e.clock_in_at && !e.clock_out_at) ?? null
+
+  // Spec 14.3 Time Screen "Show: ... Missing time warnings" -- reuses the
+  // exact same schedule-aware grace-period logic Home.tsx's Today card
+  // already runs (computeReminders' missing_clock_out rule) so an overdue
+  // open clock session shows the same warning here, on the screen a nanny
+  // would actually come to in order to fix it, not just on Home.
+  const activeClockChip: 'clocked_in' | 'missing_clock_out' = useMemo(() => {
+    if (!activeClockEntry) return 'clocked_in'
+    const occurrences = generateShiftsForRange(templates, shiftsByTemplate, activeClockEntry.date, activeClockEntry.date)
+    const isOverdue = computeReminders({
+      today: new Date(),
+      timeEntries: [activeClockEntry],
+      timesheets: [],
+      leaveRequests: [],
+      paymentRecords: [],
+      scheduleOccurrences: occurrences,
+    }).some((c) => c.type === 'missing_clock_out')
+    return isOverdue ? 'missing_clock_out' : 'clocked_in'
+  }, [activeClockEntry, templates, shiftsByTemplate])
 
   async function handleClockIn() {
     if (!caregiverId || !household) return
@@ -557,10 +577,13 @@ export function Time() {
         <Card title="Clock in / clock out">
           {activeClockEntry ? (
             <div className="space-y-3">
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Clocked in since{' '}
-                {formatDateTime(activeClockEntry.clock_in_at!, timeFormat)}
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Clocked in since{' '}
+                  {formatDateTime(activeClockEntry.clock_in_at!, timeFormat)}
+                </p>
+                {activeClockChip === 'missing_clock_out' && <StatusChip status="missing_clock_out" label="Overdue" />}
+              </div>
               <Field label="Note (optional)">
                 <input className={inputClass} value={clockNote} onChange={(e) => setClockNote(e.target.value)} />
               </Field>
@@ -678,7 +701,7 @@ export function Time() {
                       )}
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
-                      <StatusChip status={isActiveClock ? 'clocked_in' : entry.status} />
+                      <StatusChip status={isActiveClock ? activeClockChip : entry.status} />
                       {canApprove(entry) && (
                         <button
                           className="text-xs text-green-600 underline dark:text-green-400"
@@ -753,7 +776,7 @@ export function Time() {
         <Modal title="Time entry" onClose={closeDetail}>
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <StatusChip status={detailEntry.id === activeClockEntry?.id ? 'clocked_in' : detailEntry.status} />
+              <StatusChip status={detailEntry.id === activeClockEntry?.id ? activeClockChip : detailEntry.status} />
               {detailEntry.deleted_at && (
                 <span className="text-[11px] text-gray-400 dark:text-gray-500">
                   Archived {detailEntry.deleted_at.slice(0, 10)}

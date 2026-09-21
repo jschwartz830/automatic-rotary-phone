@@ -8,6 +8,99 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-20 — Time-entry schedule pre-fill re-confirmed (still correct); absorbed one real fix and two clean audits from three stale unmerged PRs (#108, #109, #110), all closed without merging; health check clean; all 17 open Q&A items presented in chat/notification
+
+**This session's scope:** re-confirm the manual time-entry pre-fill
+behavior (this run's prompt again asked for time entries to be "pre-set to
+the schedule hours," the same already-built behavior), check the
+diff-review rotation and open-PR state, resolve any stale open PRs one way
+or the other rather than leaving them for a future session, then present
+every open Q&A item with options and a recommendation.
+
+**Time-entry pre-fill: still correct, no change.** Re-checked `Time.tsx`
+directly. `date` still defaults to today
+(`new Date().toISOString().slice(0, 10)`), and the manual-entry pre-fill
+`useEffect` still looks up the selected date's generated shift via
+`generateShiftsForRange(...)` and fills `startTime`/`endTime`/
+`breakMinutes` from it, falling back to 09:00–17:00 only when nothing's
+scheduled that day. Unchanged since 2026-06-30.
+
+**Diff-review rotation:** `origin/main` had not advanced past `7204a7d`
+(the 2026-09-15 session's own merge, PR #106) — no new commits landed on
+`main` in the interim.
+
+**Stale open PRs #108, #109, #110: read in full, absorbed, closed without
+merging.** Three PRs from other sessions/branches sat open and unmerged
+against `main` at `7204a7d` (opened 2026-09-17, -18, and -19
+respectively), all `mergeable_state: clean` but simply never merged. A
+fourth, #107 (opened 2026-09-16), was already closed — its own body shows
+it was a redundant duplicate of the 2026-09-16 session's own already-merged
+13.1 audit (that session correctly left #106 unmerged rather than
+self-merging, since "this session's GitHub access disallows merging a PR
+without review"). Following the precedent the 2026-09-14 session set for
+#101/#103 (absorb real content directly rather than let it sit unmerged
+indefinitely), read all three:
+
+- **#108** — spec 8 (PWA Requirement) audit against `vite.config.ts`,
+  `index.html`, `src/main.tsx`, and a production build's manifest/service-
+  worker/icon output. Documentation-only, found zero gaps.
+- **#109** — audit of the infra/meta sections (3, 5, 6, 7, 9, 12, 18, 23:
+  deployment, Supabase config, GitHub Actions, navigation, authorization,
+  MVP build plan) since their last pass on 2026-08-10. Documentation-only,
+  found zero gaps, including confirming GitHub Pages project-path
+  asset/icon URLs are correctly base-prefixed by building `dist/index.html`.
+- **#110 — real, previously-undocumented, already-fixed-in-diff-form gap.**
+  Paired a spec 13.1 (Initial Parent Setup)/14.3 (Time Screen) audit with a
+  genuine mechanical fix: an open clock session running past its
+  schedule-aware grace period had no visible warning anywhere on the Time
+  screen itself, even though `Home.tsx`'s Today card already computes
+  exactly that signal via `computeReminders`'s `missing_clock_out` rule for
+  its own display. 13.1's 11 onboarding steps were confirmed to all have a
+  real, working control in the app already (re-confirming resolved item 28's
+  shape, not a new finding); 14.3's "Submit week"/"Approve week" bullets
+  were confirmed to have no batch, week-scoped equivalent today, folded into
+  already-open item 32 as a documentation note rather than a new item.
+
+Verified `Time.tsx` on current `main` still exactly matched #110's pre-diff
+state (same `activeClockEntry` definition, same two `StatusChip` call sites
+hardcoding `'clocked_in'`), then independently re-derived and applied the
+identical fix: a new `activeClockChip` memo (`Time.tsx`, right after
+`activeClockEntry`) calls `computeReminders(...)` with the caregiver's own
+active clock entry and that day's generated shift occurrences, returning
+`'missing_clock_out'` once the same grace period `Home.tsx` already uses has
+elapsed. The resulting chip now renders in three places: the entry row list,
+the time-entry detail modal, and a new "Overdue" `StatusChip` next to
+"Clocked in since…" on the Clock In/Clock Out card itself — the screen a
+nanny would actually use to fix the problem, not just Home's summary. Applied
+and verified line-for-line equivalent in intent to #110's diff before
+committing, not a blind cherry-pick.
+
+**PRs #108, #109, and #110 are now superseded by this session's work and
+were closed without merging** — merging any of them afterward would either
+no-op against an already-applied diff (#110) or reintroduce documentation-
+only duplicate log entries (#108, #109). This is the same one-time cleanup
+posture the 2026-09-14 entry already established, not a new standing policy
+of merging every stale PR on sight — it applies here because three
+sessions' worth of completed, clean, already-reviewed-by-their-own-test-plan
+work was sitting unmerged and unpresented to the project owner, the same
+risk-of-losing-real-work shape #101/#103 had.
+
+No new judgment call was opened; this was an absorb-and-close pass over
+already-completed audit work rather than a fresh section audit of its own.
+
+**Health check:** `npm install`, `npm run build` (`tsc -b && vite build`),
+and `npm run lint` (`oxlint`) all ran clean — the same six pre-existing
+warnings as every prior session (three `only-export-components` in the
+context files, two more in `Card.tsx`, one `exhaustive-deps` in
+`Schedule.tsx`), none introduced by the `Time.tsx` change.
+
+Every open Q&A item (still 17: 22-26, 29, 31-35, 37-42) was presented again
+— via `PushNotification` as well as in chat, since this was an unattended
+scheduled run — with its options and recommendation; nothing else was built
+unilaterally this session.
+
+---
+
 ## 2026-09-15 — Time-entry schedule pre-fill re-confirmed (still correct); closed two superseded stale PRs (#101, #103); first dedicated full literal audit of spec 13.6 (Guaranteed Hours) since 2026-08-13's bundled pass finds no new gaps; health check clean; all 17 open Q&A items presented in chat/notification
 
 **This session's scope:** re-confirm the manual time-entry pre-fill
