@@ -18,7 +18,7 @@ import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
 import { SwipeRow } from '../components/SwipeRow'
 import { Modal } from '../components/Modal'
-import type { PaymentRecord, ScheduleShift, ScheduleTemplate, TimeEntry, TimeEntryMethod } from '../lib/types'
+import type { PaymentRecord, ReminderSetting, ScheduleShift, ScheduleTemplate, TimeEntry, TimeEntryMethod } from '../lib/types'
 
 function WarningList({ warnings }: { warnings: string[] }) {
   if (warnings.length === 0) return null
@@ -48,6 +48,7 @@ export function Time() {
   const [paidPeriods, setPaidPeriods] = useState<{ start: string; end: string }[]>([])
   const [templates, setTemplates] = useState<ScheduleTemplate[]>([])
   const [shiftsByTemplate, setShiftsByTemplate] = useState<Record<string, ScheduleShift[]>>({})
+  const [reminderSettings, setReminderSettings] = useState<ReminderSetting[]>([])
   const [showForm, setShowForm] = useState(false)
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [startTime, setStartTime] = useState(DEFAULT_START_TIME)
@@ -170,6 +171,29 @@ export function Time() {
     }
   }, [caregiverId])
 
+  // Loaded so the "Overdue" clock-out chip below can respect a household's
+  // own per-type reminder toggle (More.tsx), the same gate Home.tsx's Today
+  // card already applies to the identical missing_clock_out signal.
+  useEffect(() => {
+    let cancelled = false
+    async function loadReminderSettings() {
+      if (!household || !user) {
+        setReminderSettings([])
+        return
+      }
+      const { data } = await supabase
+        .from('reminders')
+        .select('*')
+        .eq('household_id', household.id)
+        .eq('recipient_user_id', user.id)
+      if (!cancelled) setReminderSettings((data ?? []) as ReminderSetting[])
+    }
+    loadReminderSettings()
+    return () => {
+      cancelled = true
+    }
+  }, [household, user])
+
   async function handleAddEntry(e: FormEvent) {
     e.preventDefault()
     if (!caregiverId || !household) return
@@ -255,6 +279,7 @@ export function Time() {
   const activeClockChip: 'clocked_in' | 'missing_clock_out' = useMemo(() => {
     if (!activeClockEntry) return 'clocked_in'
     const occurrences = generateShiftsForRange(templates, shiftsByTemplate, activeClockEntry.date, activeClockEntry.date)
+    const disabledTypes = new Set(reminderSettings.filter((s) => !s.enabled).map((s) => s.type))
     const isOverdue = computeReminders({
       today: new Date(),
       timeEntries: [activeClockEntry],
@@ -262,9 +287,10 @@ export function Time() {
       leaveRequests: [],
       paymentRecords: [],
       scheduleOccurrences: occurrences,
+      disabledTypes,
     }).some((c) => c.type === 'missing_clock_out')
     return isOverdue ? 'missing_clock_out' : 'clocked_in'
-  }, [activeClockEntry, templates, shiftsByTemplate])
+  }, [activeClockEntry, templates, shiftsByTemplate, reminderSettings])
 
   async function handleClockIn() {
     if (!caregiverId || !household) return

@@ -501,6 +501,30 @@ six pre-existing warnings as every prior session, none introduced by the
 Every item below (still 17: 22-26, 29, 31-35, 37-42) was presented again —
 via chat and a push notification, since this was an unattended scheduled
 run — with its options and recommendation; nothing else was built
+unilaterally this session. The 2026-09-21 session re-confirmed the
+time-entry schedule pre-fill once more (still correct, no change), found the
+2026-09-20 session's own PR #111 sitting open and unmerged against the same
+`main` tip it was opened from (`mergeable_state: "clean"`, already health-
+checked in its own summary), and merged it forward rather than leave another
+day of completed, verified work unmerged. It then ran an adversarial review
+of that PR's single commit — the one diff no session other than its own
+author had yet independently reviewed — and found and fixed one real,
+previously-undocumented gap: `Time.tsx`'s new "Overdue" clock-out chip
+(added by that same commit) reused `computeReminders`'s `missing_clock_out`
+rule but, unlike `Home.tsx`'s identical use of the same rule, never passed
+`disabledTypes`, so a household that turned the missing-clock-out reminder
+type off in `More.tsx`'s Reminder Settings would still see the "Overdue"
+chip on the Time screen itself — the one screen a nanny would actually
+visit to act on it. Not a new judgment call: `Home.tsx` already establishes
+the wanted behavior exactly, so this was a mechanical fix (load the
+`reminders` table in `Time.tsx` the same way `Home.tsx` already does, pass
+the resulting `disabledTypes` set into the shared `computeReminders` call).
+No new judgment call was opened. Health check (`npm install`, `npm run
+build`, `npm run lint`) came back clean — same six pre-existing warnings as
+every prior session. See `SPEC_CHANGE_LOG.md` 2026-09-21 for full detail.
+Every item below (still 17: 22-26, 29, 31-35, 37-42) was presented again —
+via chat and a push notification, since this was an unattended scheduled
+run — with its options and recommendation; nothing else was built
 unilaterally this session.
 
 ### Recommendations added 2026-08-08, per explicit request
