@@ -525,7 +525,35 @@ every prior session. See `SPEC_CHANGE_LOG.md` 2026-09-21 for full detail.
 Every item below (still 17: 22-26, 29, 31-35, 37-42) was presented again —
 via chat and a push notification, since this was an unattended scheduled
 run — with its options and recommendation; nothing else was built
-unilaterally this session.
+unilaterally this session. The 2026-09-22 session re-confirmed the
+time-entry schedule pre-fill once more (still correct, no change — this
+run's prompt again asked for time entries to be "pre-set to the schedule
+hours," the same already-built behavior), found the 2026-09-21 session's
+own PR #112 sitting open and unmerged against the same `main` tip it was
+opened from (`mergeable_state: "clean"`, no CI configured on this repo to
+check independently), and merged it forward rather than leave it unmerged
+for another day. It then ran an adversarial review of that PR's single
+commit — the one diff no session other than its own author had yet
+independently reviewed — and found no bug: the fix it contains (threading
+`disabledTypes` into `Time.tsx`'s "Overdue" chip computation) was verified
+against the actual `reminders` table schema and found correct. It then ran
+the first dedicated literal, item-by-item audit of spec 23 (MVP Build Plan)
+against the app's actual feature set, rather than the documentation-only
+infra-section grouping prior sessions had given it — Phases 1-3 are fully
+built, Phase 4 (email reminders) is the already-resolved item 17 deferral,
+and every Phase 5 item either exists (audit log UI, annual summary export
+matching spec 13.11's field list exactly, the Correct/Void correction
+mechanism), is an already-open item (22's calendar, 26's payment
+attachments), or is the spec's own explicitly-"optional" offline
+clock-in draft state, which stays unbuilt with no household having asked
+for it, the same already-accepted shape as items 26/35. No new judgment
+call was opened. Health check (`npm install`, `npm run build`, `npm run
+lint`) came back clean — same six pre-existing warnings as every prior
+session. See `SPEC_CHANGE_LOG.md` 2026-09-22 for full detail. Every item
+below (still 17: 22-26, 29, 31-35, 37-42) was presented again — via chat
+and a push notification, since this was an unattended scheduled run — with
+its options and recommendation; nothing else was built unilaterally this
+session.
 
 ### Recommendations added 2026-08-08, per explicit request
 

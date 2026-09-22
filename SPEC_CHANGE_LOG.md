@@ -8,6 +8,92 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-22 — Time-entry schedule pre-fill re-confirmed (still correct); merged one clean, already-tested stale PR (#112); adversarial review of its diff finds no bugs; first dedicated literal audit of spec 23 (MVP Build Plan) against the full current feature set finds no new gaps; health check clean; all 17 open Q&A items presented in chat/notification
+
+**This session's scope:** re-confirm the manual time-entry pre-fill
+behavior (this run's prompt again asked for time entries to be "pre-set to
+the schedule hours," the same already-built behavior), check for stale
+open PRs and merge/review any found, run a fresh spec audit, then present
+every open Q&A item with options and a recommendation.
+
+**Time-entry pre-fill: still correct, no change.** Re-checked `Time.tsx`
+directly. `date` still defaults to today
+(`new Date().toISOString().slice(0, 10)`), and the manual-entry pre-fill
+`useEffect` still looks up the selected date's generated shift via
+`generateShiftsForRange(...)` and fills `startTime`/`endTime`/
+`breakMinutes` from it, falling back to a default 09:00–17:00/0-minute
+break only when nothing's scheduled that day. Unchanged since 2026-06-30.
+
+**Merged PR #112 forward.** `origin/main` had not advanced past `d2fe45e`
+(PR #111) since the 2026-09-21 session opened PR #112 against it. That PR's
+own summary showed clean, already-verified work (time-entry pre-fill
+re-confirmed, PR #111 merged forward, and one real, previously-undocumented
+gap found and fixed in PR #111's own diff — see below), no CI configured on
+this repo to check independently, `mergeable_state: "clean"`. Merged
+directly rather than leave it sitting for another day, then reset this
+session's branch onto the new `main` tip before starting its own work.
+
+**Adversarial review of PR #112's own diff.** Its single commit
+(`aa284f6`) hadn't been independently reviewed by any session other than
+the one that authored it. The fix it contains: `Time.tsx`'s new "Overdue"
+clock-out chip (added the prior session, in PR #111) reused
+`computeReminders`'s `missing_clock_out` rule but never passed
+`disabledTypes`, so a household that disabled that reminder type in
+`More.tsx`'s Reminder Settings would still see the chip on the Time screen
+itself. The fix adds a `reminders` table load to `Time.tsx` (mirroring
+`Home.tsx`'s own query: `household_id` + `recipient_user_id = auth.uid()`)
+and threads the resulting `disabledTypes` set into the `computeReminders`
+call. Verified against the actual schema
+(`supabase/migrations/0001_schema.sql:384-401`): `reminders.household_id`,
+`.recipient_user_id`, `.type`, and `.enabled` all exist exactly as used, and
+the `ReminderSetting` type (`src/lib/types.ts:401`) matches. No bug found —
+the fix is correct and precisely mirrors `Home.tsx`'s existing, already-
+audited pattern.
+
+**First dedicated literal audit of spec 23 (MVP Build Plan)** — every prior
+session that touched infra/meta sections grouped 23 in with 3/5/6/7/9/12/18
+as a documentation-only pass (2026-08-10, absorbed again via PR #109 on
+2026-09-20), but neither of those actually checked Phase 1-5's per-item
+build checklist against the app's current feature set line by line; this
+session did. Phases 1-3 (parent-only tracker through in-app reminders) are
+entirely built — every listed item has a working, previously-audited
+counterpart in the app (schedule, time entries, timesheets, pay calc,
+payment ledger, PTO ledger, CSV export, nanny portal, clock in/out, PTO
+requests, all six Phase-3 in-app reminder types). Phase 4 (Optional Email
+Reminders via a Supabase Edge Function) is deliberately unbuilt, matching
+spec 9's constraint and item 17's already-resolved "in-app only, deferred"
+decision — not a new finding. Phase 5 (Polish and Recordkeeping) checked
+item by item: "Better calendar" is already-open item 22; "Audit log UI"
+exists (`src/routes/AuditLog.tsx`, per the 2026-08-14 audit of spec 20);
+"Annual summary export" exists and matches spec 13.11's field list exactly
+(`Pay.tsx`'s `exportAnnualSummary`, explicitly cited to spec 13.11 in its
+own comment); "Payment attachments through Supabase Storage" is
+already-open item 26; "Correction workflow" is satisfied by the existing
+Correct/Void mechanism built across the 2026-08-13/08-19 sessions for
+timesheets and payment records (distinct from open item 25's deeper
+reject-and-resubmit workflow question, which remains open); "PWA polish"
+was confirmed clean by the 2026-09-20-absorbed PR #108 audit. The one
+previously-unchecked item, "Offline-tolerant clock-in draft state," has no
+implementation anywhere in `src` (confirmed by grep) — not opened as a new
+gap, since the spec itself marks it "optional" with no household having
+asked for offline support, the same already-accepted shape as item 26
+(Payment attachment) and item 35 (PTO time-of-day) for an explicitly-
+optional spec field with no signal it's blocking anyone. No new judgment
+call was opened.
+
+**Health check:** `npm install`, `npm run build` (`tsc -b && vite build`),
+and `npm run lint` (`oxlint`) all ran clean — the same six pre-existing
+warnings as every prior session (three `only-export-components` in the
+context files, two more in `Card.tsx`, one `exhaustive-deps` in
+`Schedule.tsx`), none new.
+
+Every open Q&A item (still 17: 22-26, 29, 31-35, 37-42) was presented again
+— via `PushNotification` as well as in chat, since this was an unattended
+scheduled run — with its options and recommendation; nothing else was built
+unilaterally this session.
+
+---
+
 ## 2026-09-21 — Time-entry schedule pre-fill re-confirmed (still correct); merged one clean, already-tested stale PR (#111); adversarial review of its diff finds no bugs; found and fixed one real, previously-undocumented gap (Time.tsx's new "Overdue" clock-out chip ignored the household's per-type reminder toggle); health check clean; all 17 open Q&A items presented in chat/notification
 
 **Merged PR #111 forward.** `origin/main` had not advanced past `7204a7d`
