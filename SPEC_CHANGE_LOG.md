@@ -8,6 +8,56 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-21 — Time-entry schedule pre-fill re-confirmed (still correct); merged one clean, already-tested stale PR (#111); adversarial review of its diff finds no bugs; found and fixed one real, previously-undocumented gap (Time.tsx's new "Overdue" clock-out chip ignored the household's per-type reminder toggle); health check clean; all 17 open Q&A items presented in chat/notification
+
+**Merged PR #111 forward.** `origin/main` had not advanced past `7204a7d`
+(PR #106) since the 2026-09-20 session opened PR #111 against it. That PR's
+own summary showed clean, already-verified work (time-entry pre-fill
+re-confirmed, a real fix absorbed from PR #110, two documentation-only
+audits from #108/#109, `mergeable_state: "clean"`) with nothing new for a
+different session to add on top of the same base, so this session merged it
+directly rather than leaving it to sit unmerged for another day, then reset
+this session's branch onto the new `main` tip before starting its own work.
+
+**Adversarial review of PR #111's own diff.** Its single commit
+(`17be90d`) hadn't been independently reviewed by any session other than the
+one that authored it. Read `Time.tsx`'s new `activeClockChip` logic in
+full: it reuses `computeReminders`'s `missing_clock_out` rule (a per-entry,
+side-effect-free computation with no dependency on the full entries array),
+confirmed `StatusChip`'s `COLORS` map already has a `missing_clock_out`
+entry (amber, added when spec 17's status enums were wired up) so the new
+chip renders correctly with no styling gap, and confirmed the grace-period
+math matches `Home.tsx`'s identical use of the same function. No bug found.
+
+**Found and fixed one real gap while reviewing that diff.** `Home.tsx`'s
+`computeReminders` call passes `disabledTypes` (built from the household's
+`reminders` table rows, i.e. the per-type "Enable/disable" toggle in
+`More.tsx`'s Reminder Settings) so a household that disables the
+missing-clock-out reminder type stops seeing it on the Today card.
+`Time.tsx`'s new `activeClockChip` call (added by PR #111 as an explicit,
+intentional reuse of "the exact same schedule-aware grace-period logic
+Home.tsx's Today card already runs") omitted `disabledTypes` entirely, since
+`Time.tsx` never loaded the `reminders` table before — so a household that
+turned this reminder type off would still see the "Overdue" chip on the Time
+screen itself, silently defeating the setting on the one screen a nanny
+would actually visit to act on it. Not a judgment call: `Home.tsx` already
+establishes the exact behavior wanted here, `reminders`' RLS
+(`recipient_user_id = auth.uid()`) is unchanged, and the same disabled-type
+filter is a pure gate on an existing signal, not a new one. Fixed by adding
+a `reminders` table load to `Time.tsx` (mirroring `Home.tsx`'s own query
+shape: `household_id` + `recipient_user_id = auth.uid()`) and passing the
+resulting `disabledTypes` Set into the `computeReminders` call.
+
+**Health check:** `npm install`, `npm run build`, `npm run lint` all clean —
+same six pre-existing warnings as every prior session, none new.
+
+**No new judgment call opened.** Every open item below (still 17: 22-26,
+29, 31-35, 37-42) was presented again — via chat and a push notification,
+since this was an unattended scheduled run — with its options and
+recommendation; nothing else was built unilaterally this session.
+
+---
+
 ## 2026-09-20 — Time-entry schedule pre-fill re-confirmed (still correct); absorbed one real fix and two clean audits from three stale unmerged PRs (#108, #109, #110), all closed without merging; health check clean; all 17 open Q&A items presented in chat/notification
 
 **This session's scope:** re-confirm the manual time-entry pre-fill
