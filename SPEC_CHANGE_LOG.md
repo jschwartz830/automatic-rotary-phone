@@ -8,6 +8,20 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-23 — UX pass 6/6: Pay leads with the next payment; forms as sheets; exports tucked away
+
+- New "Next payment" summary at the top of Pay (earliest overdue → due →
+  upcoming; balance remaining, due date, period) with a one-tap "Mark paid".
+- Mark paid / Void / Correct used to render as cards at the *top* of the page
+  even when opened from a row further down; they (and Generate / Submit
+  timesheet) now open as bottom sheets.
+- Header trimmed to one action ("+ Timesheet"). Import timesheets, Annual
+  summary and Full records export moved into a collapsed "Reports, import &
+  export" section at the bottom; the annual-summary year field no longer gets
+  squeezed to a sliver.
+
+---
+
 ## 2026-09-23 — UX pass 5/6: faster time logging and approval; forms as bottom sheets
 
 - **Time — "Not logged yet".** Lists up to 5 scheduled shifts from the last
