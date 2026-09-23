@@ -3,7 +3,7 @@ import { addDays, format, parseISO } from 'date-fns'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
-import { useCaregivers } from '../lib/useCaregivers'
+import { useSelectedCaregiver } from '../context/SelectedCaregiverContext'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
@@ -205,8 +205,7 @@ export function Pay() {
   const { user } = useAuth()
   const { household, isNanny, isParentOrCoAdmin, coadminAllowed, caregiverProfile } = useHousehold()
   const canExport = isParentOrCoAdmin && coadminAllowed('export_records')
-  const { caregivers } = useCaregivers(household?.id)
-  const [caregiverId, setCaregiverId] = useState<string | null>(null)
+  const { caregivers, selectedCaregiverId: caregiverId } = useSelectedCaregiver()
   const [timesheets, setTimesheets] = useState<Timesheet[]>([])
   const [payments, setPayments] = useState<PaymentRecord[]>([])
   const [showForm, setShowForm] = useState(false)
@@ -305,13 +304,6 @@ export function Pay() {
     null
   )
 
-  useEffect(() => {
-    if (isNanny && caregiverProfile) {
-      setCaregiverId(caregiverProfile.id)
-    } else if (!caregiverId && caregivers.length > 0) {
-      setCaregiverId(caregivers[0].id)
-    }
-  }, [caregivers, isNanny, caregiverProfile, caregiverId])
 
   async function loadData(forCaregiverId: string) {
     const [tsRes, payRes] = await Promise.all([
@@ -1494,7 +1486,7 @@ export function Pay() {
         )}
       </div>
 
-      {isParentOrCoAdmin && <CaregiverSelect caregivers={caregivers} value={caregiverId} onChange={setCaregiverId} />}
+      {isParentOrCoAdmin && <CaregiverSelect />}
 
       {error && !showForm && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
       {importMessage && <p className="text-sm text-emerald-700 dark:text-emerald-300">{importMessage}</p>}

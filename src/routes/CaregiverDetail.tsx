@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
-import { useCaregivers } from '../lib/useCaregivers'
+import { useSelectedCaregiver } from '../context/SelectedCaregiverContext'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
@@ -49,7 +49,7 @@ export function CaregiverDetail() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { household, isParentAdmin, isNanny } = useHousehold()
-  const { caregivers, refresh } = useCaregivers(household?.id)
+  const { caregivers, refreshCaregivers: refresh } = useSelectedCaregiver()
   const caregiver = caregivers.find((c) => c.id === id) ?? null
   const { policies, refresh: refreshPolicies } = useLeavePolicies(id ?? null)
   const [allowanceDrafts, setAllowanceDrafts] = useState<Record<string, string>>({})

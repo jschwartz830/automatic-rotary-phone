@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { usePreferences } from '../context/PreferencesContext'
-import { useCaregivers } from '../lib/useCaregivers'
+import { useSelectedCaregiver } from '../context/SelectedCaregiverContext'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
@@ -42,8 +42,7 @@ export function Time() {
   const { user } = useAuth()
   const { timeFormat } = usePreferences()
   const { household, isNanny, isParentOrCoAdmin, caregiverProfile } = useHousehold()
-  const { caregivers } = useCaregivers(household?.id)
-  const [caregiverId, setCaregiverId] = useState<string | null>(null)
+  const { caregivers, selectedCaregiverId: caregiverId } = useSelectedCaregiver()
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [paidPeriods, setPaidPeriods] = useState<{ start: string; end: string }[]>([])
   const [templates, setTemplates] = useState<ScheduleTemplate[]>([])
@@ -78,13 +77,6 @@ export function Time() {
   const [editError, setEditError] = useState<string | null>(null)
   const [showArchive, setShowArchive] = useState(false)
 
-  useEffect(() => {
-    if (isNanny && caregiverProfile) {
-      setCaregiverId(caregiverProfile.id)
-    } else if (!caregiverId && caregivers.length > 0) {
-      setCaregiverId(caregivers[0].id)
-    }
-  }, [caregivers, isNanny, caregiverProfile, caregiverId])
 
   async function loadSchedule(forCaregiverId: string) {
     const { data: templateRows } = await supabase
@@ -625,7 +617,7 @@ export function Time() {
         </Card>
       )}
 
-      {isParentOrCoAdmin && <CaregiverSelect caregivers={caregivers} value={caregiverId} onChange={setCaregiverId} />}
+      {isParentOrCoAdmin && <CaregiverSelect />}
 
       {showForm && (
         <Card title="Manual time entry">

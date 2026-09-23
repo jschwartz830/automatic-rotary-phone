@@ -3,7 +3,7 @@ import { addDays, format, startOfWeek } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { usePreferences } from '../context/PreferencesContext'
-import { useCaregivers } from '../lib/useCaregivers'
+import { useSelectedCaregiver } from '../context/SelectedCaregiverContext'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
@@ -73,10 +73,9 @@ function toIsoDate(d: Date): string {
 
 export function Schedule() {
   const { user } = useAuth()
-  const { household, isParentOrCoAdmin, isNanny, caregiverProfile } = useHousehold()
-  const { caregivers } = useCaregivers(household?.id)
+  const { household, isParentOrCoAdmin, isNanny } = useHousehold()
+  const { selectedCaregiverId: caregiverId } = useSelectedCaregiver()
   const { timeFormat } = usePreferences()
-  const [caregiverId, setCaregiverId] = useState<string | null>(null)
   const [templates, setTemplates] = useState<ScheduleTemplate[]>([])
   const [shifts, setShifts] = useState<Record<string, ScheduleShift[]>>({})
   const [leaveForWeek, setLeaveForWeek] = useState<LeaveRequest[]>([])
@@ -121,13 +120,6 @@ export function Schedule() {
   const [exceptionSubmitting, setExceptionSubmitting] = useState(false)
   const [exceptionError, setExceptionError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (isNanny && caregiverProfile) {
-      setCaregiverId(caregiverProfile.id)
-    } else if (!caregiverId && caregivers.length > 0) {
-      setCaregiverId(caregivers[0].id)
-    }
-  }, [caregivers, isNanny, caregiverProfile, caregiverId])
 
   async function loadSchedule(forCaregiverId: string) {
     const { data: templateRows } = await supabase
@@ -622,7 +614,7 @@ export function Schedule() {
         )}
       </div>
 
-      {isParentOrCoAdmin && <CaregiverSelect caregivers={caregivers} value={caregiverId} onChange={setCaregiverId} />}
+      {isParentOrCoAdmin && <CaregiverSelect />}
 
       {/* Week navigation */}
       <div className="flex items-center justify-between">
