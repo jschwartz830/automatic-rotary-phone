@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { addDays, format } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
@@ -82,10 +82,16 @@ export function PTO() {
     setLedgerEntries((ledgerRes.data ?? []) as LeaveLedgerEntry[])
   }
 
+  // Close any open form/detail when switching caregivers -- but not on first
+  // load, so a Calendar deep link (?date=) can open the form.
+  const previousCaregiverId = useRef(caregiverId)
   useEffect(() => {
     if (caregiverId) loadRequests(caregiverId)
-    setShowForm(false)
-    closeDetail()
+    if (previousCaregiverId.current && previousCaregiverId.current !== caregiverId) {
+      setShowForm(false)
+      closeDetail()
+    }
+    previousCaregiverId.current = caregiverId
   }, [caregiverId])
 
   /** Current balance for one policy, read fresh so appended rows stack correctly. */
