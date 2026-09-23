@@ -8,6 +8,94 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-23 — Time-entry schedule pre-fill re-confirmed (still correct); merged one clean, already-tested stale PR (#113); first dedicated full literal audit of spec 22 (UX Requirements) since 2026-08-09/08-11 finds no new gaps (existing item 23 already covers what it turned up); health check clean; all 17 open Q&A items presented in chat/notification
+
+**This session's scope:** re-confirm the manual time-entry pre-fill
+behavior (this run's prompt again asked for time entries to be "pre-set to
+the schedule hours," the same already-built behavior), check for a stale
+open PR and merge/review it, run a fresh spec audit, then present every
+open Q&A item with options and a recommendation.
+
+**Time-entry pre-fill: still correct, no change.** Re-checked `Time.tsx`
+directly. `date` still defaults to today
+(`new Date().toISOString().slice(0, 10)`), and the manual-entry pre-fill
+`useEffect` still looks up the selected date's generated shift via
+`generateShiftsForRange(...)` and fills `startTime`/`endTime`/
+`breakMinutes` from it, falling back to a default 09:00–17:00/0-minute
+break only when nothing's scheduled that day.
+
+**Merged PR #113 forward.** `origin/main` had not advanced past `161c7e7`
+(PR #112) since the 2026-09-22 session opened PR #113 against it. That
+PR's own summary showed clean, already-verified, documentation-only work
+(time-entry pre-fill re-confirmed, PR #112 merged forward and adversarially
+reviewed with no bug found, a first dedicated audit of spec 23 finding no
+new gaps), `mergeable_state: "clean"`, no CI configured on this repo to
+check independently. Merged directly rather than leave it sitting for
+another day, then reset this session's branch onto the new `main` tip
+before starting its own work. Its diff touched only
+`QUESTIONS_AND_CLARIFICATIONS.md`/`SPEC_CHANGE_LOG.md` (no source changes
+to adversarially review beyond reading the prose for accuracy, which it
+was).
+
+**First dedicated full literal audit of spec 22 (UX Requirements)** since
+the 2026-08-09/08-11 sessions last touched it — General bullets, the full
+Status Chip label vocabulary, and the Parent/Nanny UX Priority checklists —
+against `StatusChip.tsx`'s `COLORS` map, `Home.tsx`'s Today/This-Week
+cards and dashboard tiles, `Time.tsx`'s clock in/out flow, and `PTO.tsx`'s
+request-status chips.
+
+- **Status Chip vocabulary:** all twelve spec-listed labels (Scheduled,
+  Clocked in, Missing clock-out, Draft, Submitted, Needs correction,
+  Approved, Payment due, Paid, PTO pending, PTO approved, Overdue) have a
+  live counterpart in `StatusChip.tsx`'s `COLORS` map (`scheduled`,
+  `clocked_in`, `missing_clock_out`, `draft`, `submitted`,
+  `needs_correction`, `approved`, `payment_due`, `paid`, `overdue` render
+  directly; "PTO pending"/"PTO approved" render via `leave_requests`'
+  `requested`/`approved` statuses through the same generic `approved`/
+  `requested` chip colors already used elsewhere). Re-confirms the
+  2026-08-11 finding — not a new check, but the first one done since this
+  session's own audit of `Time.tsx`'s newest chip (the "Overdue" clock-out
+  chip added 2026-09-20/09-21).
+- **General bullets** (mobile-first, large tap targets, one-handed use,
+  fast clock in/out, minimal required typing, status chips everywhere,
+  clear scheduled/actual/approved/payable/paid distinction): all Tailwind-
+  driven layout choices already in place app-wide (`p-4`/`gap-2` spacing,
+  full-width tap targets on buttons, a single clock in/out button on
+  `Time.tsx`'s Today card, status chips rendered on every relevant list
+  row across `Home.tsx`/`Time.tsx`/`Pay.tsx`/`PTO.tsx`/`Schedule.tsx`); no
+  code pattern found that contradicts any of these, and none is
+  mechanically falsifiable beyond that without a visual/device pass this
+  session didn't run.
+- **Parent UX Priorities and Nanny UX Priorities:** checked each of the
+  twelve bullets (six per role) against what `Home.tsx` actually renders
+  at a glance today. Four are fully answered (clocked-in status, missing
+  hours, "is a timesheet waiting"/"was my timesheet approved" via the This
+  Week card's `timesheetStatus` chip, "am I scheduled today"). Three are
+  not answerable without navigating away: current PTO balance ("how much
+  PTO do I have/is left"), last payment made ("was payment made"), and a
+  literal payment-status readout beyond the one-line Pay tile. All three
+  turned out to be exactly the gap already-open item 23 tracks (`Home.tsx`
+  ships a generic 2×2 tile grid, not spec 14.1/14.2's five named cards
+  including a dedicated PTO card with "Current PTO balance" and a Payment
+  card with "Last payment made") — not a new, separately-numbered judgment
+  call, just a second confirmation that item 23's scope is the right place
+  to track it.
+
+**No new judgment call opened.**
+
+**Health check:** `npm install`, `npm run build` (`tsc -b && vite build`),
+and `npm run lint` (`oxlint`) all ran clean — the same six pre-existing
+warnings as every prior session (three `only-export-components` in the
+context files, two more in `Card.tsx`, one `exhaustive-deps` in
+`Schedule.tsx`), none new.
+
+Every open Q&A item (still 17: 22-26, 29, 31-35, 37-42) was presented again
+— via `PushNotification` as well as in chat, since this was an unattended
+scheduled run — with its options and recommendation; nothing else was
+built unilaterally this session.
+
+---
+
 ## 2026-09-22 — Time-entry schedule pre-fill re-confirmed (still correct); merged one clean, already-tested stale PR (#112); adversarial review of its diff finds no bugs; first dedicated literal audit of spec 23 (MVP Build Plan) against the full current feature set finds no new gaps; health check clean; all 17 open Q&A items presented in chat/notification
 
 **This session's scope:** re-confirm the manual time-entry pre-fill

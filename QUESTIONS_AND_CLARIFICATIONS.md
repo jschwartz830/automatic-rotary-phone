@@ -553,6 +553,27 @@ session. See `SPEC_CHANGE_LOG.md` 2026-09-22 for full detail. Every item
 below (still 17: 22-26, 29, 31-35, 37-42) was presented again — via chat
 and a push notification, since this was an unattended scheduled run — with
 its options and recommendation; nothing else was built unilaterally this
+session. The 2026-09-23 session re-confirmed the time-entry schedule
+pre-fill once more (still correct, no change — this run's prompt again
+asked for time entries to be "pre-set to the schedule hours," the same
+already-built behavior), found the 2026-09-22 session's own PR #113
+sitting open and unmerged against the same `main` tip it was opened from
+(`mergeable_state: "clean"`, documentation-only diff), and merged it
+forward. It then ran the first dedicated full literal audit of spec 22
+(UX Requirements) since 2026-08-09/08-11's passes — the General bullets,
+the full Status Chip label vocabulary, and the Parent/Nanny UX Priority
+checklists — against `StatusChip.tsx`, `Home.tsx`, `Time.tsx`, and
+`PTO.tsx`. The status-chip vocabulary is still fully present (re-confirming
+the 2026-08-11 finding), and every Parent/Nanny priority not answerable at
+a glance on `Home.tsx` today (current PTO balance, last payment made, a
+literal Payment card) turned out to be exactly the same gap already-open
+item 23 tracks, not a new one. No new judgment call was opened. Health
+check (`npm install`, `npm run build`, `npm run lint`) came back clean —
+same six pre-existing warnings as every prior session. See
+`SPEC_CHANGE_LOG.md` 2026-09-23 for full detail. Every item below (still
+17: 22-26, 29, 31-35, 37-42) was presented again — via chat and a push
+notification, since this was an unattended scheduled run — with its
+options and recommendation; nothing else was built unilaterally this
 session.
 
 ### Recommendations added 2026-08-08, per explicit request
