@@ -1,3 +1,4 @@
+import { toIsoDate } from './dates'
 import type { LeaveLedgerEntry, LeavePolicy, LeaveRequest, LeaveType } from './types'
 
 export type LeaveBalancePolicy = Pick<LeavePolicy, 'leave_type' | 'reset_month' | 'reset_day' | 'annual_allowance_hours'>
@@ -33,9 +34,6 @@ function policyYearStart(policy: LeaveBalancePolicy, today: Date): Date {
   return start
 }
 
-function toIsoDate(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
 
 /**
  * Balance computed from the leave_ledger event log (spec §13.7).

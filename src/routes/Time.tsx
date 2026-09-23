@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
 import { hoursBetween, round2 } from '../lib/calc'
-import { isValidCalendarDate } from '../lib/dates'
+import { formatDay, formatHours, isValidCalendarDate, todayIso } from '../lib/dates'
 import { generateShiftsForRange, shiftHours } from '../lib/schedule'
 import { computeReminders } from '../lib/reminders'
 import { validateTimeEntry, type ActingRole } from '../lib/timeValidation'
@@ -49,7 +49,7 @@ export function Time() {
   const [shiftsByTemplate, setShiftsByTemplate] = useState<Record<string, ScheduleShift[]>>({})
   const [reminderSettings, setReminderSettings] = useState<ReminderSetting[]>([])
   const [showForm, setShowForm] = useState(false)
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(todayIso)
   const [startTime, setStartTime] = useState(DEFAULT_START_TIME)
   const [endTime, setEndTime] = useState(DEFAULT_END_TIME)
   const [breakMinutes, setBreakMinutes] = useState('0')
@@ -289,7 +289,7 @@ export function Time() {
     setClockSubmitting(true)
     setError(null)
     try {
-      const todayStr = new Date().toISOString().slice(0, 10)
+      const todayStr = todayIso()
       const todaysShift = generateShiftsForRange(templates, shiftsByTemplate, todayStr, todayStr)[0]?.shift
       const { data: entry, error: insertError } = await supabase
         .from('time_entries')
@@ -646,7 +646,7 @@ export function Time() {
               <input className={inputClass} value={note} onChange={(e) => setNote(e.target.value)} />
             </Field>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              {hoursBetween(startTime, endTime, Number(breakMinutes) || 0).toFixed(2)} paid hours
+              {formatHours(hoursBetween(startTime, endTime, Number(breakMinutes) || 0))} paid
             </p>
             <WarningList warnings={addWarnings} />
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
@@ -695,13 +695,13 @@ export function Time() {
                 <Card>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{entry.date}</p>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{formatDay(entry.date)}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {displayStart}–{displayEnd} · {entry.paid_hours?.toFixed(2) ?? '0.00'} hrs
+                        {displayStart}–{displayEnd} · {formatHours(entry.paid_hours)}
                         {scheduledForDay !== null && (
                           <span className="text-gray-400 dark:text-gray-500">
                             {' '}
-                            (scheduled {scheduledForDay.toFixed(2)} hrs)
+                            (scheduled {formatHours(scheduledForDay)})
                           </span>
                         )}
                       </p>
@@ -766,9 +766,9 @@ export function Time() {
                     <Card>
                       <div className="flex items-start justify-between gap-2 opacity-60">
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{entry.date}</p>
+                          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{formatDay(entry.date)}</p>
                           <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {displayStart}–{displayEnd} · {entry.paid_hours?.toFixed(2) ?? '0.00'} hrs
+                            {displayStart}–{displayEnd} · {formatHours(entry.paid_hours)}
                           </p>
                         </div>
                         <button
@@ -856,7 +856,7 @@ export function Time() {
                   <input className={inputClass} value={editNote} onChange={(e) => setEditNote(e.target.value)} />
                 </Field>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {hoursBetween(editStart, editEnd, Number(editBreak) || 0).toFixed(2)} paid hours
+                  {formatHours(hoursBetween(editStart, editEnd, Number(editBreak) || 0))} paid
                 </p>
                 <WarningList warnings={editWarnings} />
                 {editError && <p className="text-sm text-red-600 dark:text-red-400">{editError}</p>}
@@ -866,11 +866,11 @@ export function Time() {
               </div>
             ) : (
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{detailEntry.date}</p>
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{formatDay(detailEntry.date)}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   {formatEntryTimeRange(detailEntry, timeFormat).start}–
                   {formatEntryTimeRange(detailEntry, timeFormat).end} ·{' '}
-                  {detailEntry.paid_hours?.toFixed(2) ?? '0.00'} hrs
+                  {formatHours(detailEntry.paid_hours)}
                 </p>
                 <p className="text-xs text-gray-400 dark:text-gray-500">
                   {detailEntry.deleted_at

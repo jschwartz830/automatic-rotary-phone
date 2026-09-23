@@ -7,7 +7,7 @@ import { useSelectedCaregiver } from '../context/SelectedCaregiverContext'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
-import { isValidCalendarDate } from '../lib/dates'
+import { formatDay, formatDayRange, formatHours, formatMoney, isValidCalendarDate, todayIso } from '../lib/dates'
 import { calculateTimesheet, round2 } from '../lib/calc'
 import { downloadCsv, downloadJson } from '../lib/csv'
 import { buildDailyPayExportRows, buildTimesheetDailyBreakdown, type DailyBreakdown } from '../lib/payExport'
@@ -983,7 +983,7 @@ export function Pay() {
         timesheet_id: correctingPayment.timesheet_id,
         period_start: correctingPayment.period_start,
         period_end: correctingPayment.period_end,
-        due_date: new Date().toISOString().slice(0, 10),
+        due_date: todayIso(),
         status: 'due',
         actual_worked_hours: correctingPayment.actual_worked_hours,
         regular_worked_hours: correctingPayment.regular_worked_hours,
@@ -1419,10 +1419,10 @@ export function Pay() {
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-              {p.period_start} – {p.period_end}
+              {formatDayRange(p.period_start, p.period_end)}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Due {p.due_date}{showGrossPay ? ` · $${p.gross_pay_due.toFixed(2)}` : ' · amount hidden'}
+              Due {formatDay(p.due_date)}{showGrossPay ? ` · ${formatMoney(p.gross_pay_due)}` : ' · amount hidden'}
               {showPaymentMethod && formatPaymentMethod(p.payment_method_label) ? ` · ${formatPaymentMethod(p.payment_method_label)}` : ''}
             </p>
             {isNanny ? (
@@ -1597,7 +1597,7 @@ export function Pay() {
                 <ul className="space-y-0.5">
                   {pendingUnapproved.map((e) => (
                     <li key={e.id} className="text-xs text-amber-700 dark:text-amber-400">
-                      {e.date} · {e.paid_hours?.toFixed(2) ?? '0.00'} hrs · {e.status}
+                      {formatDay(e.date)} · {formatHours(e.paid_hours)} · {e.status}
                     </li>
                   ))}
                 </ul>
@@ -1665,8 +1665,7 @@ export function Pay() {
         <Card title="Mark payment paid">
           <form onSubmit={handleMarkPaid} className="space-y-3">
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Due ${markingPaidPayment.gross_pay_due.toFixed(2)} for {markingPaidPayment.period_start} –{' '}
-              {markingPaidPayment.period_end}. Enter less than the full amount to record a partial payment.
+              Due {formatMoney(markingPaidPayment.gross_pay_due)} for {formatDayRange(markingPaidPayment.period_start, markingPaidPayment.period_end)}. Enter less than the full amount to record a partial payment.
             </p>
             <Field label="Amount paid ($)">
               <input
@@ -1700,7 +1699,7 @@ export function Pay() {
         <Card title="Void payment">
           <form onSubmit={handleVoidPayment} className="space-y-3">
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              ${voidingPayment.gross_pay_due.toFixed(2)} for {voidingPayment.period_start} – {voidingPayment.period_end}{' '}
+              {formatMoney(voidingPayment.gross_pay_due)} for {formatDayRange(voidingPayment.period_start, voidingPayment.period_end)}{' '}
               will be marked voided. It is kept for the record, not deleted.
             </p>
             <Field label="Reason for voiding (required)">
@@ -1727,7 +1726,7 @@ export function Pay() {
         <Card title="Correct payment">
           <form onSubmit={handleCorrectPayment} className="space-y-3">
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Original: ${correctingPayment.gross_pay_due.toFixed(2)} for {correctingPayment.period_start} – {correctingPayment.period_end}.
+              Original: {formatMoney(correctingPayment.gross_pay_due)} for {formatDayRange(correctingPayment.period_start, correctingPayment.period_end)}.
               The original record will be marked corrected and a new payment record will be created.
             </p>
             <Field label="Corrected amount ($)">
@@ -1905,11 +1904,11 @@ export function Pay() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                      {t.period_start} – {t.period_end}
+                      {formatDayRange(t.period_start, t.period_end)}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {t.actual_worked_hours.toFixed(2)} hrs worked
-                      {showGrossPay ? ` · $${t.gross_pay_due.toFixed(2)}` : ''}
+                      {formatHours(t.actual_worked_hours)} worked
+                      {showGrossPay ? ` · ${formatMoney(t.gross_pay_due)}` : ''}
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
@@ -1958,10 +1957,10 @@ export function Pay() {
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                        {t.period_start} – {t.period_end}
+                        {formatDayRange(t.period_start, t.period_end)}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {t.actual_worked_hours.toFixed(2)} hrs worked · ${t.gross_pay_due.toFixed(2)}
+                        {formatHours(t.actual_worked_hours)} worked · {formatMoney(t.gross_pay_due)}
                       </p>
                     </div>
                     <button
@@ -2009,10 +2008,10 @@ export function Pay() {
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                        {p.period_start} – {p.period_end}
+                        {formatDayRange(p.period_start, p.period_end)}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        Due {p.due_date} · ${p.gross_pay_due.toFixed(2)}
+                        Due {formatDay(p.due_date)} · {formatMoney(p.gross_pay_due)}
                       </p>
                     </div>
                     {coadminAllowed('mark_payment_made') && (
@@ -2040,11 +2039,11 @@ export function Pay() {
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                  {detailTimesheet.period_start} – {detailTimesheet.period_end}
+                  {formatDayRange(detailTimesheet.period_start, detailTimesheet.period_end)}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {detailTimesheet.actual_worked_hours.toFixed(2)} hrs worked
-                  {showGrossPay ? ` · $${detailTimesheet.gross_pay_due.toFixed(2)}` : ''}
+                  {formatHours(detailTimesheet.actual_worked_hours)} worked
+                  {showGrossPay ? ` · ${formatMoney(detailTimesheet.gross_pay_due)}` : ''}
                 </p>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1">
@@ -2126,11 +2125,11 @@ export function Pay() {
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                  {detailPayment.period_start} – {detailPayment.period_end}
+                  {formatDayRange(detailPayment.period_start, detailPayment.period_end)}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Due {detailPayment.due_date}
-                  {showGrossPay ? ` · $${detailPayment.gross_pay_due.toFixed(2)}` : ' · amount hidden'}
+                  Due {formatDay(detailPayment.due_date)}
+                  {showGrossPay ? ` · ${formatMoney(detailPayment.gross_pay_due)}` : ' · amount hidden'}
                   {showPaymentMethod && formatPaymentMethod(detailPayment.payment_method_label)
                     ? ` · ${formatPaymentMethod(detailPayment.payment_method_label)}`
                     : ''}

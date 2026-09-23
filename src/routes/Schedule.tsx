@@ -7,7 +7,7 @@ import { useSelectedCaregiver } from '../context/SelectedCaregiverContext'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
-import { isValidCalendarDate } from '../lib/dates'
+import { formatHours, isValidCalendarDate, toIsoDate } from '../lib/dates'
 import { exceptionHours, generateShiftsForRange, scheduleExceptionHoursDelta, shiftHours } from '../lib/schedule'
 import { formatEntryTimeRange, formatTimeOfDay } from '../lib/time'
 import { Card, Button, Field, inputClass, dateInputClass, timeInputClass } from '../components/Card'
@@ -66,10 +66,6 @@ const EXCEPTION_TYPES_WITH_ORIGINAL_SHIFT: ExceptionType[] = [
   'family_cancellation',
 ]
 const EXCEPTION_TYPES_WITH_TIME_RANGE: ExceptionType[] = ['added_shift', 'shortened_shift', 'extended_shift']
-
-function toIsoDate(d: Date): string {
-  return format(d, 'yyyy-MM-dd')
-}
 
 export function Schedule() {
   const { user } = useAuth()
@@ -301,7 +297,7 @@ export function Schedule() {
         name,
         recurrence_type: recurrenceType,
         recurrence_rule: {},
-        effective_start_date: effectiveStartDate ?? new Date().toISOString().slice(0, 10),
+        effective_start_date: effectiveStartDate ?? toIsoDate(new Date()),
         created_by: user?.id ?? null,
       })
       .select()
@@ -766,7 +762,7 @@ export function Schedule() {
                             {formatTimeOfDay(occ.shift.start_time, timeFormat)} – {formatTimeOfDay(occ.shift.end_time, timeFormat)}
                           </p>
                           <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {shiftHours(occ.shift).toFixed(2)} hrs
+                            {formatHours(shiftHours(occ.shift))}
                             {occ.shift.break_minutes > 0 ? ` · ${occ.shift.break_minutes}m break` : ''}
                             {removedShiftIds.has(occ.shift.id) ? ' · removed this day' : ''}
                           </p>
@@ -801,7 +797,7 @@ export function Schedule() {
                             {EXCEPTION_LABELS[ex.exception_type]}
                           </p>
                           <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {exceptionHours(ex, shiftsById).toFixed(2)} hrs
+                            {formatHours(exceptionHours(ex, shiftsById))}
                             {ex.affects_pay ? '' : ' · unpaid'}
                             {ex.counts_toward_guaranteed_hours ? ' · counts toward guarantee' : ''}
                           </p>
@@ -841,7 +837,7 @@ export function Schedule() {
                               Worked {start} – {end}
                             </p>
                             <p className="text-xs text-gray-500 dark:text-gray-400">
-                              {(entry.paid_hours ?? 0).toFixed(2)} hrs · {entry.status.replace(/_/g, ' ')}
+                              {formatHours(entry.paid_hours)} · {entry.status.replace(/_/g, ' ')}
                             </p>
                           </div>
                         </div>
@@ -980,7 +976,7 @@ export function Schedule() {
                     {describeShiftRecurrence(shift)} · {formatTimeOfDay(shift.start_time, timeFormat)}–{formatTimeOfDay(shift.end_time, timeFormat)}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {shiftHours(shift).toFixed(2)} hrs recurring
+                    {formatHours(shiftHours(shift))} per shift
                     {shift.notes ? ` · ${shift.notes}` : ''}
                   </p>
                 </div>
