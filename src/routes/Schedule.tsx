@@ -1197,6 +1197,11 @@ export function Schedule() {
       {showAddShiftModal && (
         <Modal title="Add shift" onClose={() => setShowAddShiftModal(false)}>
           <form onSubmit={handleAddShift} className="space-y-3">
+            {caregivers.length > 1 && (
+              <Field label="For">
+                <CaregiverSelect compact />
+              </Field>
+            )}
             <Field label="Repeats">
               <select
                 className={inputClass}
