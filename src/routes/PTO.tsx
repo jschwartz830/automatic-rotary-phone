@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { addDays, format } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
@@ -23,6 +23,7 @@ const BALANCE_TYPES: LeaveType[] = ['pto', 'sick']
 
 export function PTO() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useAuth()
   const { household, isNanny, isParentOrCoAdmin, coadminAllowed, caregiverProfile } = useHousehold()
   const canExport = isParentOrCoAdmin && coadminAllowed('export_records')
@@ -53,6 +54,16 @@ export function PTO() {
   // archived rows too or the two ways of computing a balance disagree.
   const unarchivedRequests = requests.filter((r) => !r.archived_at)
 
+
+  // Calendar's "PTO / leave" quick action links here with ?date=YYYY-MM-DD.
+  useEffect(() => {
+    const linkedDate = searchParams.get('date')
+    if (!linkedDate || !isValidCalendarDate(linkedDate)) return
+    setStartDate(linkedDate)
+    setEndDate(linkedDate)
+    setShowForm(true)
+    setSearchParams({}, { replace: true })
+  }, [searchParams, setSearchParams])
 
   async function loadRequests(forCaregiverId: string) {
     const [requestsRes, ledgerRes] = await Promise.all([

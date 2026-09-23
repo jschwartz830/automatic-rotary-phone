@@ -1,4 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { addDays, format, startOfWeek } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
@@ -7,9 +8,9 @@ import { useSelectedCaregiver } from '../context/SelectedCaregiverContext'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
-import { formatHours, isValidCalendarDate, toIsoDate } from '../lib/dates'
+import { formatDayRange, formatHours, isValidCalendarDate, toIsoDate } from '../lib/dates'
 import { exceptionHours, generateShiftsForRange, scheduleExceptionHoursDelta, shiftHours } from '../lib/schedule'
-import { formatEntryTimeRange, formatTimeOfDay } from '../lib/time'
+import { formatEntryRangeCompact, formatEntryTimeRange, formatTimeCompact, formatTimeOfDay } from '../lib/time'
 import { Card, Button, Field, inputClass, dateInputClass, timeInputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { Modal } from '../components/Modal'
@@ -57,6 +58,13 @@ const EXCEPTION_LABELS: Record<ExceptionType, string> = {
   other: 'Other',
 }
 
+const LEAVE_LABELS: Record<string, string> = {
+  pto: 'PTO',
+  sick: 'Sick',
+  unpaid_time_off: 'Unpaid time off',
+  other_paid: 'Other paid leave',
+}
+
 // Exceptions that reference an existing occurrence (to shorten/extend/remove
 // it) vs. ones that stand alone.
 const EXCEPTION_TYPES_WITH_ORIGINAL_SHIFT: ExceptionType[] = [
@@ -67,19 +75,47 @@ const EXCEPTION_TYPES_WITH_ORIGINAL_SHIFT: ExceptionType[] = [
 ]
 const EXCEPTION_TYPES_WITH_TIME_RANGE: ExceptionType[] = ['added_shift', 'shortened_shift', 'extended_shift']
 
+function showAllKey(householdId: string): string {
+  return `nannager:calendar-show-all:${householdId}`
+}
+
+// The combined all-caregivers week is the default; a parent who switches to a
+// single caregiver keeps that choice.
+function readShowAll(householdId: string | undefined): boolean {
+  if (!householdId) return true
+  try {
+    return localStorage.getItem(showAllKey(householdId)) !== '0'
+  } catch {
+    return true
+  }
+}
+
 export function Schedule() {
   const { user } = useAuth()
   const { household, isParentOrCoAdmin, isNanny } = useHousehold()
-  const { selectedCaregiverId: caregiverId } = useSelectedCaregiver()
+  const { caregivers, selectedCaregiverId: caregiverId, setSelectedCaregiverId, colorFor } = useSelectedCaregiver()
   const { timeFormat } = usePreferences()
+  const navigate = useNavigate()
+  const weekStartsOn: 0 | 1 = household?.week_start_day === 'monday' ? 1 : 0
+  const [showAll, setShowAllState] = useState<boolean>(() => readShowAll(household?.id))
+  function setShowAll(value: boolean) {
+    setShowAllState(value)
+    if (!household?.id) return
+    try {
+      localStorage.setItem(showAllKey(household.id), value ? '1' : '0')
+    } catch {
+      // In-memory choice still works when browser storage is blocked.
+    }
+  }
   const [templates, setTemplates] = useState<ScheduleTemplate[]>([])
   const [shifts, setShifts] = useState<Record<string, ScheduleShift[]>>({})
   const [leaveForWeek, setLeaveForWeek] = useState<LeaveRequest[]>([])
   const [actualEntriesForWeek, setActualEntriesForWeek] = useState<TimeEntry[]>([])
   const [exceptionsForWeek, setExceptionsForWeek] = useState<ScheduleException[]>([])
-  const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
+  const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date(), { weekStartsOn }))
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [showAddShiftModal, setShowAddShiftModal] = useState(false)
+  const [showRecurring, setShowRecurring] = useState(false)
   const [recurrenceChoice, setRecurrenceChoice] = useState<'weekly' | 'biweekly' | 'monthly' | 'once' | 'other'>('weekly')
   const [selectedDays, setSelectedDays] = useState<string[]>(['1'])
   const [biweeklyAnchorDate, setBiweeklyAnchorDate] = useState(() => toIsoDate(new Date()))
@@ -117,92 +153,96 @@ export function Schedule() {
   const [exceptionError, setExceptionError] = useState<string | null>(null)
 
 
-  async function loadSchedule(forCaregiverId: string) {
+  // Which caregivers the week grid is showing: just the selected one, or --
+  // in the combined view -- every active caregiver at once so a parent can
+  // see who's covering which day without clicking through each nanny.
+  const activeCaregiverIds = caregivers.filter((c) => c.employment_status === 'active').map((c) => c.id)
+  const canShowAll = isParentOrCoAdmin && activeCaregiverIds.length > 1
+  const viewingAll = canShowAll && showAll
+  const viewIds: string[] = viewingAll ? activeCaregiverIds : caregiverId ? [caregiverId] : []
+  const viewKey = viewIds.join(',')
+  const loadSeq = useRef(0)
+
+  async function loadSchedule(ids: string[]) {
+    const seq = loadSeq.current
     const { data: templateRows } = await supabase
       .from('schedule_templates')
       .select('*')
-      .eq('caregiver_id', forCaregiverId)
+      .in('caregiver_id', ids)
       .eq('active', true)
       .order('created_at')
     const ts = (templateRows ?? []) as ScheduleTemplate[]
-    setTemplates(ts)
-
+    let grouped: Record<string, ScheduleShift[]> = {}
     if (ts.length > 0) {
       const { data: shiftRows } = await supabase
         .from('schedule_shifts')
         .select('*')
         .in('schedule_template_id', ts.map((t) => t.id))
-      const grouped: Record<string, ScheduleShift[]> = {}
+      grouped = {}
       for (const shift of (shiftRows ?? []) as ScheduleShift[]) {
         grouped[shift.schedule_template_id] ??= []
         grouped[shift.schedule_template_id].push(shift)
       }
-      setShifts(grouped)
-    } else {
-      setShifts({})
     }
+    // Drop responses for a view the user has already switched away from.
+    if (seq !== loadSeq.current) return
+    setTemplates(ts)
+    setShifts(grouped)
   }
 
-  async function loadLeave(forCaregiverId: string, ws: Date) {
+  async function loadWeek(ids: string[], ws: Date) {
+    const seq = loadSeq.current
     const start = toIsoDate(ws)
     const end = toIsoDate(addDays(ws, 6))
-    const { data } = await supabase
-      .from('leave_requests')
-      .select('*')
-      .eq('caregiver_id', forCaregiverId)
-      .lte('start_date', end)
-      .gte('end_date', start)
-      .in('status', ['approved', 'requested'])
-      // An archived request no longer applies -- it shouldn't still show as
-      // blocking the schedule for its day.
-      .is('archived_at', null)
-    setLeaveForWeek((data ?? []) as LeaveRequest[])
+    const [leaveRes, entriesRes, exceptionsRes] = await Promise.all([
+      supabase
+        .from('leave_requests')
+        .select('*')
+        .in('caregiver_id', ids)
+        .lte('start_date', end)
+        .gte('end_date', start)
+        .in('status', ['approved', 'requested'])
+        // An archived request no longer applies -- it shouldn't still show as
+        // blocking the schedule for its day.
+        .is('archived_at', null),
+      supabase
+        .from('time_entries')
+        .select('*')
+        .in('caregiver_id', ids)
+        .is('deleted_at', null)
+        .gte('date', start)
+        .lte('date', end),
+      supabase
+        .from('schedule_exceptions')
+        .select('*')
+        .in('caregiver_id', ids)
+        .gte('date', start)
+        .lte('date', end)
+        .in('exception_type', EXCEPTION_TYPES)
+        .neq('status', 'canceled')
+        .neq('status', 'rejected'),
+    ])
+    if (seq !== loadSeq.current) return
+    setLeaveForWeek((leaveRes.data ?? []) as LeaveRequest[])
+    setActualEntriesForWeek((entriesRes.data ?? []) as TimeEntry[])
+    setExceptionsForWeek((exceptionsRes.data ?? []) as ScheduleException[])
   }
 
-  async function loadActual(forCaregiverId: string, ws: Date) {
-    const start = toIsoDate(ws)
-    const end = toIsoDate(addDays(ws, 6))
-    const { data } = await supabase
-      .from('time_entries')
-      .select('*')
-      .eq('caregiver_id', forCaregiverId)
-      .is('deleted_at', null)
-      .gte('date', start)
-      .lte('date', end)
-    setActualEntriesForWeek((data ?? []) as TimeEntry[])
-  }
-
-  async function loadExceptions(forCaregiverId: string, ws: Date) {
-    const start = toIsoDate(ws)
-    const end = toIsoDate(addDays(ws, 6))
-    const { data } = await supabase
-      .from('schedule_exceptions')
-      .select('*')
-      .eq('caregiver_id', forCaregiverId)
-      .gte('date', start)
-      .lte('date', end)
-      .in('exception_type', EXCEPTION_TYPES)
-      .neq('status', 'canceled')
-      .neq('status', 'rejected')
-    setExceptionsForWeek((data ?? []) as ScheduleException[])
-  }
+  const reloadSchedule = () => loadSchedule(viewIds)
+  const reloadWeek = () => loadWeek(viewIds, weekStart)
 
   useEffect(() => {
-    if (caregiverId) {
-      loadSchedule(caregiverId)
-      loadLeave(caregiverId, weekStart)
-      loadActual(caregiverId, weekStart)
-      loadExceptions(caregiverId, weekStart)
-    }
-  }, [caregiverId])
+    loadSeq.current += 1
+    if (viewIds.length === 0) return
+    loadSchedule(viewIds)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewKey])
 
   useEffect(() => {
-    if (caregiverId) {
-      loadLeave(caregiverId, weekStart)
-      loadActual(caregiverId, weekStart)
-      loadExceptions(caregiverId, weekStart)
-    }
-  }, [weekStart, caregiverId])
+    if (viewIds.length === 0) return
+    loadWeek(viewIds, weekStart)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewKey, weekStart])
 
   // Live preview of the dates this in-progress add-shift form would generate,
   // shown before saving so a parent can sanity-check the recurrence pattern.
@@ -288,7 +328,7 @@ export function Schedule() {
     name: string,
     effectiveStartDate?: string
   ): Promise<ScheduleTemplate> {
-    const existing = templates.find((t) => t.recurrence_type === recurrenceType)
+    const existing = templates.find((t) => t.caregiver_id === caregiverId && t.recurrence_type === recurrenceType)
     if (existing) return existing
     const { data: newTemplate, error: templateError } = await supabase
       .from('schedule_templates')
@@ -340,7 +380,7 @@ export function Schedule() {
           action: 'create',
           after: { date: onceDate, exception_type: 'added_shift', startTime, endTime },
         })
-        await loadExceptions(caregiverId, weekStart)
+        await reloadWeek()
       } else if (recurrenceChoice === 'weekly') {
         if (selectedDays.length === 0) throw new Error('Choose at least one day of the week.')
         const template = await findOrCreateTemplate('weekly', 'Weekly schedule')
@@ -367,7 +407,7 @@ export function Schedule() {
           action: 'create',
           after: { days: selectedDays, startTime, endTime },
         })
-        await loadSchedule(caregiverId)
+        await reloadSchedule()
       } else if (recurrenceChoice === 'biweekly') {
         if (selectedDays.length === 0) throw new Error('Choose at least one day of the week.')
         const template = await findOrCreateTemplate('biweekly', 'Biweekly schedule', biweeklyAnchorDate)
@@ -394,7 +434,7 @@ export function Schedule() {
           action: 'create',
           after: { days: selectedDays, startTime, endTime, biweeklyAnchorDate },
         })
-        await loadSchedule(caregiverId)
+        await reloadSchedule()
       } else if (recurrenceChoice === 'monthly') {
         const recurrenceType: RecurrenceType = monthlyMode === 'date' ? 'monthly_by_date' : 'monthly_by_weekday'
         const template = await findOrCreateTemplate(recurrenceType, 'Monthly schedule')
@@ -421,7 +461,7 @@ export function Schedule() {
           action: 'create',
           after: { recurrenceType, monthlyDate, monthlyWeekday, monthlyWeekOrdinal, startTime, endTime },
         })
-        await loadSchedule(caregiverId)
+        await reloadSchedule()
       } else {
         const template = await findOrCreateTemplate('custom', 'Custom schedule')
         const { error: shiftError } = await supabase.from('schedule_shifts').insert({
@@ -445,7 +485,7 @@ export function Schedule() {
           action: 'create',
           after: { day_of_week: otherDayOfWeek, startTime, endTime, notes: otherNote },
         })
-        await loadSchedule(caregiverId)
+        await reloadSchedule()
       }
 
       setShowAddShiftModal(false)
@@ -459,6 +499,7 @@ export function Schedule() {
 
   async function handleDeleteShift(shift: ScheduleShift) {
     if (!caregiverId) return
+    if (!window.confirm('Remove this recurring shift from every week going forward?')) return
     await supabase.from('schedule_shifts').delete().eq('id', shift.id)
     if (household) {
       await logAuditEvent({
@@ -474,7 +515,7 @@ export function Schedule() {
         },
       })
     }
-    await loadSchedule(caregiverId)
+    await reloadSchedule()
   }
 
   function resetExceptionForm() {
@@ -531,7 +572,7 @@ export function Schedule() {
 
       setShowExceptionForm(false)
       resetExceptionForm()
-      await loadExceptions(caregiverId, weekStart)
+      await reloadWeek()
     } catch (err) {
       setExceptionError(errorMessage(err, 'Could not save exception.'))
     } finally {
@@ -565,21 +606,86 @@ export function Schedule() {
       action: 'cancel',
       before: { date: exception.date, exception_type: exception.exception_type, status: exception.status },
     })
-    await loadExceptions(caregiverId, weekStart)
+    await reloadWeek()
   }
 
   const weekEnd = addDays(weekStart, 6)
   const weekOccurrences = generateShiftsForRange(templates, shifts, toIsoDate(weekStart), toIsoDate(weekEnd))
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
   const todayStr = toIsoDate(new Date())
+  const isCurrentWeek = todayStr >= toIsoDate(weekStart) && todayStr <= toIsoDate(weekEnd)
 
   const allShifts = templates.flatMap((t) =>
-    (shifts[t.id] ?? []).map((s) => ({ ...s, templateName: t.name, recurrenceType: t.recurrence_type }))
+    (shifts[t.id] ?? []).map((s) => ({
+      ...s,
+      templateName: t.name,
+      recurrenceType: t.recurrence_type,
+      caregiverId: t.caregiver_id,
+    }))
   )
   const sortedShifts = [...allShifts].sort(
     (a, b) => (a.day_of_week ?? a.monthly_day ?? 0) - (b.day_of_week ?? b.monthly_day ?? 0)
   )
   const shiftsById: Record<string, ScheduleShift> = Object.fromEntries(allShifts.map((s) => [s.id, s]))
+
+  function caregiverName(id: string): string {
+    return caregivers.find((c) => c.id === id)?.name ?? ''
+  }
+
+  // Everything one caregiver has going on for one day.
+  function caregiverDay(cgId: string, dayStr: string) {
+    const occs = weekOccurrences.filter((o) => o.date === dayStr && o.template.caregiver_id === cgId)
+    const leave = leaveForWeek.filter(
+      (l) => l.caregiver_id === cgId && l.start_date <= dayStr && (l.end_date ?? l.start_date) >= dayStr
+    )
+    const entries = actualEntriesForWeek.filter((e) => e.caregiver_id === cgId && e.date === dayStr)
+    const exceptions = exceptionsForWeek.filter((ex) => ex.caregiver_id === cgId && ex.date === dayStr)
+    const removedShiftIds = new Set(
+      exceptions
+        .filter((ex) => ex.exception_type === 'removed_shift' && ex.original_schedule_shift_id)
+        .map((ex) => ex.original_schedule_shift_id)
+    )
+    const baseHours = occs.reduce((sum, o) => sum + shiftHours(o.shift), 0)
+    return {
+      caregiverId: cgId,
+      occs,
+      leave,
+      entries,
+      exceptions,
+      removedShiftIds,
+      scheduledHours: Math.max(baseHours + scheduleExceptionHoursDelta(exceptions, shiftsById), 0),
+      actualHours: entries.reduce((sum, e) => sum + (e.paid_hours ?? 0), 0),
+      hasAnything: occs.length + leave.length + entries.length + exceptions.length > 0,
+    }
+  }
+
+  const weekTotals = viewIds.map((id) => {
+    const days = weekDays.map((d) => caregiverDay(id, toIsoDate(d)))
+    return {
+      caregiverId: id,
+      scheduled: days.reduce((sum, d) => sum + d.scheduledHours, 0),
+      actual: days.reduce((sum, d) => sum + d.actualHours, 0),
+    }
+  })
+
+  function changeWeek(next: Date) {
+    setWeekStart(startOfWeek(next, { weekStartsOn }))
+    setSelectedDay(null)
+    setShowExceptionForm(false)
+  }
+
+  // "Add shift" from a tapped day: defaults to a one-time shift on that date,
+  // with the weekday pre-picked if the parent switches it to recurring.
+  function openAddShiftFor(dayStr: string) {
+    resetShiftForm()
+    const weekday = String(new Date(`${dayStr}T00:00:00`).getDay())
+    setRecurrenceChoice('once')
+    setOnceDate(dayStr)
+    setSelectedDays([weekday])
+    setOtherDayOfWeek(weekday)
+    setBiweeklyAnchorDate(dayStr)
+    setShowAddShiftModal(true)
+  }
 
   function describeShiftRecurrence(shift: ScheduleShift & { recurrenceType: RecurrenceType }): string {
     switch (shift.recurrenceType) {
@@ -599,68 +705,119 @@ export function Schedule() {
     }
   }
 
+  function exceptionLabel(ex: ScheduleException): string {
+    const label = EXCEPTION_LABELS[ex.exception_type]
+    return ex.start_time && ex.end_time
+      ? `${label} ${formatTimeCompact(ex.start_time, timeFormat)}–${formatTimeCompact(ex.end_time, timeFormat)}`
+      : label
+  }
+
+  const navButton =
+    'flex h-9 w-9 items-center justify-center rounded-full text-lg text-gray-500 active:bg-gray-100 dark:text-gray-400 dark:active:bg-gray-800'
+  const quickAction =
+    'flex items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2.5 text-sm font-medium text-gray-800 ring-1 ring-gray-200 active:bg-gray-100 dark:bg-gray-800 dark:text-gray-100 dark:ring-gray-700 dark:active:bg-gray-700'
+
   return (
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">Schedule</h1>
+        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">Calendar</h1>
         {isParentOrCoAdmin && (
           <Button variant="secondary" onClick={() => { resetShiftForm(); setShowAddShiftModal(true) }}>
-            + Add shift
+            + Recurring shift
           </Button>
         )}
       </div>
 
-      {isParentOrCoAdmin && <CaregiverSelect />}
+      {canShowAll ? (
+        <CaregiverSelect
+          allOption
+          allSelected={viewingAll}
+          onSelectAll={() => { setShowAll(true); setSelectedDay(null) }}
+          onSelect={() => { setShowAll(false); setSelectedDay(null) }}
+        />
+      ) : (
+        isParentOrCoAdmin && <CaregiverSelect />
+      )}
 
       {/* Week navigation */}
       <div className="flex items-center justify-between">
-        <button
-          className="rounded-lg px-3 py-2 text-gray-500 active:bg-gray-100 dark:text-gray-400 dark:active:bg-gray-800"
-          onClick={() => { setWeekStart((w) => addDays(w, -7)); setSelectedDay(null) }}
-        >
-          ←
+        <button className={navButton} aria-label="Previous week" onClick={() => changeWeek(addDays(weekStart, -7))}>
+          ‹
         </button>
-        <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          {format(weekStart, 'MMM d')} – {format(weekEnd, 'MMM d, yyyy')}
-        </p>
-        <button
-          className="rounded-lg px-3 py-2 text-gray-500 active:bg-gray-100 dark:text-gray-400 dark:active:bg-gray-800"
-          onClick={() => { setWeekStart((w) => addDays(w, 7)); setSelectedDay(null) }}
-        >
-          →
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            {formatDayRange(toIsoDate(weekStart), toIsoDate(weekEnd))}
+          </p>
+          {!isCurrentWeek && (
+            <button
+              className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600 active:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
+              onClick={() => changeWeek(new Date())}
+            >
+              Today
+            </button>
+          )}
+        </div>
+        <button className={navButton} aria-label="Next week" onClick={() => changeWeek(addDays(weekStart, 7))}>
+          ›
         </button>
       </div>
 
+      {/* Week totals: worked vs scheduled, per caregiver in view */}
+      {weekTotals.some((t) => t.scheduled > 0 || t.actual > 0) && (
+        <div className="space-y-2 rounded-2xl bg-white px-4 py-3 ring-1 ring-gray-100 dark:bg-gray-800 dark:ring-gray-800">
+          {weekTotals.map((t) => (
+            <div key={t.caregiverId} className="space-y-1">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="flex min-w-0 items-center gap-1.5 font-medium text-gray-700 dark:text-gray-300">
+                  {viewingAll && <span className={`h-2 w-2 shrink-0 rounded-full ${colorFor(t.caregiverId).dot}`} />}
+                  <span className="truncate">{viewingAll ? caregiverName(t.caregiverId) : 'This week'}</span>
+                </span>
+                <span className="shrink-0 text-gray-500 dark:text-gray-400">
+                  <span className="font-semibold text-gray-900 dark:text-gray-100">{formatHours(t.actual)}</span> worked
+                  {' of '}
+                  {formatHours(t.scheduled)} scheduled
+                </span>
+              </div>
+              {t.scheduled > 0 && (
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
+                  <div
+                    className={`h-full rounded-full ${t.actual > t.scheduled ? 'bg-red-500' : colorFor(t.caregiverId).dot}`}
+                    style={{ width: `${Math.min((t.actual / t.scheduled) * 100, 100)}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Weekly grid */}
       <Card>
-        <div className="divide-y divide-gray-100 dark:divide-gray-700">
+        <div className="-my-1 divide-y divide-gray-100 dark:divide-gray-700">
           {weekDays.map((day) => {
             const dayStr = toIsoDate(day)
-            const dayOccs = weekOccurrences.filter((o) => o.date === dayStr)
-            const dayLeave = leaveForWeek.filter(
-              (l) => l.start_date <= dayStr && (l.end_date ?? l.start_date) >= dayStr
-            )
-            const dayActualEntries = actualEntriesForWeek.filter((e) => e.date === dayStr)
-            const dayExceptions = exceptionsForWeek.filter((ex) => ex.date === dayStr)
-            const removedShiftIds = new Set(
-              dayExceptions
-                .filter((ex) => ex.exception_type === 'removed_shift' && ex.original_schedule_shift_id)
-                .map((ex) => ex.original_schedule_shift_id)
-            )
-            const actualHours = dayActualEntries.reduce((sum, e) => sum + (e.paid_hours ?? 0), 0)
-            const baseHours = dayOccs.reduce((sum, o) => sum + shiftHours(o.shift), 0)
-            const totalHours = Math.max(baseHours + scheduleExceptionHoursDelta(dayExceptions, shiftsById), 0)
+            const dayByCaregiver = viewIds.map((id) => caregiverDay(id, dayStr))
+            const busy = dayByCaregiver.filter((d) => d.hasAnything)
+            const target = caregiverId ? caregiverDay(caregiverId, dayStr) : null
+            const dayOccs = target?.occs ?? []
             const isSelected = selectedDay === dayStr
             const isToday = dayStr === todayStr
+            const isPast = dayStr < todayStr
 
             return (
               <div key={dayStr}>
                 <button
                   className="flex w-full items-start gap-3 py-3 text-left"
+                  aria-expanded={isSelected}
                   onClick={() => {
                     setSelectedDay(isSelected ? null : dayStr)
                     setShowExceptionForm(false)
                     resetExceptionForm()
+                    // In the combined view, aim the day's quick actions at the
+                    // one caregiver working that day when there's only one.
+                    if (!isSelected && viewingAll && busy.length === 1) {
+                      setSelectedCaregiverId(busy[0].caregiverId)
+                    }
                   }}
                 >
                   <div
@@ -670,291 +827,318 @@ export function Schedule() {
                       {format(day, 'EEE')}
                     </span>
                     <span
-                      className={`text-base font-bold leading-tight ${isToday ? 'text-white dark:text-gray-900' : 'text-gray-900 dark:text-gray-100'}`}
+                      className={`text-base font-bold leading-tight ${
+                        isToday ? 'text-white dark:text-gray-900' : isPast ? 'text-gray-400 dark:text-gray-500' : 'text-gray-900 dark:text-gray-100'
+                      }`}
                     >
                       {format(day, 'd')}
                     </span>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    {dayOccs.length === 0 && dayLeave.length === 0 && dayExceptions.length === 0 ? (
-                      <p className="text-sm text-gray-400 dark:text-gray-500">Off</p>
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    {busy.length === 0 ? (
+                      <p className="pt-2 text-sm text-gray-400 dark:text-gray-500">Off</p>
                     ) : (
-                      <>
-                        {dayOccs.map((occ) => (
-                          <p
-                            key={occ.shift.id}
-                            className={
-                              removedShiftIds.has(occ.shift.id)
-                                ? 'text-sm text-gray-400 line-through dark:text-gray-600'
-                                : 'text-sm text-gray-900 dark:text-gray-100'
-                            }
-                          >
-                            {formatTimeOfDay(occ.shift.start_time, timeFormat)}–{formatTimeOfDay(occ.shift.end_time, timeFormat)}
-                            <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">· {shiftHours(occ.shift).toFixed(1)}h</span>
-                          </p>
-                        ))}
-                        {(dayLeave.length > 0 || dayExceptions.length > 0) && (
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {dayLeave.map((l) => (
-                              <span
-                                key={l.id}
-                                className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium capitalize text-blue-700 dark:bg-blue-500/15 dark:text-blue-300"
-                              >
-                                {l.leave_type.replace(/_/g, ' ')}
-                              </span>
-                            ))}
-                            {dayExceptions.map((ex) => (
-                              <span
-                                key={ex.id}
-                                className="rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-500/15 dark:text-purple-300"
-                              >
-                                {EXCEPTION_LABELS[ex.exception_type]}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </>
-                    )}
-                    {actualHours > 0 && (
-                      <p className="mt-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                        Worked {actualHours.toFixed(1)}h
-                        {dayActualEntries.length === 1 &&
-                          (() => {
-                            const { start, end } = formatEntryTimeRange(dayActualEntries[0], timeFormat)
-                            return (
-                              <span className="ml-1 font-normal text-emerald-600/80 dark:text-emerald-400/80">
-                                ({start}–{end})
-                              </span>
-                            )
-                          })()}
-                      </p>
-                    )}
-                  </div>
-                  {totalHours > 0 && (
-                    <span className="shrink-0 text-sm font-semibold text-gray-700 dark:text-gray-300">
-                      {actualHours > 0 ? (
-                        <>
-                          <span className={actualHours > totalHours ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}>
-                            {actualHours.toFixed(1)}h
-                          </span>
-                          {' / '}
-                          {totalHours.toFixed(1)}h
-                        </>
-                      ) : (
-                        `${totalHours.toFixed(1)}h`
-                      )}
-                    </span>
-                  )}
-                </button>
-
-                {isSelected && (dayOccs.length > 0 || dayLeave.length > 0 || dayActualEntries.length > 0 || dayExceptions.length > 0 || isParentOrCoAdmin) && (
-                  <div className="mb-3 ml-[52px] space-y-2 rounded-xl bg-gray-50 p-3 dark:bg-gray-900">
-                    {dayOccs.map((occ) => (
-                      <div key={occ.shift.id} className="flex items-start justify-between gap-2">
-                        <div>
-                          <p
-                            className={
-                              removedShiftIds.has(occ.shift.id)
-                                ? 'text-sm font-medium text-gray-400 line-through dark:text-gray-600'
-                                : 'text-sm font-medium text-gray-900 dark:text-gray-100'
-                            }
-                          >
-                            {formatTimeOfDay(occ.shift.start_time, timeFormat)} – {formatTimeOfDay(occ.shift.end_time, timeFormat)}
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {formatHours(shiftHours(occ.shift))}
-                            {occ.shift.break_minutes > 0 ? ` · ${occ.shift.break_minutes}m break` : ''}
-                            {removedShiftIds.has(occ.shift.id) ? ' · removed this day' : ''}
-                          </p>
-                        </div>
-                        {isParentOrCoAdmin && (
-                          <button
-                            className="shrink-0 text-xs text-red-600 underline dark:text-red-400"
-                            onClick={(e) => { e.stopPropagation(); handleDeleteShift(occ.shift) }}
-                          >
-                            Remove recurring
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                    {dayLeave.map((l) => (
-                      <div key={l.id} className="flex items-center justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-medium capitalize text-gray-900 dark:text-gray-100">
-                            {l.leave_type.replace(/_/g, ' ')}
-                          </p>
-                          {l.hours_requested != null && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400">{l.hours_requested} hrs</p>
+                      busy.map((d) => (
+                        <div key={d.caregiverId} className="flex items-start gap-2">
+                          {viewingAll && (
+                            <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${colorFor(d.caregiverId).dot}`} aria-hidden />
                           )}
-                        </div>
-                        <StatusChip status={l.status} />
-                      </div>
-                    ))}
-                    {dayExceptions.map((ex) => (
-                      <div key={ex.id} className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-medium text-purple-700 dark:text-purple-400">
-                            {EXCEPTION_LABELS[ex.exception_type]}
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {formatHours(exceptionHours(ex, shiftsById))}
-                            {ex.affects_pay ? '' : ' · unpaid'}
-                            {ex.counts_toward_guaranteed_hours ? ' · counts toward guarantee' : ''}
-                          </p>
-                          {isNanny ? (
-                            ex.nanny_visible_note && (
-                              <p className="text-xs text-gray-400 dark:text-gray-500">{ex.nanny_visible_note}</p>
-                            )
-                          ) : (
-                            <>
-                              {ex.parent_note && (
-                                <p className="text-xs text-gray-400 dark:text-gray-500">{ex.parent_note}</p>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm text-gray-900 dark:text-gray-100">
+                              {viewingAll && (
+                                <span className="mr-1 font-semibold">{caregiverName(d.caregiverId).split(' ')[0]}</span>
                               )}
-                              {ex.nanny_visible_note && (
-                                <p className="text-xs text-gray-400 dark:text-gray-500">
-                                  Nanny sees: {ex.nanny_visible_note}
-                                </p>
-                              )}
-                            </>
-                          )}
-                        </div>
-                        {isParentOrCoAdmin && (
-                          <button
-                            className="shrink-0 text-xs text-red-600 underline dark:text-red-400"
-                            onClick={(e) => { e.stopPropagation(); handleDeleteException(ex) }}
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                    {dayActualEntries.map((entry) => {
-                      const { start, end } = formatEntryTimeRange(entry, timeFormat)
-                      return (
-                        <div key={entry.id} className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
-                              Worked {start} – {end}
-                            </p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                              {formatHours(entry.paid_hours)} · {entry.status.replace(/_/g, ' ')}
-                            </p>
-                          </div>
-                        </div>
-                      )
-                    })}
-
-                    {isParentOrCoAdmin && (
-                      <div onClick={(e) => e.stopPropagation()}>
-                        {showExceptionForm ? (
-                          <form onSubmit={(e) => handleAddException(e, dayStr)} className="space-y-2 border-t border-gray-200 pt-2 dark:border-gray-700">
-                            <Field label="Type">
-                              <select
-                                className={inputClass}
-                                value={exceptionType}
-                                onChange={(e) => {
-                                  const nextType = e.target.value as ExceptionType
-                                  setExceptionType(nextType)
-                                  // Family-cancellation pay defaults from the canceled shift's own
-                                  // template setting (spec 15.6) rather than always defaulting true,
-                                  // so a household that marks a shift unpaid-if-canceled doesn't have
-                                  // to remember to uncheck "affects pay" by hand every time.
-                                  if (nextType === 'family_cancellation' && dayOccs.length === 1) {
-                                    setExceptionOriginalShiftId(dayOccs[0].shift.id)
-                                    setExceptionAffectsPay(dayOccs[0].shift.paid_if_family_canceled)
-                                  }
-                                }}
-                              >
-                                {EXCEPTION_TYPES.map((t) => (
-                                  <option key={t} value={t}>
-                                    {EXCEPTION_LABELS[t]}
-                                  </option>
-                                ))}
-                              </select>
-                            </Field>
-                            {EXCEPTION_TYPES_WITH_ORIGINAL_SHIFT.includes(exceptionType) && dayOccs.length > 0 && (
-                              <Field label="Original shift">
-                                <select
-                                  className={inputClass}
-                                  value={exceptionOriginalShiftId}
-                                  onChange={(e) => {
-                                    const shiftId = e.target.value
-                                    setExceptionOriginalShiftId(shiftId)
-                                    if (exceptionType === 'family_cancellation') {
-                                      setExceptionAffectsPay(shiftId ? shiftsById[shiftId].paid_if_family_canceled : true)
-                                    }
-                                  }}
+                              {d.occs.map((occ, i) => (
+                                <span
+                                  key={occ.shift.id}
+                                  className={d.removedShiftIds.has(occ.shift.id) ? 'text-gray-400 line-through dark:text-gray-600' : ''}
                                 >
-                                  <option value="">None</option>
-                                  {dayOccs.map((occ) => (
-                                    <option key={occ.shift.id} value={occ.shift.id}>
-                                      {formatTimeOfDay(occ.shift.start_time, timeFormat)}–{formatTimeOfDay(occ.shift.end_time, timeFormat)}
-                                    </option>
-                                  ))}
-                                </select>
-                              </Field>
-                            )}
-                            {EXCEPTION_TYPES_WITH_TIME_RANGE.includes(exceptionType) && (
-                              <div className="space-y-2">
-                                <Field label="New start">
-                                  <input type="time" className={timeInputClass} value={exceptionStart} onChange={(e) => setExceptionStart(e.target.value)} />
-                                </Field>
-                                <Field label="New end">
-                                  <input type="time" className={timeInputClass} value={exceptionEnd} onChange={(e) => setExceptionEnd(e.target.value)} />
-                                </Field>
+                                  {i > 0 ? ', ' : ''}
+                                  {formatTimeCompact(occ.shift.start_time, timeFormat)}–{formatTimeCompact(occ.shift.end_time, timeFormat)}
+                                </span>
+                              ))}
+                            </p>
+                            {(d.leave.length > 0 || d.exceptions.length > 0) && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {d.leave.map((l) => (
+                                  <span
+                                    key={l.id}
+                                    className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-500/15 dark:text-blue-300"
+                                  >
+                                    {LEAVE_LABELS[l.leave_type] ?? l.leave_type.replace(/_/g, ' ')}
+                                    {l.status === 'requested' ? ' (pending)' : ''}
+                                  </span>
+                                ))}
+                                {d.exceptions.map((ex) => (
+                                  <span
+                                    key={ex.id}
+                                    className="rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-500/15 dark:text-purple-300"
+                                  >
+                                    {exceptionLabel(ex)}
+                                  </span>
+                                ))}
                               </div>
                             )}
-                            <Field label="Hours (leave blank to auto-calculate)">
-                              <input
-                                type="number"
-                                step="0.25"
-                                min="0"
-                                className={inputClass}
-                                value={exceptionHoursOverride}
-                                onChange={(e) => setExceptionHoursOverride(e.target.value)}
-                                placeholder="auto"
-                              />
-                            </Field>
-                            <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
-                              <input type="checkbox" checked={exceptionAffectsPay} onChange={(e) => setExceptionAffectsPay(e.target.checked)} />
-                              Affects pay
-                            </label>
-                            <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
-                              <input
-                                type="checkbox"
-                                checked={exceptionCountsTowardGuaranteed}
-                                onChange={(e) => setExceptionCountsTowardGuaranteed(e.target.checked)}
-                              />
-                              Counts toward guaranteed hours
-                            </label>
-                            <Field label="Private note (parent only)">
-                              <input className={inputClass} value={exceptionParentNote} onChange={(e) => setExceptionParentNote(e.target.value)} />
-                            </Field>
-                            <Field label="Note visible to nanny">
-                              <input className={inputClass} value={exceptionNannyNote} onChange={(e) => setExceptionNannyNote(e.target.value)} />
-                            </Field>
-                            {exceptionError && <p className="text-sm text-red-600 dark:text-red-400">{exceptionError}</p>}
-                            <div className="flex gap-2 pt-1">
-                              <Button
-                                type="button"
-                                variant="secondary"
-                                className="flex-1"
-                                onClick={() => { setShowExceptionForm(false); resetExceptionForm() }}
+                            {d.actualHours > 0 && (
+                              <p className="mt-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                                ✓ Worked
+                                {d.entries.length === 1 && (
+                                  <span className="ml-1 font-normal">{formatEntryRangeCompact(d.entries[0], timeFormat)}</span>
+                                )}
+                              </p>
+                            )}
+                          </div>
+                          {(d.scheduledHours > 0 || d.actualHours > 0) && (
+                            <span className="shrink-0 text-sm font-semibold text-gray-700 dark:text-gray-300">
+                              {d.actualHours > 0 ? (
+                                <>
+                                  <span
+                                    className={
+                                      d.actualHours > d.scheduledHours
+                                        ? 'text-red-600 dark:text-red-400'
+                                        : 'text-emerald-600 dark:text-emerald-400'
+                                    }
+                                  >
+                                    {formatHours(d.actualHours)}
+                                  </span>
+                                  {d.scheduledHours > 0 && (
+                                    <span className="font-normal text-gray-400 dark:text-gray-500"> / {formatHours(d.scheduledHours)}</span>
+                                  )}
+                                </>
+                              ) : (
+                                formatHours(d.scheduledHours)
+                              )}
+                            </span>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <span className={`shrink-0 pt-1 text-xs text-gray-300 transition-transform dark:text-gray-600 ${isSelected ? 'rotate-90' : ''}`}>
+                    ›
+                  </span>
+                </button>
+
+                {isSelected && (busy.length > 0 || isParentOrCoAdmin) && (
+                  <div className="mb-3 space-y-3 rounded-xl bg-gray-50 p-3 dark:bg-gray-900">
+                    {busy.map((d) => (
+                      <div key={d.caregiverId} className="space-y-2">
+                        {viewingAll && (
+                          <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-gray-300">
+                            <span className={`h-2 w-2 rounded-full ${colorFor(d.caregiverId).dot}`} />
+                            {caregiverName(d.caregiverId)}
+                          </p>
+                        )}
+                        {d.occs.map((occ) => (
+                          <div key={occ.shift.id} className="flex items-start justify-between gap-2">
+                            <div>
+                              <p
+                                className={
+                                  d.removedShiftIds.has(occ.shift.id)
+                                    ? 'text-sm font-medium text-gray-400 line-through dark:text-gray-600'
+                                    : 'text-sm font-medium text-gray-900 dark:text-gray-100'
+                                }
                               >
-                                Cancel
-                              </Button>
-                              <Button type="submit" className="flex-1" disabled={exceptionSubmitting}>
-                                {exceptionSubmitting ? 'Saving…' : 'Save exception'}
-                              </Button>
+                                {formatTimeOfDay(occ.shift.start_time, timeFormat)} – {formatTimeOfDay(occ.shift.end_time, timeFormat)}
+                              </p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Recurring · {formatHours(shiftHours(occ.shift))}
+                                {occ.shift.break_minutes > 0 ? ` · ${occ.shift.break_minutes}m break` : ''}
+                                {d.removedShiftIds.has(occ.shift.id) ? ' · removed this day' : ''}
+                              </p>
                             </div>
-                          </form>
+                          </div>
+                        ))}
+                        {d.leave.map((l) => (
+                          <div key={l.id} className="flex items-center justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                {LEAVE_LABELS[l.leave_type] ?? l.leave_type.replace(/_/g, ' ')}
+                              </p>
+                              {l.hours_requested != null && (
+                                <p className="text-xs text-gray-500 dark:text-gray-400">{formatHours(l.hours_requested)}</p>
+                              )}
+                            </div>
+                            <StatusChip status={l.status} />
+                          </div>
+                        ))}
+                        {d.exceptions.map((ex) => (
+                          <div key={ex.id} className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-medium text-purple-700 dark:text-purple-400">{exceptionLabel(ex)}</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                {formatHours(exceptionHours(ex, shiftsById))}
+                                {ex.affects_pay ? '' : ' · unpaid'}
+                                {ex.counts_toward_guaranteed_hours ? ' · counts toward guarantee' : ''}
+                              </p>
+                              {isNanny ? (
+                                ex.nanny_visible_note && (
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">{ex.nanny_visible_note}</p>
+                                )
+                              ) : (
+                                <>
+                                  {ex.parent_note && <p className="text-xs text-gray-400 dark:text-gray-500">{ex.parent_note}</p>}
+                                  {ex.nanny_visible_note && (
+                                    <p className="text-xs text-gray-400 dark:text-gray-500">Nanny sees: {ex.nanny_visible_note}</p>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                            {isParentOrCoAdmin && (
+                              <button
+                                className="shrink-0 text-xs text-red-600 underline dark:text-red-400"
+                                onClick={() => handleDeleteException(ex)}
+                              >
+                                Undo
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        {d.entries.map((entry) => {
+                          const { start, end } = formatEntryTimeRange(entry, timeFormat)
+                          return (
+                            <div key={entry.id} className="flex items-center justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+                                  Worked {start} – {end}
+                                </p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">{formatHours(entry.paid_hours)}</p>
+                              </div>
+                              <StatusChip status={entry.status} />
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ))}
+
+                    {isParentOrCoAdmin && (
+                      <div className="space-y-2 border-t border-gray-200 pt-3 dark:border-gray-700">
+                        {viewingAll && (
+                          <div className="flex items-center gap-2">
+                            <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">For</span>
+                            <CaregiverSelect compact />
+                          </div>
+                        )}
+                        {showExceptionForm ? (
+                          <form onSubmit={(e) => handleAddException(e, dayStr)} className="space-y-2">
+                    <Field label="Type">
+                      <select
+                        className={inputClass}
+                        value={exceptionType}
+                        onChange={(e) => {
+                          const nextType = e.target.value as ExceptionType
+                          setExceptionType(nextType)
+                          // Family-cancellation pay defaults from the canceled shift's own
+                          // template setting (spec 15.6) rather than always defaulting true,
+                          // so a household that marks a shift unpaid-if-canceled doesn't have
+                          // to remember to uncheck "affects pay" by hand every time.
+                          if (nextType === 'family_cancellation' && dayOccs.length === 1) {
+                            setExceptionOriginalShiftId(dayOccs[0].shift.id)
+                            setExceptionAffectsPay(dayOccs[0].shift.paid_if_family_canceled)
+                          }
+                        }}
+                      >
+                        {EXCEPTION_TYPES.map((t) => (
+                          <option key={t} value={t}>
+                            {EXCEPTION_LABELS[t]}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    {EXCEPTION_TYPES_WITH_ORIGINAL_SHIFT.includes(exceptionType) && dayOccs.length > 0 && (
+                      <Field label="Original shift">
+                        <select
+                          className={inputClass}
+                          value={exceptionOriginalShiftId}
+                          onChange={(e) => {
+                            const shiftId = e.target.value
+                            setExceptionOriginalShiftId(shiftId)
+                            if (exceptionType === 'family_cancellation') {
+                              setExceptionAffectsPay(shiftId ? shiftsById[shiftId].paid_if_family_canceled : true)
+                            }
+                          }}
+                        >
+                          <option value="">None</option>
+                          {dayOccs.map((occ) => (
+                            <option key={occ.shift.id} value={occ.shift.id}>
+                              {formatTimeOfDay(occ.shift.start_time, timeFormat)}–{formatTimeOfDay(occ.shift.end_time, timeFormat)}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    )}
+                    {EXCEPTION_TYPES_WITH_TIME_RANGE.includes(exceptionType) && (
+                      <div className="space-y-2">
+                        <Field label="New start">
+                          <input type="time" className={timeInputClass} value={exceptionStart} onChange={(e) => setExceptionStart(e.target.value)} />
+                        </Field>
+                        <Field label="New end">
+                          <input type="time" className={timeInputClass} value={exceptionEnd} onChange={(e) => setExceptionEnd(e.target.value)} />
+                        </Field>
+                      </div>
+                    )}
+                    <Field label="Hours (leave blank to auto-calculate)">
+                      <input
+                        type="number"
+                        step="0.25"
+                        min="0"
+                        className={inputClass}
+                        value={exceptionHoursOverride}
+                        onChange={(e) => setExceptionHoursOverride(e.target.value)}
+                        placeholder="auto"
+                      />
+                    </Field>
+                    <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                      <input type="checkbox" checked={exceptionAffectsPay} onChange={(e) => setExceptionAffectsPay(e.target.checked)} />
+                      Affects pay
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                      <input
+                        type="checkbox"
+                        checked={exceptionCountsTowardGuaranteed}
+                        onChange={(e) => setExceptionCountsTowardGuaranteed(e.target.checked)}
+                      />
+                      Counts toward guaranteed hours
+                    </label>
+                    <Field label="Private note (parent only)">
+                      <input className={inputClass} value={exceptionParentNote} onChange={(e) => setExceptionParentNote(e.target.value)} />
+                    </Field>
+                    <Field label="Note visible to nanny">
+                      <input className={inputClass} value={exceptionNannyNote} onChange={(e) => setExceptionNannyNote(e.target.value)} />
+                    </Field>
+                    {exceptionError && <p className="text-sm text-red-600 dark:text-red-400">{exceptionError}</p>}
+                    <div className="flex gap-2 pt-1">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="flex-1"
+                        onClick={() => { setShowExceptionForm(false); resetExceptionForm() }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button type="submit" className="flex-1" disabled={exceptionSubmitting}>
+                        {exceptionSubmitting ? 'Saving…' : 'Save exception'}
+                      </Button>
+                    </div>
+                  </form>
                         ) : (
-                          <button
-                            className="mt-1 w-full rounded-lg border border-dashed border-gray-300 py-2 text-xs font-medium text-gray-500 dark:border-gray-700 dark:text-gray-400"
-                            onClick={() => { resetExceptionForm(); setShowExceptionForm(true) }}
-                          >
-                            + Add schedule exception
-                          </button>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button className={quickAction} onClick={() => navigate(`/time?date=${dayStr}`)}>
+                              <span aria-hidden>⏱️</span> Log time
+                            </button>
+                            <button className={quickAction} onClick={() => navigate(`/pto?date=${dayStr}`)}>
+                              <span aria-hidden>🌴</span> PTO / leave
+                            </button>
+                            <button className={quickAction} onClick={() => openAddShiftFor(dayStr)}>
+                              <span aria-hidden>＋</span> Add shift
+                            </button>
+                            <button
+                              className={quickAction}
+                              onClick={() => { resetExceptionForm(); setShowExceptionForm(true) }}
+                            >
+                              <span aria-hidden>✎</span> Change day
+                            </button>
+                          </div>
                         )}
                       </div>
                     )}
@@ -967,31 +1151,47 @@ export function Schedule() {
       </Card>
 
       {sortedShifts.length > 0 && (
-        <Card title="Recurring schedule">
-          <div className="space-y-2">
-            {sortedShifts.map((shift) => (
-              <div key={shift.id} className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                    {describeShiftRecurrence(shift)} · {formatTimeOfDay(shift.start_time, timeFormat)}–{formatTimeOfDay(shift.end_time, timeFormat)}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {formatHours(shiftHours(shift))} per shift
-                    {shift.notes ? ` · ${shift.notes}` : ''}
-                  </p>
-                </div>
-                {isParentOrCoAdmin && (
-                  <button
-                    className="text-xs text-red-600 underline dark:text-red-400"
-                    onClick={() => handleDeleteShift(shift)}
-                  >
-                    Remove
-                  </button>
-                )}
+        <div>
+          <button
+            className="flex w-full items-center justify-between px-1 py-2 text-sm font-semibold text-gray-700 dark:text-gray-300"
+            onClick={() => setShowRecurring((v) => !v)}
+            aria-expanded={showRecurring}
+          >
+            <span>Recurring schedule ({sortedShifts.length})</span>
+            <span className={`text-xs text-gray-400 transition-transform ${showRecurring ? 'rotate-90' : ''}`}>›</span>
+          </button>
+          {showRecurring && (
+            <Card>
+              <div className="space-y-2">
+                {sortedShifts.map((shift) => (
+                  <div key={shift.id} className="flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-start gap-2">
+                      {viewingAll && <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${colorFor(shift.caregiverId).dot}`} />}
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          {viewingAll ? `${caregiverName(shift.caregiverId).split(' ')[0]} · ` : ''}
+                          {describeShiftRecurrence(shift)} · {formatTimeOfDay(shift.start_time, timeFormat)}–{formatTimeOfDay(shift.end_time, timeFormat)}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {formatHours(shiftHours(shift))} per shift
+                          {shift.notes ? ` · ${shift.notes}` : ''}
+                        </p>
+                      </div>
+                    </div>
+                    {isParentOrCoAdmin && (
+                      <button
+                        className="shrink-0 text-xs text-red-600 underline dark:text-red-400"
+                        onClick={() => handleDeleteShift(shift)}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </Card>
+            </Card>
+          )}
+        </div>
       )}
 
       {showAddShiftModal && (
