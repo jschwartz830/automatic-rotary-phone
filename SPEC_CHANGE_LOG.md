@@ -8,6 +8,25 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-23 — UX pass 5/6: faster time logging and approval; forms as bottom sheets
+
+- **Time — "Not logged yet".** Lists up to 5 scheduled shifts from the last
+  14 days with no entry that day (skipping days covered by leave, removed or
+  canceled shifts, holidays/weather closures, and paid periods; today's shift
+  only once it has ended). "Log" inserts the scheduled times as a normal
+  submitted manual entry (`schedule_shift_id` linked); tapping the day opens
+  the form on that date to adjust first.
+- **Time — grouped by week** with a weekly hours total and an "Approve all N"
+  button for that week's submitted entries (one update plus one audit event
+  per entry, same as single approval).
+- Time's "Log time" and PTO's "Record leave"/"Request" forms now open as
+  bottom sheets instead of pushing the list down. PTO balances show hours
+  left. Time inputs widened (`w-32` → `w-36`) so "08:00 AM" isn't clipped.
+- PTO's caregiver-change effect closed the form on first load, which
+  swallowed Calendar's `?date=` deep link; it now resets only on a real switch.
+
+---
+
 ## 2026-09-23 — UX pass 4/6: Home leads with what needs doing
 
 - Urgent/warning reminders now sit at the top of Home (they were at the very

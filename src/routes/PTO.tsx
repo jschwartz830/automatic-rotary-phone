@@ -7,7 +7,7 @@ import { useSelectedCaregiver } from '../context/SelectedCaregiverContext'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
-import { formatDay, formatDayRange, isValidCalendarDate } from '../lib/dates'
+import { formatDay, formatDayRange, formatHours, isValidCalendarDate } from '../lib/dates'
 import { useLeavePolicies } from '../lib/useLeavePolicies'
 import { computeLeaveBalance, computeLeaveBalanceFromLedger, formatLeaveType, type LeaveBalancePolicy } from '../lib/leave'
 import { downloadCsv } from '../lib/csv'
@@ -477,10 +477,11 @@ export function PTO() {
           variant="secondary"
           onClick={() => {
             if (detailId) closeDetail()
-            setShowForm((s) => !s)
+            setError(null)
+            setShowForm(true)
           }}
         >
-          {showForm ? 'Cancel' : '+ Request'}
+          {isParentOrCoAdmin ? '+ Record leave' : '+ Request'}
         </Button>
       </div>
 
@@ -537,8 +538,8 @@ export function PTO() {
                     <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{formatLeaveType(type)}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                       {balance.allowanceHours != null
-                        ? `${balance.usedHours.toFixed(2)} / ${balance.allowanceHours.toFixed(2)} hrs used`
-                        : `${balance.usedHours.toFixed(2)} hrs used this year`}
+                        ? `${formatHours(balance.usedHours)} of ${formatHours(balance.allowanceHours)} used · ${formatHours(Math.max(balance.allowanceHours - balance.usedHours, 0))} left`
+                        : `${formatHours(balance.usedHours)} used this year`}
                     </p>
                   </div>
                   {balance.allowanceHours != null && (
@@ -592,7 +593,7 @@ export function PTO() {
       )}
 
       {showForm && (
-        <Card title={isParentOrCoAdmin ? 'Record leave' : 'Request leave'}>
+        <Modal title={isParentOrCoAdmin ? 'Record leave' : 'Request leave'} onClose={() => setShowForm(false)}>
           <form onSubmit={handleSubmit} className="space-y-3">
             <Field label="Type">
               <select className={inputClass} value={leaveType} onChange={(e) => setLeaveType(e.target.value as LeaveType)}>
@@ -645,7 +646,7 @@ export function PTO() {
               {submitting ? 'Saving…' : 'Submit'}
             </Button>
           </form>
-        </Card>
+        </Modal>
       )}
 
       {error && !showForm && !detailId && <p className="px-1 text-sm text-red-600 dark:text-red-400">{error}</p>}
