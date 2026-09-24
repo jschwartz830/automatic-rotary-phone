@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { usePreferences } from '../context/PreferencesContext'
@@ -8,17 +8,27 @@ import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
 import { hoursBetween, round2 } from '../lib/calc'
-import { isValidCalendarDate } from '../lib/dates'
-import { generateShiftsForRange, shiftHours } from '../lib/schedule'
+import { formatDay, formatDayRange, formatHours, isValidCalendarDate, todayIso, toIsoDate } from '../lib/dates'
+import { addDays, parseISO, startOfWeek, subDays } from 'date-fns'
+import { generateShiftsForRange, shiftHours, type GeneratedShiftOccurrence } from '../lib/schedule'
 import { computeReminders } from '../lib/reminders'
 import { validateTimeEntry, type ActingRole } from '../lib/timeValidation'
-import { formatDateTime, formatEntryTimeRange } from '../lib/time'
+import { formatDateTime, formatEntryTimeRange, formatTimeCompact } from '../lib/time'
 import { Card, Button, Field, inputClass, dateInputClass, timeInputClass } from '../components/Card'
 import { CaregiverSelect } from '../components/CaregiverSelect'
 import { StatusChip } from '../components/StatusChip'
 import { SwipeRow } from '../components/SwipeRow'
 import { Modal } from '../components/Modal'
-import type { PaymentRecord, ReminderSetting, ScheduleShift, ScheduleTemplate, TimeEntry, TimeEntryMethod } from '../lib/types'
+import type {
+  LeaveRequest,
+  PaymentRecord,
+  ReminderSetting,
+  ScheduleException,
+  ScheduleShift,
+  ScheduleTemplate,
+  TimeEntry,
+  TimeEntryMethod,
+} from '../lib/types'
 
 function WarningList({ warnings }: { warnings: string[] }) {
   if (warnings.length === 0) return null
@@ -34,11 +44,15 @@ function WarningList({ warnings }: { warnings: string[] }) {
   )
 }
 
+// How far back "Not logged yet" looks for scheduled-but-unlogged shifts.
+const RECENT_WINDOW_DAYS = 14
+
 const DEFAULT_START_TIME = '09:00'
 const DEFAULT_END_TIME = '17:00'
 
 export function Time() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useAuth()
   const { timeFormat } = usePreferences()
   const { household, isNanny, isParentOrCoAdmin, caregiverProfile } = useHousehold()
@@ -49,7 +63,9 @@ export function Time() {
   const [shiftsByTemplate, setShiftsByTemplate] = useState<Record<string, ScheduleShift[]>>({})
   const [reminderSettings, setReminderSettings] = useState<ReminderSetting[]>([])
   const [showForm, setShowForm] = useState(false)
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const todayStr = todayIso()
+  const recentWindowStart = toIsoDate(subDays(new Date(), RECENT_WINDOW_DAYS - 1))
+  const [date, setDate] = useState(todayIso)
   const [startTime, setStartTime] = useState(DEFAULT_START_TIME)
   const [endTime, setEndTime] = useState(DEFAULT_END_TIME)
   const [breakMinutes, setBreakMinutes] = useState('0')
@@ -76,6 +92,12 @@ export function Time() {
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
   const [showArchive, setShowArchive] = useState(false)
+  const [bulkApproving, setBulkApproving] = useState(false)
+  const [quickLogging, setQuickLogging] = useState<string | null>(null)
+  // Leave and cancel-type schedule changes for the recent window, so the
+  // "Not logged yet" list doesn't nag about days that weren't meant to be worked.
+  const [recentLeave, setRecentLeave] = useState<LeaveRequest[]>([])
+  const [recentExceptions, setRecentExceptions] = useState<ScheduleException[]>([])
 
 
   async function loadSchedule(forCaregiverId: string) {
@@ -129,6 +151,17 @@ export function Time() {
     }
   }, [date, templates, shiftsByTemplate])
 
+  // Calendar's "Log time" quick action links here with ?date=YYYY-MM-DD:
+  // open the manual-entry form on that date (the schedule pre-fill above then
+  // fills in that day's shift times).
+  useEffect(() => {
+    const linkedDate = searchParams.get('date')
+    if (!linkedDate || !isValidCalendarDate(linkedDate)) return
+    setDate(linkedDate)
+    setShowForm(true)
+    setSearchParams({}, { replace: true })
+  }, [searchParams, setSearchParams])
+
   async function loadEntries(forCaregiverId: string) {
     const { data } = await supabase
       .from('time_entries')
@@ -156,11 +189,34 @@ export function Time() {
     )
   }
 
+  async function loadRecentOff(forCaregiverId: string) {
+    const [leaveRes, exceptionsRes] = await Promise.all([
+      supabase
+        .from('leave_requests')
+        .select('*')
+        .eq('caregiver_id', forCaregiverId)
+        .in('status', ['approved', 'requested'])
+        .is('archived_at', null)
+        .gte('end_date', recentWindowStart),
+      supabase
+        .from('schedule_exceptions')
+        .select('*')
+        .eq('caregiver_id', forCaregiverId)
+        .eq('status', 'approved')
+        .in('exception_type', ['removed_shift', 'family_cancellation', 'holiday', 'weather_emergency'])
+        .gte('date', recentWindowStart),
+    ])
+    setRecentLeave((leaveRes.data ?? []) as LeaveRequest[])
+    setRecentExceptions((exceptionsRes.data ?? []) as ScheduleException[])
+  }
+
   useEffect(() => {
     if (caregiverId) {
       loadEntries(caregiverId)
       loadPaidPeriods(caregiverId)
+      loadRecentOff(caregiverId)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caregiverId])
 
   // Loaded so the "Overdue" clock-out chip below can respect a household's
@@ -260,6 +316,79 @@ export function Time() {
     if (caregiverId) await loadEntries(caregiverId)
   }
 
+  async function approveEntries(toApprove: TimeEntry[]) {
+    if (toApprove.length === 0) return
+    setBulkApproving(true)
+    setError(null)
+    const { error: approveError } = await supabase
+      .from('time_entries')
+      .update({ status: 'approved', updated_by: user?.id ?? null })
+      .in('id', toApprove.map((e) => e.id))
+    if (approveError) {
+      setError(errorMessage(approveError, 'Could not approve entries.'))
+    } else if (household) {
+      await Promise.all(
+        toApprove.map((entry) =>
+          logAuditEvent({
+            householdId: household.id,
+            actorUserId: user?.id ?? '',
+            entityType: 'time_entry',
+            entityId: entry.id,
+            action: 'approve',
+            before: { status: entry.status },
+            after: { status: 'approved' },
+          })
+        )
+      )
+    }
+    if (caregiverId) await loadEntries(caregiverId)
+    setBulkApproving(false)
+  }
+
+  // One-tap "worked as scheduled" for a shift in the recent window that has
+  // no entry yet. Same insert as the manual form with the scheduled times.
+  async function quickLog(occ: GeneratedShiftOccurrence) {
+    if (!caregiverId || !household) return
+    const key = `${occ.date}-${occ.shift.id}`
+    setQuickLogging(key)
+    setError(null)
+    try {
+      const start = occ.shift.start_time.slice(0, 5)
+      const end = occ.shift.end_time.slice(0, 5)
+      const paidHours = hoursBetween(start, end, occ.shift.break_minutes)
+      const { data: entry, error: insertError } = await supabase
+        .from('time_entries')
+        .insert({
+          caregiver_id: caregiverId,
+          date: occ.date,
+          schedule_shift_id: occ.shift.id,
+          manual_start_time: start,
+          manual_end_time: end,
+          break_minutes: occ.shift.break_minutes,
+          paid_hours: paidHours,
+          method: 'manual',
+          status: 'submitted',
+          created_by: user?.id ?? null,
+        })
+        .select()
+        .single()
+      if (insertError) throw insertError
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'time_entry',
+        entityId: entry.id,
+        action: 'create',
+        after: { date: occ.date, startTime: start, endTime: end, paidHours, source: 'log_as_scheduled' },
+      })
+      await loadEntries(caregiverId)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not log shift.'))
+    } finally {
+      setQuickLogging(null)
+    }
+  }
+
   // Per spec 13.4, only the nanny clocks in/out; parents use manual entry.
   const activeClockEntry = entries.find((e) => e.method === 'clock' && e.clock_in_at && !e.clock_out_at) ?? null
 
@@ -289,7 +418,7 @@ export function Time() {
     setClockSubmitting(true)
     setError(null)
     try {
-      const todayStr = new Date().toISOString().slice(0, 10)
+      const todayStr = todayIso()
       const todaysShift = generateShiftsForRange(templates, shiftsByTemplate, todayStr, todayStr)[0]?.shift
       const { data: entry, error: insertError } = await supabase
         .from('time_entries')
@@ -491,6 +620,30 @@ export function Time() {
   const activeEntries = entries.filter((e) => !e.deleted_at)
   const archivedEntries = entries.filter((e) => e.deleted_at)
 
+  // Scheduled shifts from the last two weeks with nothing logged for that day
+  // (and no leave or cancellation covering it), newest first. Today's shift
+  // only counts once it has ended.
+  const unloggedShifts = (() => {
+    const now = new Date()
+    const nowTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+    const loggedDates = new Set(activeEntries.map((e) => e.date))
+    return generateShiftsForRange(templates, shiftsByTemplate, recentWindowStart, todayStr)
+      .filter((occ) => !loggedDates.has(occ.date))
+      .filter((occ) => occ.date < todayStr || occ.shift.end_time.slice(0, 5) <= nowTime)
+      .filter((occ) => !recentLeave.some((l) => l.start_date <= occ.date && (l.end_date ?? l.start_date) >= occ.date))
+      .filter(
+        (occ) =>
+          !recentExceptions.some(
+            (ex) =>
+              ex.date === occ.date &&
+              (!ex.original_schedule_shift_id || ex.original_schedule_shift_id === occ.shift.id)
+          )
+      )
+      .filter((occ) => !paidPeriods.some((p) => p.start <= occ.date && p.end >= occ.date))
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 5)
+  })()
+
   // An in-progress clock entry has no end time to edit yet, and a locked
   // entry belongs to a closed pay period; everything else is editable by a
   // parent, or by the nanny while it's still theirs to change.
@@ -539,6 +692,23 @@ export function Time() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showForm, date, startTime, endTime, breakMinutes, entries, actingRole, overtimeThresholdHours, weekStartsOn, templates, shiftsByTemplate, paidPeriods])
 
+  const entriesByWeek = (() => {
+    const groups: { weekStart: string; weekEnd: string; entries: TimeEntry[]; totalHours: number; approvable: TimeEntry[] }[] = []
+    for (const entry of activeEntries) {
+      const ws = startOfWeek(parseISO(entry.date), { weekStartsOn })
+      const key = toIsoDate(ws)
+      let group = groups.find((g) => g.weekStart === key)
+      if (!group) {
+        group = { weekStart: key, weekEnd: toIsoDate(addDays(ws, 6)), entries: [], totalHours: 0, approvable: [] }
+        groups.push(group)
+      }
+      group.entries.push(entry)
+      group.totalHours += entry.paid_hours ?? 0
+      if (canApprove(entry)) group.approvable.push(entry)
+    }
+    return groups
+  })()
+
   const detailEntry = entries.find((e) => e.id === detailEntryId) ?? null
   const editingEntry = detailEntry
   const editWarnings = useMemo(() => {
@@ -568,8 +738,8 @@ export function Time() {
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">Time</h1>
-        <Button variant="secondary" onClick={() => setShowForm((s) => !s)}>
-          {showForm ? 'Cancel' : '+ Add time'}
+        <Button variant="secondary" onClick={() => { setError(null); setShowForm(true) }}>
+          + Log time
         </Button>
       </div>
 
@@ -620,7 +790,7 @@ export function Time() {
       {isParentOrCoAdmin && <CaregiverSelect />}
 
       {showForm && (
-        <Card title="Manual time entry">
+        <Modal title="Log time" onClose={() => setShowForm(false)}>
           <form onSubmit={handleAddEntry} className="space-y-3">
             <Field label="Date">
               <input type="date" className={dateInputClass} value={date} onChange={(e) => setDate(e.target.value)} required />
@@ -646,7 +816,7 @@ export function Time() {
               <input className={inputClass} value={note} onChange={(e) => setNote(e.target.value)} />
             </Field>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              {hoursBetween(startTime, endTime, Number(breakMinutes) || 0).toFixed(2)} paid hours
+              {formatHours(hoursBetween(startTime, endTime, Number(breakMinutes) || 0))} paid
             </p>
             <WarningList warnings={addWarnings} />
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
@@ -654,6 +824,42 @@ export function Time() {
               {submitting ? 'Saving…' : 'Save entry'}
             </Button>
           </form>
+        </Modal>
+      )}
+
+      {unloggedShifts.length > 0 && (
+        <Card
+          title="Not logged yet"
+          action={<span className="text-[11px] text-gray-400 dark:text-gray-500">Tap a day to adjust times</span>}
+        >
+          <div className="-my-1 divide-y divide-gray-100 dark:divide-gray-700">
+            {unloggedShifts.map((occ) => (
+              <div key={`${occ.date}-${occ.shift.id}`} className="flex items-center justify-between gap-2 py-1.5">
+                <button
+                  type="button"
+                  className="min-w-0 text-left"
+                  onClick={() => { setDate(occ.date); setError(null); setShowForm(true) }}
+                >
+                  <p className="text-sm text-gray-900 dark:text-gray-100">
+                    <span className="font-medium">{formatDay(occ.date)}</span>
+                    <span className="text-gray-500 dark:text-gray-400">
+                      {' · '}
+                      {formatTimeCompact(occ.shift.start_time, timeFormat)}–{formatTimeCompact(occ.shift.end_time, timeFormat)} ·{' '}
+                      {formatHours(shiftHours(occ.shift))}
+                    </span>
+                  </p>
+                </button>
+                <Button
+                  variant="secondary"
+                  className="shrink-0 px-4! py-1.5!"
+                  disabled={quickLogging !== null}
+                  onClick={() => quickLog(occ)}
+                >
+                  {quickLogging === `${occ.date}-${occ.shift.id}` ? 'Logging…' : 'Log'}
+                </Button>
+              </div>
+            ))}
+          </div>
         </Card>
       )}
 
@@ -666,7 +872,25 @@ export function Time() {
           <p className="px-1 text-[11px] text-gray-400 dark:text-gray-500">
             Tap an entry for details. Swipe left to archive{isParentOrCoAdmin ? ', swipe right to approve' : ''}.
           </p>
-          {activeEntries.map((entry) => {
+          {entriesByWeek.map((week) => (
+          <div key={week.weekStart} className="space-y-2">
+            <div className="flex items-center justify-between gap-2 px-1 pt-2">
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                {formatDayRange(week.weekStart, week.weekEnd)}
+                <span className="ml-1.5 font-normal">· {formatHours(week.totalHours)}</span>
+              </p>
+              {week.approvable.length > 0 && (
+                <button
+                  type="button"
+                  className="rounded-full bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-700 active:bg-green-100 disabled:opacity-50 dark:bg-green-500/15 dark:text-green-300"
+                  disabled={bulkApproving}
+                  onClick={() => approveEntries(week.approvable)}
+                >
+                  ✓ Approve {week.approvable.length === 1 ? '' : `all ${week.approvable.length}`}
+                </button>
+              )}
+            </div>
+          {week.entries.map((entry) => {
             const isActiveClock = entry.id === activeClockEntry?.id
             const { start: displayStart, end: displayEnd } = formatEntryTimeRange(entry, timeFormat)
             // Spec 14.3 Time Screen "Show: ... Scheduled vs actual" -- reuses
@@ -695,13 +919,13 @@ export function Time() {
                 <Card>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{entry.date}</p>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{formatDay(entry.date)}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {displayStart}–{displayEnd} · {entry.paid_hours?.toFixed(2) ?? '0.00'} hrs
+                        {displayStart}–{displayEnd} · {formatHours(entry.paid_hours)}
                         {scheduledForDay !== null && (
                           <span className="text-gray-400 dark:text-gray-500">
                             {' '}
-                            (scheduled {scheduledForDay.toFixed(2)} hrs)
+                            (scheduled {formatHours(scheduledForDay)})
                           </span>
                         )}
                       </p>
@@ -737,6 +961,8 @@ export function Time() {
               </SwipeRow>
             )
           })}
+          </div>
+          ))}
         </div>
       )}
       {error && !showForm && <p className="text-sm text-red-600 px-1 dark:text-red-400">{error}</p>}
@@ -766,9 +992,9 @@ export function Time() {
                     <Card>
                       <div className="flex items-start justify-between gap-2 opacity-60">
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{entry.date}</p>
+                          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{formatDay(entry.date)}</p>
                           <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {displayStart}–{displayEnd} · {entry.paid_hours?.toFixed(2) ?? '0.00'} hrs
+                            {displayStart}–{displayEnd} · {formatHours(entry.paid_hours)}
                           </p>
                         </div>
                         <button
@@ -856,7 +1082,7 @@ export function Time() {
                   <input className={inputClass} value={editNote} onChange={(e) => setEditNote(e.target.value)} />
                 </Field>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {hoursBetween(editStart, editEnd, Number(editBreak) || 0).toFixed(2)} paid hours
+                  {formatHours(hoursBetween(editStart, editEnd, Number(editBreak) || 0))} paid
                 </p>
                 <WarningList warnings={editWarnings} />
                 {editError && <p className="text-sm text-red-600 dark:text-red-400">{editError}</p>}
@@ -866,11 +1092,11 @@ export function Time() {
               </div>
             ) : (
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{detailEntry.date}</p>
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{formatDay(detailEntry.date)}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   {formatEntryTimeRange(detailEntry, timeFormat).start}–
                   {formatEntryTimeRange(detailEntry, timeFormat).end} ·{' '}
-                  {detailEntry.paid_hours?.toFixed(2) ?? '0.00'} hrs
+                  {formatHours(detailEntry.paid_hours)}
                 </p>
                 <p className="text-xs text-gray-400 dark:text-gray-500">
                   {detailEntry.deleted_at

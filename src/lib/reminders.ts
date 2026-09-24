@@ -1,6 +1,7 @@
 import { addDays, differenceInCalendarDays, format, parseISO, startOfWeek } from 'date-fns'
 import type { CaregiverProfile, LeaveRequest, PaymentRecord, ReminderType, ScheduleException, TimeEntry, Timesheet } from './types'
 import type { GeneratedShiftOccurrence } from './schedule'
+import { toIsoDate } from './dates'
 
 // Spec 15.14's ten reminder types, in schema/check-constraint order. Used to
 // drive the per-type enable/disable settings UI (spec 13.9's "Reminder
@@ -299,9 +300,9 @@ export function buildWeeklySummaryCards(input: {
     input
   const weekStart = startOfWeek(today, { weekStartsOn })
   const weekEnd = addDays(weekStart, 6)
-  const weekStartStr = weekStart.toISOString().slice(0, 10)
-  const weekEndStr = weekEnd.toISOString().slice(0, 10)
-  const todayStr = today.toISOString().slice(0, 10)
+  const weekStartStr = toIsoDate(weekStart)
+  const weekEndStr = toIsoDate(weekEnd)
+  const todayStr = toIsoDate(today)
 
   return caregivers.map((cg) => {
     const hoursThisWeek = timeEntries

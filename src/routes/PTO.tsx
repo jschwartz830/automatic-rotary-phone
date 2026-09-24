@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { addDays, format } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
@@ -7,7 +7,7 @@ import { useSelectedCaregiver } from '../context/SelectedCaregiverContext'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
-import { isValidCalendarDate } from '../lib/dates'
+import { formatDay, formatDayRange, formatHours, isValidCalendarDate } from '../lib/dates'
 import { useLeavePolicies } from '../lib/useLeavePolicies'
 import { computeLeaveBalance, computeLeaveBalanceFromLedger, formatLeaveType, type LeaveBalancePolicy } from '../lib/leave'
 import { downloadCsv } from '../lib/csv'
@@ -23,6 +23,7 @@ const BALANCE_TYPES: LeaveType[] = ['pto', 'sick']
 
 export function PTO() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useAuth()
   const { household, isNanny, isParentOrCoAdmin, coadminAllowed, caregiverProfile } = useHousehold()
   const canExport = isParentOrCoAdmin && coadminAllowed('export_records')
@@ -54,6 +55,16 @@ export function PTO() {
   const unarchivedRequests = requests.filter((r) => !r.archived_at)
 
 
+  // Calendar's "PTO / leave" quick action links here with ?date=YYYY-MM-DD.
+  useEffect(() => {
+    const linkedDate = searchParams.get('date')
+    if (!linkedDate || !isValidCalendarDate(linkedDate)) return
+    setStartDate(linkedDate)
+    setEndDate(linkedDate)
+    setShowForm(true)
+    setSearchParams({}, { replace: true })
+  }, [searchParams, setSearchParams])
+
   async function loadRequests(forCaregiverId: string) {
     const [requestsRes, ledgerRes] = await Promise.all([
       supabase
@@ -71,10 +82,16 @@ export function PTO() {
     setLedgerEntries((ledgerRes.data ?? []) as LeaveLedgerEntry[])
   }
 
+  // Close any open form/detail when switching caregivers -- but not on first
+  // load, so a Calendar deep link (?date=) can open the form.
+  const previousCaregiverId = useRef(caregiverId)
   useEffect(() => {
     if (caregiverId) loadRequests(caregiverId)
-    setShowForm(false)
-    closeDetail()
+    if (previousCaregiverId.current && previousCaregiverId.current !== caregiverId) {
+      setShowForm(false)
+      closeDetail()
+    }
+    previousCaregiverId.current = caregiverId
   }, [caregiverId])
 
   /** Current balance for one policy, read fresh so appended rows stack correctly. */
@@ -460,10 +477,11 @@ export function PTO() {
           variant="secondary"
           onClick={() => {
             if (detailId) closeDetail()
-            setShowForm((s) => !s)
+            setError(null)
+            setShowForm(true)
           }}
         >
-          {showForm ? 'Cancel' : '+ Request'}
+          {isParentOrCoAdmin ? '+ Record leave' : '+ Request'}
         </Button>
       </div>
 
@@ -520,8 +538,8 @@ export function PTO() {
                     <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{formatLeaveType(type)}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                       {balance.allowanceHours != null
-                        ? `${balance.usedHours.toFixed(2)} / ${balance.allowanceHours.toFixed(2)} hrs used`
-                        : `${balance.usedHours.toFixed(2)} hrs used this year`}
+                        ? `${formatHours(balance.usedHours)} of ${formatHours(balance.allowanceHours)} used · ${formatHours(Math.max(balance.allowanceHours - balance.usedHours, 0))} left`
+                        : `${formatHours(balance.usedHours)} used this year`}
                     </p>
                   </div>
                   {balance.allowanceHours != null && (
@@ -555,7 +573,7 @@ export function PTO() {
                     <div key={entry.id} className="flex items-center justify-between gap-2 text-xs">
                       <div className="min-w-0">
                         <p className="font-medium text-gray-900 dark:text-gray-100">
-                          {entry.event_date} · {policy ? formatLeaveType(policy.leave_type) : '—'} · {entry.event_type.replace(/_/g, ' ')}
+                          {formatDay(entry.event_date, { weekday: false })} · {policy ? formatLeaveType(policy.leave_type) : '—'} · {entry.event_type.replace(/_/g, ' ')}
                         </p>
                         {entry.notes && <p className="text-gray-400 dark:text-gray-500">{entry.notes}</p>}
                       </div>
@@ -575,7 +593,7 @@ export function PTO() {
       )}
 
       {showForm && (
-        <Card title={isParentOrCoAdmin ? 'Record leave' : 'Request leave'}>
+        <Modal title={isParentOrCoAdmin ? 'Record leave' : 'Request leave'} onClose={() => setShowForm(false)}>
           <form onSubmit={handleSubmit} className="space-y-3">
             <Field label="Type">
               <select className={inputClass} value={leaveType} onChange={(e) => setLeaveType(e.target.value as LeaveType)}>
@@ -628,7 +646,7 @@ export function PTO() {
               {submitting ? 'Saving…' : 'Submit'}
             </Button>
           </form>
-        </Card>
+        </Modal>
       )}
 
       {error && !showForm && !detailId && <p className="px-1 text-sm text-red-600 dark:text-red-400">{error}</p>}
@@ -692,8 +710,7 @@ export function PTO() {
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{formatLeaveType(r.leave_type)}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {r.start_date}
-                        {r.end_date !== r.start_date ? ` – ${r.end_date}` : ''} · {r.hours_requested ?? '—'} hrs
+                        {formatDayRange(r.start_date, r.end_date)} · {r.hours_requested != null ? `${r.hours_requested}h` : '—'}
                       </p>
                       {r.nanny_note && (
                         <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
@@ -801,8 +818,7 @@ export function PTO() {
               <div className="space-y-1 text-sm text-gray-700 dark:text-gray-300">
                 <p>{formatLeaveType(detailRequest.leave_type)}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {detailRequest.start_date}
-                  {detailRequest.end_date !== detailRequest.start_date ? ` – ${detailRequest.end_date}` : ''} ·{' '}
+                  {formatDayRange(detailRequest.start_date, detailRequest.end_date)} ·{' '}
                   {detailRequest.hours_requested ?? '—'} hrs
                 </p>
                 {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}

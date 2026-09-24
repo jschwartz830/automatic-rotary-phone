@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { useSelectedCaregiver } from '../context/SelectedCaregiverContext'
+import { todayIso } from '../lib/dates'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
@@ -211,7 +212,7 @@ export function CaregiverDetail() {
             await supabase.from('leave_ledger').insert({
               caregiver_id: caregiver.id,
               leave_policy_id: policyId,
-              event_date: new Date().toISOString().slice(0, 10),
+              event_date: todayIso(),
               event_type: isNew ? 'opening_balance' : 'manual_adjustment',
               hours_delta: delta,
               balance_after: currentBalance + delta,

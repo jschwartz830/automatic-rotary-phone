@@ -8,6 +8,91 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-23 — UX pass 6/6: Pay leads with the next payment; forms as sheets; exports tucked away
+
+- New "Next payment" summary at the top of Pay (earliest overdue → due →
+  upcoming; balance remaining, due date, period) with a one-tap "Mark paid".
+- Mark paid / Void / Correct used to render as cards at the *top* of the page
+  even when opened from a row further down; they (and Generate / Submit
+  timesheet) now open as bottom sheets.
+- Header trimmed to one action ("+ Timesheet"). Import timesheets, Annual
+  summary and Full records export moved into a collapsed "Reports, import &
+  export" section at the bottom; the annual-summary year field no longer gets
+  squeezed to a sliver.
+
+---
+
+## 2026-09-23 — UX pass 5/6: faster time logging and approval; forms as bottom sheets
+
+- **Time — "Not logged yet".** Lists up to 5 scheduled shifts from the last
+  14 days with no entry that day (skipping days covered by leave, removed or
+  canceled shifts, holidays/weather closures, and paid periods; today's shift
+  only once it has ended). "Log" inserts the scheduled times as a normal
+  submitted manual entry (`schedule_shift_id` linked); tapping the day opens
+  the form on that date to adjust first.
+- **Time — grouped by week** with a weekly hours total and an "Approve all N"
+  button for that week's submitted entries (one update plus one audit event
+  per entry, same as single approval).
+- Time's "Log time" and PTO's "Record leave"/"Request" forms now open as
+  bottom sheets instead of pushing the list down. PTO balances show hours
+  left. Time inputs widened (`w-32` → `w-36`) so "08:00 AM" isn't clipped.
+- PTO's caregiver-change effect closed the form on first load, which
+  swallowed Calendar's `?date=` deep link; it now resets only on a real switch.
+
+---
+
+## 2026-09-23 — UX pass 4/6: Home leads with what needs doing
+
+- Urgent/warning reminders now sit at the top of Home (they were at the very
+  bottom, under "Here's what needs your attention"), plus a new
+  "N time entries waiting for your approval" row for parents — submitted time
+  had no Home prompt at all. Informational items (weekly digest, upcoming PTO)
+  moved below the caregiver rows they summarize.
+- "Today" and "This Week" merged into one row per caregiver: color dot, today's
+  status chip, "worked of scheduled" hours with a progress bar, guarantee and
+  timesheet status. Tapping a row selects that caregiver and opens Time.
+- Dropped the "Time" and "Schedule: View" dashboard tiles (duplicated the row
+  above / carried no information); kept PTO and Pay.
+
+---
+
+## 2026-09-23 — UX pass 3/6: Calendar shows every caregiver at once; tap a day for quick actions
+
+- **Combined week.** With 2+ active caregivers the Calendar defaults to an
+  "All" view: each day lists every caregiver's shifts (color dot + first
+  name), leave, schedule changes and worked time together, with a per-caregiver
+  "worked of scheduled" bar for the week. Picking a single caregiver chip
+  switches to their view; the choice is remembered per household.
+- **Tap a day → quick actions:** Log time, PTO / leave, Add shift, Change day.
+  Log time and PTO open those screens' forms pre-filled for that date (via
+  `?date=`); Add shift opens a one-time shift on that date (weekday preselected
+  if switched to recurring); Change day is the existing schedule-exception
+  form. In the combined view a "For" chip row picks the caregiver, and it
+  defaults to the only caregiver working that day.
+- Week now starts on the household's `week_start_day` (was always Monday);
+  added a "Today" jump, compact times (`8a–5p`) in the grid, "PTO" label, and
+  the recurring-shift list is collapsed by default.
+- Removing a recurring shift now asks for confirmation (it previously deleted
+  every future occurrence on one tap). Template reuse in `findOrCreateTemplate`
+  is now scoped to the target caregiver, since templates for several
+  caregivers can be loaded at once.
+
+---
+
+## 2026-09-23 — UX pass 2/6: readable dates, hours and money; local "today"
+
+- New helpers in `src/lib/dates.ts`: `formatDay` ("Mon, Sep 22"),
+  `formatDayRange` ("Sep 8 – 21"), `formatHours` ("7.5h"), `formatMoney`
+  ("$1,240.00"), `toIsoDate`/`todayIso`. Time, PTO, Pay, Calendar and Home
+  lists now use them instead of raw `YYYY-MM-DD` and `0.00 hrs`.
+- **Bug fix:** "today" was computed with `toISOString().slice(0, 10)` (UTC) in
+  Time (default entry date and clock-in date), Home, reminders, leave and a
+  few inserts. For a US household that is tomorrow's date after ~7–8pm, so an
+  evening clock-in was recorded on the wrong day. All now use the local date.
+- Home's Today card now honors the 12h/24h preference.
+
+---
+
 ## 2026-09-23 — UX pass 1/6: remembered caregiver selection + one-tap picker
 
 Time, PTO, Pay and Calendar each kept their own caregiver dropdown that reset

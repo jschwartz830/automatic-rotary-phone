@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { addDays, differenceInCalendarDays, format, parseISO, startOfWeek, subDays } from 'date-fns'
+import { addDays, format, startOfWeek, subDays } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
+import { usePreferences, type TimeFormat } from '../context/PreferencesContext'
+import { formatDateTime, formatTimeOfDay } from '../lib/time'
 import { useSelectedCaregiver } from '../context/SelectedCaregiverContext'
+import { formatDay, formatHours, formatMoney, toIsoDate } from '../lib/dates'
 import { supabase } from '../lib/supabase'
 import { buildWeeklySummaryCards, computeReminders, type LeaveBalanceSummary, type ReminderCard } from '../lib/reminders'
 import { computeLeaveBalance, computeLeaveBalanceFromLedger } from '../lib/leave'
@@ -61,8 +64,9 @@ function buildTodayStatuses(input: {
   // missing a clock-out (schedule-aware grace period, spec 21) -- reused here
   // rather than re-deriving the same grace-period logic a second time.
   missingClockOutEntryIds: Set<string>
+  timeFormat: TimeFormat
 }): TodayStatus[] {
-  const { caregivers, todayStr, occurrencesByCaregiver, timeEntries, missingClockOutEntryIds } = input
+  const { caregivers, todayStr, occurrencesByCaregiver, timeEntries, missingClockOutEntryIds, timeFormat } = input
   return caregivers.map((cg) => {
     const todayEntry = timeEntries.find((e) => e.caregiver_id === cg.id && e.date === todayStr && !e.deleted_at && e.clock_in_at)
     const todaysShifts = (occurrencesByCaregiver.get(cg.id) ?? []).filter((o) => o.date === todayStr)
@@ -72,24 +76,17 @@ function buildTodayStatuses(input: {
         caregiverId: cg.id,
         caregiverName: cg.name,
         chip: missingClockOutEntryIds.has(todayEntry.id) ? 'missing_clock_out' : 'clocked_in',
-        detail: `Clocked in since ${format(new Date(todayEntry.clock_in_at), 'h:mm a')}`,
+        detail: `Clocked in since ${formatDateTime(todayEntry.clock_in_at, timeFormat)}`,
       }
     }
     if (todaysShifts.length > 0) {
       const times = todaysShifts
-        .map((o) => `${formatTime(o.shift.start_time)}–${formatTime(o.shift.end_time)}`)
+        .map((o) => `${formatTimeOfDay(o.shift.start_time, timeFormat)}–${formatTimeOfDay(o.shift.end_time, timeFormat)}`)
         .join(', ')
       return { caregiverId: cg.id, caregiverName: cg.name, chip: 'scheduled', detail: `Scheduled ${times}` }
     }
     return { caregiverId: cg.id, caregiverName: cg.name, chip: 'none', detail: 'No shift scheduled today' }
   })
-}
-
-function formatTime(time: string): string {
-  const [h, m] = time.split(':').map(Number)
-  const period = h >= 12 ? 'PM' : 'AM'
-  const hour12 = h % 12 === 0 ? 12 : h % 12
-  return `${hour12}:${String(m).padStart(2, '0')} ${period}`
 }
 
 function buildWeekSummaries(input: {
@@ -269,17 +266,7 @@ function buildDashboardCards(input: {
   leaveRequests: LeaveRequest[]
   paymentRecords: PaymentRecord[]
 }): DashboardCard[] {
-  const { timeEntries, timesheets, leaveRequests, paymentRecords } = input
-  const today = new Date()
-
-  const weekHours = timeEntries
-    .filter((e) =>
-      !e.deleted_at &&
-      e.status === 'approved' &&
-      differenceInCalendarDays(today, parseISO(e.date)) >= 0 &&
-      differenceInCalendarDays(today, parseISO(e.date)) < 7
-    )
-    .reduce((sum, e) => sum + (e.paid_hours ?? 0), 0)
+  const { timesheets, leaveRequests, paymentRecords } = input
 
   const pendingLeaveCount = leaveRequests.filter((l) => l.status === 'requested').length
 
@@ -291,20 +278,6 @@ function buildDashboardCards(input: {
 
   return [
     {
-      id: 'time',
-      title: 'Time',
-      stat: `${weekHours.toFixed(1)} hrs`,
-      detail: 'logged this week',
-      route: '/time',
-    },
-    {
-      id: 'schedule',
-      title: 'Schedule',
-      stat: 'View',
-      detail: 'recurring shifts',
-      route: '/calendar',
-    },
-    {
       id: 'pto',
       title: 'PTO & Leave',
       stat: pendingLeaveCount > 0 ? `${pendingLeaveCount}` : '—',
@@ -314,8 +287,8 @@ function buildDashboardCards(input: {
     {
       id: 'pay',
       title: 'Pay',
-      stat: upcomingPayment ? `$${upcomingPayment.gross_pay_due.toFixed(2)}` : pendingTimesheetCount > 0 ? `${pendingTimesheetCount}` : '—',
-      detail: upcomingPayment ? `due ${upcomingPayment.due_date}` : pendingTimesheetCount > 0 ? 'timesheets to review' : 'all caught up',
+      stat: upcomingPayment ? formatMoney(upcomingPayment.gross_pay_due) : pendingTimesheetCount > 0 ? `${pendingTimesheetCount}` : '—',
+      detail: upcomingPayment ? `due ${formatDay(upcomingPayment.due_date, { weekday: false })}` : pendingTimesheetCount > 0 ? 'timesheets to review' : 'all caught up',
       route: '/pay',
     },
   ]
@@ -324,11 +297,13 @@ function buildDashboardCards(input: {
 export function Home() {
   const { user } = useAuth()
   const { household, isNanny, isParentOrCoAdmin, caregiverProfile } = useHousehold()
-  const { caregivers } = useSelectedCaregiver()
+  const { caregivers, setSelectedCaregiverId, colorFor } = useSelectedCaregiver()
+  const { timeFormat } = usePreferences()
   const [reminders, setReminders] = useState<ReminderCard[]>([])
   const [dashboardCards, setDashboardCards] = useState<DashboardCard[]>([])
   const [todayStatuses, setTodayStatuses] = useState<TodayStatus[]>([])
   const [weekSummaries, setWeekSummaries] = useState<WeekSummary[]>([])
+  const [entriesToApprove, setEntriesToApprove] = useState(0)
   const [setupChecklist, setSetupChecklist] = useState<SetupChecklistItem[]>([])
   const [setupDismissed, setSetupDismissed] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -363,7 +338,7 @@ export function Home() {
     async function load() {
       setLoading(true)
       const today = new Date()
-      const todayStr = today.toISOString().slice(0, 10)
+      const todayStr = toIsoDate(today)
       const weekStartsOn = household?.week_start_day === 'monday' ? 1 : 0
       const weekStart = startOfWeek(today, { weekStartsOn })
       const weekEnd = addDays(weekStart, 6)
@@ -373,9 +348,9 @@ export function Home() {
       // "This Week" card's scheduled hours) plus the 2 days before it in case
       // the week just started (to still catch missed clock-outs from the
       // tail end of last week).
-      const rangeStart = weekStartStr < subDays(today, 2).toISOString().slice(0, 10)
+      const rangeStart = weekStartStr < toIsoDate(subDays(today, 2))
         ? weekStartStr
-        : subDays(today, 2).toISOString().slice(0, 10)
+        : toIsoDate(subDays(today, 2))
       const rangeEnd = weekEndStr
 
       const [
@@ -497,6 +472,11 @@ export function Home() {
       }
       cards.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
       setReminders(cards)
+      // Submitted time waiting on a parent -- the most common thing a parent
+      // opens the app to do, and not covered by any reminder type.
+      setEntriesToApprove(
+        isParentOrCoAdmin ? allTimeEntries.filter((e) => !e.deleted_at && e.status === 'submitted').length : 0
+      )
       setDashboardCards(buildDashboardCards({ timeEntries: allTimeEntries, timesheets: activeTimesheets, leaveRequests: allLeaveRequests, paymentRecords: activePayments }))
       const missingClockOutEntryIds = new Set(
         cards.filter((c) => c.type === 'missing_clock_out').map((c) => c.id.replace('missing-clock-out-', ''))
@@ -508,6 +488,7 @@ export function Home() {
           occurrencesByCaregiver,
           timeEntries: allTimeEntries,
           missingClockOutEntryIds,
+          timeFormat,
         })
       )
       setWeekSummaries(
@@ -535,14 +516,62 @@ export function Home() {
     return () => {
       cancelled = true
     }
-  }, [caregivers, isNanny, isParentOrCoAdmin, caregiverProfile, household, user])
+  }, [caregivers, isNanny, isParentOrCoAdmin, caregiverProfile, household, user, timeFormat])
+
+  const weekByCaregiver = new Map(weekSummaries.map((w) => [w.caregiverId, w]))
+  // Urgent/warning items lead the page; informational ones (weekly digests,
+  // upcoming PTO) sit below the caregiver rows they summarize.
+  const actionReminders = reminders.filter((r) => r.severity !== 'info')
+  const infoReminders = reminders.filter((r) => r.severity === 'info')
+  const renderReminder = (r: ReminderCard) => {
+    const route = REMINDER_ROUTES[r.type]
+    return (
+      <div
+        key={r.id}
+        role={route ? 'button' : undefined}
+        tabIndex={route ? 0 : undefined}
+        onClick={route ? () => navigate(route) : undefined}
+        className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-sm ${SEVERITY_STYLES[r.severity]} ${route ? 'cursor-pointer active:opacity-80' : ''}`}
+      >
+        <span>{r.message}</span>
+        {route && <span className="shrink-0 opacity-50" aria-hidden>›</span>}
+      </div>
+    )
+  }
+  const openCaregiver = (caregiverId: string) => {
+    if (!isNanny) setSelectedCaregiverId(caregiverId)
+    navigate('/time')
+  }
 
   return (
     <div className="space-y-4 p-4">
       <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+          {format(new Date(), 'EEEE, MMM d')}
+        </p>
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">{household?.name}</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400">Here's what needs your attention.</p>
       </div>
+
+      {loading && <p className="text-sm text-gray-400 dark:text-gray-500">Loading…</p>}
+
+      {/* What needs doing comes first. */}
+      {!loading && (entriesToApprove > 0 || actionReminders.length > 0) && (
+        <section className="space-y-2" aria-label="Needs attention">
+          {entriesToApprove > 0 && (
+            <button
+              type="button"
+              onClick={() => navigate('/time')}
+              className={`flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left text-sm ${SEVERITY_STYLES.warning}`}
+            >
+              <span>
+                {entriesToApprove} time {entriesToApprove === 1 ? 'entry' : 'entries'} waiting for your approval
+              </span>
+              <span className="shrink-0 opacity-50" aria-hidden>›</span>
+            </button>
+          )}
+          {actionReminders.map(renderReminder)}
+        </section>
+      )}
 
       {!loading && !setupDismissed && setupChecklist.some((i) => !i.done) && (
         <Card
@@ -577,48 +606,58 @@ export function Home() {
         </Card>
       )}
 
+      {/* One row per caregiver: today's status + this week's hours. */}
       {!loading && todayStatuses.length > 0 && (
-        <Card title="Today">
-          <div className="space-y-2">
-            {todayStatuses.map((t) => (
-              <div key={t.caregiverId} className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
+        <Card title={isNanny ? 'Today' : 'Today & this week'}>
+          <div className="-mx-4 -mb-2 divide-y divide-gray-100 dark:divide-gray-700">
+            {todayStatuses.map((t) => {
+              const w = weekByCaregiver.get(t.caregiverId)
+              const pct = w && w.scheduledHours > 0 ? Math.min((w.actualHours / w.scheduledHours) * 100, 100) : 0
+              return (
+                <button
+                  key={t.caregiverId}
+                  type="button"
+                  onClick={() => openCaregiver(t.caregiverId)}
+                  className="flex w-full items-start gap-3 px-4 py-3 text-left active:bg-gray-50 dark:active:bg-gray-900"
+                >
                   {todayStatuses.length > 1 && (
-                    <p className="truncate text-xs font-medium text-gray-500 dark:text-gray-400">{t.caregiverName}</p>
+                    <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${colorFor(t.caregiverId).dot}`} aria-hidden />
                   )}
-                  <p className="truncate text-sm text-gray-700 dark:text-gray-300">{t.detail}</p>
-                </div>
-                {t.chip !== 'none' && <StatusChip status={t.chip} />}
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {!loading && weekSummaries.length > 0 && (
-        <Card title="This Week">
-          <div className="space-y-3">
-            {weekSummaries.map((w) => (
-              <div key={w.caregiverId} className="space-y-1.5">
-                {weekSummaries.length > 1 && (
-                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{w.caregiverName}</p>
-                )}
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                  <span className="text-gray-700 dark:text-gray-300">
-                    <span className="font-semibold text-gray-900 dark:text-gray-50">{w.scheduledHours.toFixed(1)}</span> scheduled
-                  </span>
-                  <span className="text-gray-700 dark:text-gray-300">
-                    <span className="font-semibold text-gray-900 dark:text-gray-50">{w.actualHours.toFixed(1)}</span> actual
-                  </span>
-                  {w.guaranteedHours != null && (
-                    <span className="text-gray-700 dark:text-gray-300">
-                      <span className="font-semibold text-gray-900 dark:text-gray-50">{w.guaranteedHours.toFixed(1)}</span> guaranteed
-                    </span>
-                  )}
-                  {w.timesheetStatus && <StatusChip status={w.timesheetStatus} />}
-                </div>
-              </div>
-            ))}
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        {todayStatuses.length > 1 ? t.caregiverName : t.detail}
+                      </p>
+                      {t.chip !== 'none' && <StatusChip status={t.chip} />}
+                    </div>
+                    {todayStatuses.length > 1 && (
+                      <p className="truncate text-xs text-gray-500 dark:text-gray-400">{t.detail}</p>
+                    )}
+                    {w && (w.scheduledHours > 0 || w.actualHours > 0) && (
+                      <div className="space-y-1 pt-0.5">
+                        <div className="flex items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
+                          <span>
+                            <span className="font-semibold text-gray-800 dark:text-gray-200">{formatHours(w.actualHours)}</span>
+                            {' of '}
+                            {formatHours(w.scheduledHours)} this week
+                            {w.guaranteedHours != null ? ` · ${formatHours(w.guaranteedHours)} guaranteed` : ''}
+                          </span>
+                          {w.timesheetStatus && <StatusChip status={w.timesheetStatus} />}
+                        </div>
+                        {w.scheduledHours > 0 && (
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
+                            <div
+                              className={`h-full rounded-full ${w.actualHours > w.scheduledHours ? 'bg-red-500' : colorFor(t.caregiverId).dot}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </button>
+              )
+            })}
           </div>
         </Card>
       )}
@@ -639,29 +678,10 @@ export function Home() {
         </div>
       )}
 
-      {loading ? (
-        <p className="text-sm text-gray-400 dark:text-gray-500">Loading…</p>
-      ) : reminders.length === 0 ? (
-        <Card>
-          <p className="text-sm text-gray-500 dark:text-gray-400">You're all caught up. No reminders right now.</p>
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {reminders.map((r) => {
-            const route = REMINDER_ROUTES[r.type]
-            return (
-              <div
-                key={r.id}
-                role={route ? 'button' : undefined}
-                tabIndex={route ? 0 : undefined}
-                onClick={route ? () => navigate(route) : undefined}
-                className={`rounded-xl border p-3 text-sm ${SEVERITY_STYLES[r.severity]} ${route ? 'cursor-pointer' : ''}`}
-              >
-                {r.message}
-              </div>
-            )
-          })}
-        </div>
+      {!loading && infoReminders.length > 0 && <section className="space-y-2">{infoReminders.map(renderReminder)}</section>}
+
+      {!loading && reminders.length === 0 && entriesToApprove === 0 && (
+        <p className="px-1 text-center text-sm text-gray-400 dark:text-gray-500">✓ You're all caught up.</p>
       )}
     </div>
   )

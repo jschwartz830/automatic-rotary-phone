@@ -70,4 +70,4 @@ export const inputClass =
 // fill the row -- that left them looking oversized with a lot of dead space
 // inside the box.
 export const dateInputClass = inputClass.replace('w-full', 'w-44')
-export const timeInputClass = inputClass.replace('w-full', 'w-32')
+export const timeInputClass = inputClass.replace('w-full', 'w-36')
