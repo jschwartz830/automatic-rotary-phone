@@ -8,6 +8,29 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-23 — UX pass 3/6: Calendar shows every caregiver at once; tap a day for quick actions
+
+- **Combined week.** With 2+ active caregivers the Calendar defaults to an
+  "All" view: each day lists every caregiver's shifts (color dot + first
+  name), leave, schedule changes and worked time together, with a per-caregiver
+  "worked of scheduled" bar for the week. Picking a single caregiver chip
+  switches to their view; the choice is remembered per household.
+- **Tap a day → quick actions:** Log time, PTO / leave, Add shift, Change day.
+  Log time and PTO open those screens' forms pre-filled for that date (via
+  `?date=`); Add shift opens a one-time shift on that date (weekday preselected
+  if switched to recurring); Change day is the existing schedule-exception
+  form. In the combined view a "For" chip row picks the caregiver, and it
+  defaults to the only caregiver working that day.
+- Week now starts on the household's `week_start_day` (was always Monday);
+  added a "Today" jump, compact times (`8a–5p`) in the grid, "PTO" label, and
+  the recurring-shift list is collapsed by default.
+- Removing a recurring shift now asks for confirmation (it previously deleted
+  every future occurrence on one tap). Template reuse in `findOrCreateTemplate`
+  is now scoped to the target caregiver, since templates for several
+  caregivers can be loaded at once.
+
+---
+
 ## 2026-09-23 — UX pass 2/6: readable dates, hours and money; local "today"
 
 - New helpers in `src/lib/dates.ts`: `formatDay` ("Mon, Sep 22"),

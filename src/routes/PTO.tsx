@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { addDays, format } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
@@ -23,6 +23,7 @@ const BALANCE_TYPES: LeaveType[] = ['pto', 'sick']
 
 export function PTO() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useAuth()
   const { household, isNanny, isParentOrCoAdmin, coadminAllowed, caregiverProfile } = useHousehold()
   const canExport = isParentOrCoAdmin && coadminAllowed('export_records')
@@ -54,6 +55,16 @@ export function PTO() {
   const unarchivedRequests = requests.filter((r) => !r.archived_at)
 
 
+  // Calendar's "PTO / leave" quick action links here with ?date=YYYY-MM-DD.
+  useEffect(() => {
+    const linkedDate = searchParams.get('date')
+    if (!linkedDate || !isValidCalendarDate(linkedDate)) return
+    setStartDate(linkedDate)
+    setEndDate(linkedDate)
+    setShowForm(true)
+    setSearchParams({}, { replace: true })
+  }, [searchParams, setSearchParams])
+
   async function loadRequests(forCaregiverId: string) {
     const [requestsRes, ledgerRes] = await Promise.all([
       supabase
@@ -71,10 +82,16 @@ export function PTO() {
     setLedgerEntries((ledgerRes.data ?? []) as LeaveLedgerEntry[])
   }
 
+  // Close any open form/detail when switching caregivers -- but not on first
+  // load, so a Calendar deep link (?date=) can open the form.
+  const previousCaregiverId = useRef(caregiverId)
   useEffect(() => {
     if (caregiverId) loadRequests(caregiverId)
-    setShowForm(false)
-    closeDetail()
+    if (previousCaregiverId.current && previousCaregiverId.current !== caregiverId) {
+      setShowForm(false)
+      closeDetail()
+    }
+    previousCaregiverId.current = caregiverId
   }, [caregiverId])
 
   /** Current balance for one policy, read fresh so appended rows stack correctly. */

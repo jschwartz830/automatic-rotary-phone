@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { usePreferences } from '../context/PreferencesContext'
@@ -39,6 +39,7 @@ const DEFAULT_END_TIME = '17:00'
 
 export function Time() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useAuth()
   const { timeFormat } = usePreferences()
   const { household, isNanny, isParentOrCoAdmin, caregiverProfile } = useHousehold()
@@ -128,6 +129,17 @@ export function Time() {
       setScheduledShiftId(null)
     }
   }, [date, templates, shiftsByTemplate])
+
+  // Calendar's "Log time" quick action links here with ?date=YYYY-MM-DD:
+  // open the manual-entry form on that date (the schedule pre-fill above then
+  // fills in that day's shift times).
+  useEffect(() => {
+    const linkedDate = searchParams.get('date')
+    if (!linkedDate || !isValidCalendarDate(linkedDate)) return
+    setDate(linkedDate)
+    setShowForm(true)
+    setSearchParams({}, { replace: true })
+  }, [searchParams, setSearchParams])
 
   async function loadEntries(forCaregiverId: string) {
     const { data } = await supabase

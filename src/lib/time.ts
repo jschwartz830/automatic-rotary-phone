@@ -43,3 +43,29 @@ export function formatEntryTimeRange(
       : '—'
   return { start, end }
 }
+
+// Tight time-of-day for dense grids: "8a", "5:30p" (12h) or "08:00" (24h).
+export function formatTimeCompact(time: string, timeFormat: TimeFormat): string {
+  if (timeFormat === '24h') return formatTimeOfDay(time, timeFormat)
+  const [hStr, mStr] = time.split(':')
+  const hour = Number(hStr)
+  const minute = Number(mStr)
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return time
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12
+  return `${hour12}${minute ? `:${String(minute).padStart(2, '0')}` : ''}${hour < 12 ? 'a' : 'p'}`
+}
+
+// Compact range for a time entry, using clock timestamps when there are no
+// manual times.
+export function formatEntryRangeCompact(
+  entry: Pick<TimeEntry, 'manual_start_time' | 'manual_end_time' | 'clock_in_at' | 'clock_out_at'>,
+  timeFormat: TimeFormat
+): string {
+  const part = (manual: string | null, stamp: string | null) =>
+    manual
+      ? formatTimeCompact(manual, timeFormat)
+      : stamp
+        ? formatTimeCompact(new Date(stamp).toTimeString().slice(0, 5), timeFormat)
+        : '—'
+  return `${part(entry.manual_start_time, entry.clock_in_at)}–${part(entry.manual_end_time, entry.clock_out_at)}`
+}

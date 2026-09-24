@@ -8,26 +8,35 @@ export function CaregiverSelect({
   allSelected = false,
   onSelectAll,
   onSelect,
+  compact = false,
 }: {
   // Optional "All" chip (Calendar's combined view).
   allOption?: boolean
   allSelected?: boolean
   onSelectAll?: () => void
   onSelect?: (id: string) => void
+  // Inline use inside a panel: no edge-to-edge bleed, smaller chips.
+  compact?: boolean
 } = {}) {
   const { caregivers, selectedCaregiverId, setSelectedCaregiverId, colorFor } = useSelectedCaregiver()
   if (caregivers.length < 2) return null
 
   const visible = caregivers.filter((c) => c.employment_status === 'active' || c.id === selectedCaregiverId)
   const chip = (active: boolean) =>
-    `flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+    `flex shrink-0 items-center gap-1.5 rounded-full font-medium transition-colors ${
+      compact ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm'
+    } ${
       active
         ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
         : 'bg-white text-gray-700 ring-1 ring-gray-200 active:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-700'
     }`
 
   return (
-    <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-0.5" role="tablist" aria-label="Caregiver">
+    <div
+      className={`flex gap-2 overflow-x-auto pb-0.5 ${compact ? '' : '-mx-4 px-4'}`}
+      role="tablist"
+      aria-label="Caregiver"
+    >
       {allOption && (
         <button type="button" role="tab" aria-selected={allSelected} className={chip(allSelected)} onClick={onSelectAll}>
           All
