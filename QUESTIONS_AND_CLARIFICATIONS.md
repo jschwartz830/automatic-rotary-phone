@@ -574,6 +574,33 @@ same six pre-existing warnings as every prior session. See
 17: 22-26, 29, 31-35, 37-42) was presented again — via chat and a push
 notification, since this was an unattended scheduled run — with its
 options and recommendation; nothing else was built unilaterally this
+session. The 2026-09-24 session re-confirmed the time-entry schedule
+pre-fill once more (still correct, no change), found that the 2026-09-23
+session's own PR #114 had already been merged into `main` before this
+session started, so there was no same-lineage PR of this rotation's own
+sitting open to merge or review this time. It then found a separate,
+unrelated 6-PR stack (`claude/vibrant-thompson-akxosq` through
+`-akxosq-6-pay`, PRs #115-120) opened the same day by a different session
+lineage — a substantial, apparently-complete UX overhaul (a shared,
+remembered caregiver selection replacing each screen's own reset-on-switch
+dropdown, plus per-caregiver accent colors, touching `Home`/`Schedule`/
+`Pay`/`Time`/`PTO`/`CaregiverDetail`/`More`) with none of its six PRs
+merged. Since it's unrelated to this rotation's spec-fidelity mandate, its
+intent/readiness is unknown to this session, and merging six unreviewed
+PRs at once is a materially bigger action than this rotation's usual
+same-lineage single-commit merges, this session deliberately did not merge,
+comment on, or modify it — it health-checked the full stack in an isolated
+worktree (`npm run build`/`npm run lint` both clean, one new
+same-shaped lint warning consistent with the existing five) and flagged it
+to the user in chat/notification instead, for their own review. No new
+judgment call was opened, and no spec audit was run this session (see
+`SPEC_CHANGE_LOG.md` 2026-09-24 for the full reasoning on why this
+session's second half went to investigating the PR stack instead). Health
+check (`npm install`, `npm run build`, `npm run lint`) on `main` came back
+clean — same six pre-existing warnings as every prior session. Every item
+below (still 17: 22-26, 29, 31-35, 37-42) was presented again — via chat
+and a push notification, since this was an unattended scheduled run — with
+its options and recommendation; nothing was built unilaterally this
 session.
 
 ### Recommendations added 2026-08-08, per explicit request

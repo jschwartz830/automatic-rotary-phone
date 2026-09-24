@@ -8,6 +8,60 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-24 — Time-entry schedule pre-fill re-confirmed (still correct); PR #114 already merged, nothing to merge forward; found an unrelated 6-PR UX-overhaul stack (#115-120) from a different session lineage, health-checked but not merged; health check clean; all 17 open Q&A items presented in chat/notification
+
+**This session's scope:** re-confirm the manual time-entry pre-fill behavior
+(this run's prompt again asked for time entries to be "pre-set to the
+schedule hours," the same already-built behavior), check for a stale open
+PR to merge/review, run the repo's health check, then present every open
+Q&A item with options and a recommendation.
+
+**Time-entry pre-fill: still correct, no change.** Re-checked `Time.tsx`
+directly. `date` still defaults to today, and the manual-entry pre-fill
+`useEffect` still looks up the selected date's generated shift via
+`generateShiftsForRange(...)` and fills `startTime`/`endTime`/
+`breakMinutes` from it, falling back to a default 09:00–17:00/0-minute break
+only when nothing's scheduled that day.
+
+**No sharp-hamilton-rotation PR to merge forward this time.** Unlike every
+recent session, the prior day's own PR (#114, 2026-09-23's work) was
+already merged into `main` (`88a0263`, "Merge pull request #114...") before
+this session started — `origin/main`'s tip already equals that PR's head,
+so there was nothing of this rotation's own lineage sitting open. This
+session's branch was created fresh from `main` per the restart-on-merge
+convention.
+
+**Found, but did not touch, a separate 6-PR UX-overhaul stack (#115-120).**
+While checking for open PRs, this session found `claude/vibrant-thompson-akxosq`
+through `-akxosq-6-pay` — six stacked PRs (#115 "Remember selected
+caregiver..." through #120 "Pay leads with next payment...") opened
+2026-09-23 by a different session lineage entirely (not this rotation's
+`claude/sharp-hamilton-*` branch naming), all based on `main` at the current
+tip (`88a0263`) and none merged. Combined diff is substantial: ~1,535
+insertions / ~717 deletions across 17 files, touching `Home.tsx`,
+`Schedule.tsx`, `Pay.tsx`, `Time.tsx`, `PTO.tsx`, `CaregiverDetail.tsx`,
+`More.tsx`, and adding a new `SelectedCaregiverContext` (a shared,
+`localStorage`-remembered caregiver selection replacing each screen's own
+reset-on-tab-switch dropdown) plus `caregiverColors.ts` (a stable per-caregiver
+accent color). This is a coherent, apparently-complete UX pass, not
+random scratch work — but it's unrelated to this rotation's spec-fidelity
+mandate, its readiness/intent is unknown to this session, and merging six
+unreviewed PRs unilaterally is a materially bigger action than this
+rotation's usual same-lineage single-commit merges. Checked out PR #120's
+head (the full stack) in a scratch worktree and ran the repo's health check
+against it in isolation: `npm run build` and `npm run lint` both come back
+clean (same six pre-existing warnings, plus one new, same-shaped
+`only-export-components` warning for the new `SelectedCaregiverContext.tsx`
+file — consistent with the existing five). No further review was done —
+not merged, not commented on, not modified. Flagged for the user in this
+session's chat/notification rather than acted on.
+
+**Health check clean.** `npm install`, `npm run build`, `npm run lint` all
+came back clean on `main` — same six pre-existing warnings as every prior
+session.
+
+---
+
 ## 2026-09-23 — Time-entry schedule pre-fill re-confirmed (still correct); merged one clean, already-tested stale PR (#113); first dedicated full literal audit of spec 22 (UX Requirements) since 2026-08-09/08-11 finds no new gaps (existing item 23 already covers what it turned up); health check clean; all 17 open Q&A items presented in chat/notification
 
 **This session's scope:** re-confirm the manual time-entry pre-fill
