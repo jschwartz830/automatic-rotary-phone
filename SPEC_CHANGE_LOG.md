@@ -8,6 +8,21 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-23 — UX pass 4/6: Home leads with what needs doing
+
+- Urgent/warning reminders now sit at the top of Home (they were at the very
+  bottom, under "Here's what needs your attention"), plus a new
+  "N time entries waiting for your approval" row for parents — submitted time
+  had no Home prompt at all. Informational items (weekly digest, upcoming PTO)
+  moved below the caregiver rows they summarize.
+- "Today" and "This Week" merged into one row per caregiver: color dot, today's
+  status chip, "worked of scheduled" hours with a progress bar, guarantee and
+  timesheet status. Tapping a row selects that caregiver and opens Time.
+- Dropped the "Time" and "Schedule: View" dashboard tiles (duplicated the row
+  above / carried no information); kept PTO and Pay.
+
+---
+
 ## 2026-09-23 — UX pass 3/6: Calendar shows every caregiver at once; tap a day for quick actions
 
 - **Combined week.** With 2+ active caregivers the Calendar defaults to an
