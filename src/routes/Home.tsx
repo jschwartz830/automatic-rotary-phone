@@ -3,7 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { addDays, differenceInCalendarDays, format, parseISO, startOfWeek, subDays } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
+import { usePreferences, type TimeFormat } from '../context/PreferencesContext'
+import { formatDateTime, formatTimeOfDay } from '../lib/time'
 import { useSelectedCaregiver } from '../context/SelectedCaregiverContext'
+import { formatDay, formatMoney, toIsoDate } from '../lib/dates'
 import { supabase } from '../lib/supabase'
 import { buildWeeklySummaryCards, computeReminders, type LeaveBalanceSummary, type ReminderCard } from '../lib/reminders'
 import { computeLeaveBalance, computeLeaveBalanceFromLedger } from '../lib/leave'
@@ -61,8 +64,9 @@ function buildTodayStatuses(input: {
   // missing a clock-out (schedule-aware grace period, spec 21) -- reused here
   // rather than re-deriving the same grace-period logic a second time.
   missingClockOutEntryIds: Set<string>
+  timeFormat: TimeFormat
 }): TodayStatus[] {
-  const { caregivers, todayStr, occurrencesByCaregiver, timeEntries, missingClockOutEntryIds } = input
+  const { caregivers, todayStr, occurrencesByCaregiver, timeEntries, missingClockOutEntryIds, timeFormat } = input
   return caregivers.map((cg) => {
     const todayEntry = timeEntries.find((e) => e.caregiver_id === cg.id && e.date === todayStr && !e.deleted_at && e.clock_in_at)
     const todaysShifts = (occurrencesByCaregiver.get(cg.id) ?? []).filter((o) => o.date === todayStr)
@@ -72,24 +76,17 @@ function buildTodayStatuses(input: {
         caregiverId: cg.id,
         caregiverName: cg.name,
         chip: missingClockOutEntryIds.has(todayEntry.id) ? 'missing_clock_out' : 'clocked_in',
-        detail: `Clocked in since ${format(new Date(todayEntry.clock_in_at), 'h:mm a')}`,
+        detail: `Clocked in since ${formatDateTime(todayEntry.clock_in_at, timeFormat)}`,
       }
     }
     if (todaysShifts.length > 0) {
       const times = todaysShifts
-        .map((o) => `${formatTime(o.shift.start_time)}–${formatTime(o.shift.end_time)}`)
+        .map((o) => `${formatTimeOfDay(o.shift.start_time, timeFormat)}–${formatTimeOfDay(o.shift.end_time, timeFormat)}`)
         .join(', ')
       return { caregiverId: cg.id, caregiverName: cg.name, chip: 'scheduled', detail: `Scheduled ${times}` }
     }
     return { caregiverId: cg.id, caregiverName: cg.name, chip: 'none', detail: 'No shift scheduled today' }
   })
-}
-
-function formatTime(time: string): string {
-  const [h, m] = time.split(':').map(Number)
-  const period = h >= 12 ? 'PM' : 'AM'
-  const hour12 = h % 12 === 0 ? 12 : h % 12
-  return `${hour12}:${String(m).padStart(2, '0')} ${period}`
 }
 
 function buildWeekSummaries(input: {
@@ -314,8 +311,8 @@ function buildDashboardCards(input: {
     {
       id: 'pay',
       title: 'Pay',
-      stat: upcomingPayment ? `$${upcomingPayment.gross_pay_due.toFixed(2)}` : pendingTimesheetCount > 0 ? `${pendingTimesheetCount}` : '—',
-      detail: upcomingPayment ? `due ${upcomingPayment.due_date}` : pendingTimesheetCount > 0 ? 'timesheets to review' : 'all caught up',
+      stat: upcomingPayment ? formatMoney(upcomingPayment.gross_pay_due) : pendingTimesheetCount > 0 ? `${pendingTimesheetCount}` : '—',
+      detail: upcomingPayment ? `due ${formatDay(upcomingPayment.due_date, { weekday: false })}` : pendingTimesheetCount > 0 ? 'timesheets to review' : 'all caught up',
       route: '/pay',
     },
   ]
@@ -325,6 +322,7 @@ export function Home() {
   const { user } = useAuth()
   const { household, isNanny, isParentOrCoAdmin, caregiverProfile } = useHousehold()
   const { caregivers } = useSelectedCaregiver()
+  const { timeFormat } = usePreferences()
   const [reminders, setReminders] = useState<ReminderCard[]>([])
   const [dashboardCards, setDashboardCards] = useState<DashboardCard[]>([])
   const [todayStatuses, setTodayStatuses] = useState<TodayStatus[]>([])
@@ -363,7 +361,7 @@ export function Home() {
     async function load() {
       setLoading(true)
       const today = new Date()
-      const todayStr = today.toISOString().slice(0, 10)
+      const todayStr = toIsoDate(today)
       const weekStartsOn = household?.week_start_day === 'monday' ? 1 : 0
       const weekStart = startOfWeek(today, { weekStartsOn })
       const weekEnd = addDays(weekStart, 6)
@@ -373,9 +371,9 @@ export function Home() {
       // "This Week" card's scheduled hours) plus the 2 days before it in case
       // the week just started (to still catch missed clock-outs from the
       // tail end of last week).
-      const rangeStart = weekStartStr < subDays(today, 2).toISOString().slice(0, 10)
+      const rangeStart = weekStartStr < toIsoDate(subDays(today, 2))
         ? weekStartStr
-        : subDays(today, 2).toISOString().slice(0, 10)
+        : toIsoDate(subDays(today, 2))
       const rangeEnd = weekEndStr
 
       const [
@@ -508,6 +506,7 @@ export function Home() {
           occurrencesByCaregiver,
           timeEntries: allTimeEntries,
           missingClockOutEntryIds,
+          timeFormat,
         })
       )
       setWeekSummaries(
@@ -535,7 +534,7 @@ export function Home() {
     return () => {
       cancelled = true
     }
-  }, [caregivers, isNanny, isParentOrCoAdmin, caregiverProfile, household, user])
+  }, [caregivers, isNanny, isParentOrCoAdmin, caregiverProfile, household, user, timeFormat])
 
   return (
     <div className="space-y-4 p-4">

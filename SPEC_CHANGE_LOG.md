@@ -8,6 +8,20 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-23 — UX pass 2/6: readable dates, hours and money; local "today"
+
+- New helpers in `src/lib/dates.ts`: `formatDay` ("Mon, Sep 22"),
+  `formatDayRange` ("Sep 8 – 21"), `formatHours` ("7.5h"), `formatMoney`
+  ("$1,240.00"), `toIsoDate`/`todayIso`. Time, PTO, Pay, Calendar and Home
+  lists now use them instead of raw `YYYY-MM-DD` and `0.00 hrs`.
+- **Bug fix:** "today" was computed with `toISOString().slice(0, 10)` (UTC) in
+  Time (default entry date and clock-in date), Home, reminders, leave and a
+  few inserts. For a US household that is tomorrow's date after ~7–8pm, so an
+  evening clock-in was recorded on the wrong day. All now use the local date.
+- Home's Today card now honors the 12h/24h preference.
+
+---
+
 ## 2026-09-23 — UX pass 1/6: remembered caregiver selection + one-tap picker
 
 Time, PTO, Pay and Calendar each kept their own caregiver dropdown that reset

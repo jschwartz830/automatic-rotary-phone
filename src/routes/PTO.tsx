@@ -7,7 +7,7 @@ import { useSelectedCaregiver } from '../context/SelectedCaregiverContext'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
-import { isValidCalendarDate } from '../lib/dates'
+import { formatDay, formatDayRange, isValidCalendarDate } from '../lib/dates'
 import { useLeavePolicies } from '../lib/useLeavePolicies'
 import { computeLeaveBalance, computeLeaveBalanceFromLedger, formatLeaveType, type LeaveBalancePolicy } from '../lib/leave'
 import { downloadCsv } from '../lib/csv'
@@ -555,7 +555,7 @@ export function PTO() {
                     <div key={entry.id} className="flex items-center justify-between gap-2 text-xs">
                       <div className="min-w-0">
                         <p className="font-medium text-gray-900 dark:text-gray-100">
-                          {entry.event_date} · {policy ? formatLeaveType(policy.leave_type) : '—'} · {entry.event_type.replace(/_/g, ' ')}
+                          {formatDay(entry.event_date, { weekday: false })} · {policy ? formatLeaveType(policy.leave_type) : '—'} · {entry.event_type.replace(/_/g, ' ')}
                         </p>
                         {entry.notes && <p className="text-gray-400 dark:text-gray-500">{entry.notes}</p>}
                       </div>
@@ -692,8 +692,7 @@ export function PTO() {
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{formatLeaveType(r.leave_type)}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {r.start_date}
-                        {r.end_date !== r.start_date ? ` – ${r.end_date}` : ''} · {r.hours_requested ?? '—'} hrs
+                        {formatDayRange(r.start_date, r.end_date)} · {r.hours_requested != null ? `${r.hours_requested}h` : '—'}
                       </p>
                       {r.nanny_note && (
                         <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
@@ -801,8 +800,7 @@ export function PTO() {
               <div className="space-y-1 text-sm text-gray-700 dark:text-gray-300">
                 <p>{formatLeaveType(detailRequest.leave_type)}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {detailRequest.start_date}
-                  {detailRequest.end_date !== detailRequest.start_date ? ` – ${detailRequest.end_date}` : ''} ·{' '}
+                  {formatDayRange(detailRequest.start_date, detailRequest.end_date)} ·{' '}
                   {detailRequest.hours_requested ?? '—'} hrs
                 </p>
                 {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
