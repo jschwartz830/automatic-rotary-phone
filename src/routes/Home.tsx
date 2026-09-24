@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { addDays, differenceInCalendarDays, format, parseISO, startOfWeek, subDays } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
-import { useCaregivers } from '../lib/useCaregivers'
+import { useSelectedCaregiver } from '../context/SelectedCaregiverContext'
 import { supabase } from '../lib/supabase'
 import { buildWeeklySummaryCards, computeReminders, type LeaveBalanceSummary, type ReminderCard } from '../lib/reminders'
 import { computeLeaveBalance, computeLeaveBalanceFromLedger } from '../lib/leave'
@@ -324,7 +324,7 @@ function buildDashboardCards(input: {
 export function Home() {
   const { user } = useAuth()
   const { household, isNanny, isParentOrCoAdmin, caregiverProfile } = useHousehold()
-  const { caregivers } = useCaregivers(household?.id)
+  const { caregivers } = useSelectedCaregiver()
   const [reminders, setReminders] = useState<ReminderCard[]>([])
   const [dashboardCards, setDashboardCards] = useState<DashboardCard[]>([])
   const [todayStatuses, setTodayStatuses] = useState<TodayStatus[]>([])

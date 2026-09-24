@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { addDays, format } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
-import { useCaregivers } from '../lib/useCaregivers'
+import { useSelectedCaregiver } from '../context/SelectedCaregiverContext'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
@@ -26,8 +26,7 @@ export function PTO() {
   const { user } = useAuth()
   const { household, isNanny, isParentOrCoAdmin, coadminAllowed, caregiverProfile } = useHousehold()
   const canExport = isParentOrCoAdmin && coadminAllowed('export_records')
-  const { caregivers } = useCaregivers(household?.id)
-  const [caregiverId, setCaregiverId] = useState<string | null>(null)
+  const { caregivers, selectedCaregiverId: caregiverId } = useSelectedCaregiver()
   const [requests, setRequests] = useState<LeaveRequest[]>([])
   const [ledgerEntries, setLedgerEntries] = useState<LeaveLedgerEntry[]>([])
   const [showForm, setShowForm] = useState(false)
@@ -54,13 +53,6 @@ export function PTO() {
   // archived rows too or the two ways of computing a balance disagree.
   const unarchivedRequests = requests.filter((r) => !r.archived_at)
 
-  useEffect(() => {
-    if (isNanny && caregiverProfile) {
-      setCaregiverId(caregiverProfile.id)
-    } else if (!caregiverId && caregivers.length > 0) {
-      setCaregiverId(caregivers[0].id)
-    }
-  }, [caregivers, isNanny, caregiverProfile, caregiverId])
 
   async function loadRequests(forCaregiverId: string) {
     const [requestsRes, ledgerRes] = await Promise.all([
@@ -493,7 +485,7 @@ export function PTO() {
         </div>
       )}
 
-      {isParentOrCoAdmin && <CaregiverSelect caregivers={caregivers} value={caregiverId} onChange={setCaregiverId} />}
+      {isParentOrCoAdmin && <CaregiverSelect />}
 
       {caregiverId && (
         <Card

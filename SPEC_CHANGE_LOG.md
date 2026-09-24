@@ -8,6 +8,18 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-09-23 — UX pass 1/6: remembered caregiver selection + one-tap picker
+
+Time, PTO, Pay and Calendar each kept their own caregiver dropdown that reset
+to the first caregiver on every tab switch. A new `SelectedCaregiverContext`
+(mounted around `Layout`) now loads the caregiver list once and holds one
+shared selection, remembered per household in `localStorage`. The dropdown is
+replaced by a row of name chips with a stable per-caregiver color dot
+(`src/lib/caregiverColors.ts`), hidden when there is only one caregiver.
+Inactive/terminated caregivers are left off the chips unless already selected.
+
+---
+
 ## 2026-09-23 — Time-entry schedule pre-fill re-confirmed (still correct); merged one clean, already-tested stale PR (#113); first dedicated full literal audit of spec 22 (UX Requirements) since 2026-08-09/08-11 finds no new gaps (existing item 23 already covers what it turned up); health check clean; all 17 open Q&A items presented in chat/notification
 
 **This session's scope:** re-confirm the manual time-entry pre-fill

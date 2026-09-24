@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useHousehold } from '../context/HouseholdContext'
 import { usePreferences } from '../context/PreferencesContext'
-import { useCaregivers } from '../lib/useCaregivers'
+import { useSelectedCaregiver } from '../context/SelectedCaregiverContext'
 import { supabase } from '../lib/supabase'
 import { logAuditEvent } from '../lib/audit'
 import { errorMessage } from '../lib/errors'
@@ -71,7 +71,7 @@ export function More() {
     setActiveHouseholdId,
   } = useHousehold()
   const { theme, setTheme, timeFormat, setTimeFormat } = usePreferences()
-  const { caregivers, refresh } = useCaregivers(household?.id)
+  const { caregivers, refreshCaregivers: refresh } = useSelectedCaregiver()
   const [showVersionDetail, setShowVersionDetail] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [joinCode, setJoinCode] = useState<string | null>(null)

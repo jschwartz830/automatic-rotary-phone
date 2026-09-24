@@ -2,6 +2,7 @@ import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { HouseholdProvider, useHousehold } from './context/HouseholdContext'
 import { PreferencesProvider } from './context/PreferencesContext'
+import { SelectedCaregiverProvider } from './context/SelectedCaregiverContext'
 import { isSupabaseConfigured } from './lib/supabase'
 import { Layout } from './components/Layout'
 import { Login } from './routes/Login'
@@ -60,7 +61,9 @@ function AppRoutes() {
         element={
           <Gate>
             <RequireHousehold>
-              <Layout />
+              <SelectedCaregiverProvider>
+                <Layout />
+              </SelectedCaregiverProvider>
             </RequireHousehold>
           </Gate>
         }
