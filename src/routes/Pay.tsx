@@ -236,6 +236,7 @@ export function Pay() {
   const [voidSubmitting, setVoidSubmitting] = useState(false)
   // Nanny timesheet submission state
   const [showNannyForm, setShowNannyForm] = useState(false)
+  const [showReports, setShowReports] = useState(false)
   const [nannyPeriodStart, setNannyPeriodStart] = useState('')
   const [nannyPeriodEnd, setNannyPeriodEnd] = useState('')
   const [nannySubmitting, setNannySubmitting] = useState(false)
@@ -294,6 +295,10 @@ export function Pay() {
     }
     return groups
   }, [activePayments])
+  const earliestDue = (list: PaymentRecord[]) => [...list].sort((x, y) => x.due_date.localeCompare(y.due_date))[0]
+  const nextPayment =
+    earliestDue(groupedPayments.overdue) ?? earliestDue(groupedPayments.due) ?? earliestDue(groupedPayments.upcoming) ?? null
+  const nextPaymentStatus = nextPayment ? paymentDisplayStatus(nextPayment.status, nextPayment.due_date) : null
   // Includes archived timesheets too, so catch-up still suggests resuming
   // after the most recent period even if it was later archived (an archived
   // period's period_end no longer blocks regenerating that same period --
@@ -1373,8 +1378,8 @@ export function Pay() {
     return !hasUncorrectedPayment
   }
 
-  // The mark-paid/void/correct forms render as cards near the top of the page,
-  // so opening one from the detail sheet has to dismiss the sheet first.
+  // The mark-paid/void/correct forms are their own sheets, so opening one from
+  // the payment detail sheet dismisses that sheet first.
   function openMarkPaid(payment: PaymentRecord) {
     setDetailPaymentId(null)
     setMarkingPaidPayment(payment)
@@ -1469,22 +1474,20 @@ export function Pay() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">Pay</h1>
         {isParentOrCoAdmin && coadminAllowed('approve_timesheet') && (
-          <div className="flex gap-2">
-            <input ref={timesheetImportInput} type="file" accept=".csv,text/csv" className="hidden" onChange={importTimesheets} />
-            <Button variant="secondary" onClick={() => timesheetImportInput.current?.click()} disabled={importingTimesheets}>
-              {importingTimesheets ? 'Importing…' : 'Import timesheets'}
-            </Button>
-            <Button variant="secondary" onClick={() => setShowForm((s) => !s)}>
-              {showForm ? 'Cancel' : '+ Generate timesheet'}
-            </Button>
-          </div>
+          <Button variant="secondary" onClick={() => { setError(null); setShowForm(true) }}>
+            + Timesheet
+          </Button>
         )}
         {isNanny && (
-          <Button variant="secondary" onClick={() => setShowNannyForm((s) => !s)}>
-            {showNannyForm ? 'Cancel' : 'Submit timesheet'}
+          <Button variant="secondary" onClick={() => setShowNannyForm(true)}>
+            Submit timesheet
           </Button>
         )}
       </div>
+
+      {isParentOrCoAdmin && coadminAllowed('approve_timesheet') && (
+        <input ref={timesheetImportInput} type="file" accept=".csv,text/csv" className="hidden" onChange={importTimesheets} />
+      )}
 
       {isParentOrCoAdmin && <CaregiverSelect />}
 
@@ -1492,7 +1495,7 @@ export function Pay() {
       {importMessage && <p className="text-sm text-emerald-700 dark:text-emerald-300">{importMessage}</p>}
 
       {showForm && (
-        <Card title="Generate timesheet from time entries">
+        <Modal title="Generate timesheet" onClose={() => setShowForm(false)}>
           {activeCaregiver && !activeCaregiver.default_hourly_rate && (
             // QUESTIONS_AND_CLARIFICATIONS.md item 33: Finish Setup treats a
             // caregiver profile as complete once the row exists, even with no
@@ -1617,11 +1620,11 @@ export function Pay() {
               {submitting ? 'Calculating…' : 'Generate & approve'}
             </Button>
           </form>
-        </Card>
+        </Modal>
       )}
 
       {isNanny && showNannyForm && (
-        <Card title="Submit timesheet for review">
+        <Modal title="Submit timesheet for review" onClose={() => setShowNannyForm(false)}>
           <form onSubmit={handleSubmitTimesheet} className="space-y-3">
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Submit your approved time entries for this period so your employer can review and calculate pay.
@@ -1658,11 +1661,11 @@ export function Pay() {
               {nannySubmitting ? 'Submitting…' : 'Submit for review'}
             </Button>
           </form>
-        </Card>
+        </Modal>
       )}
 
       {markingPaidPayment && (
-        <Card title="Mark payment paid">
+        <Modal title="Mark payment paid" onClose={() => setMarkingPaidPayment(null)}>
           <form onSubmit={handleMarkPaid} className="space-y-3">
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Due {formatMoney(markingPaidPayment.gross_pay_due)} for {formatDayRange(markingPaidPayment.period_start, markingPaidPayment.period_end)}. Enter less than the full amount to record a partial payment.
@@ -1692,11 +1695,11 @@ export function Pay() {
               </Button>
             </div>
           </form>
-        </Card>
+        </Modal>
       )}
 
       {voidingPayment && (
-        <Card title="Void payment">
+        <Modal title="Void payment" onClose={() => setVoidingPayment(null)}>
           <form onSubmit={handleVoidPayment} className="space-y-3">
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {formatMoney(voidingPayment.gross_pay_due)} for {formatDayRange(voidingPayment.period_start, voidingPayment.period_end)}{' '}
@@ -1719,11 +1722,11 @@ export function Pay() {
               </Button>
             </div>
           </form>
-        </Card>
+        </Modal>
       )}
 
       {correctingPayment && (
-        <Card title="Correct payment">
+        <Modal title="Correct payment" onClose={() => setCorrectingPayment(null)}>
           <form onSubmit={handleCorrectPayment} className="space-y-3">
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Original: {formatMoney(correctingPayment.gross_pay_due)} for {formatDayRange(correctingPayment.period_start, correctingPayment.period_end)}.
@@ -1763,67 +1766,34 @@ export function Pay() {
               </Button>
             </div>
           </form>
-        </Card>
+        </Modal>
       )}
 
-      {canExport && caregiverId && (
-        <Card title="Annual summary">
-          <div className="flex items-end gap-2">
-            <div className="flex-1">
-              <Field label="Year">
-                <input
-                  type="number"
-                  className={inputClass}
-                  value={annualSummaryYear}
-                  onChange={(e) => setAnnualSummaryYear(e.target.value)}
-                />
-              </Field>
+      {nextPayment && (
+        <div className="rounded-2xl bg-gray-900 p-4 text-white dark:bg-gray-100 dark:text-gray-900">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-medium opacity-70">
+                {nextPaymentStatus === 'overdue' ? 'Overdue payment' : 'Next payment'}
+              </p>
+              <p className="mt-0.5 text-2xl font-bold">
+                {showGrossPay ? formatMoney(nextPayment.gross_pay_due - (nextPayment.amount_paid ?? 0)) : 'Amount hidden'}
+              </p>
+              <p className="text-xs opacity-70">
+                Due {formatDay(nextPayment.due_date)} · {formatDayRange(nextPayment.period_start, nextPayment.period_end)}
+              </p>
             </div>
-            <Button
-              variant="secondary"
-              onClick={exportAnnualSummary}
-              disabled={annualSummaryExporting || detailExporting !== null}
-            >
-              {annualSummaryExporting ? 'Exporting…' : 'Export totals CSV'}
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => exportDetailedRecords(
-                'payments',
-                activePayments.filter((payment) => payment.period_start.slice(0, 4) === annualSummaryYear),
-                `annual-${annualSummaryYear}-daily-detail.csv`
-              )}
-              disabled={annualSummaryExporting || detailExporting !== null}
-            >
-              {detailExporting === 'payments' ? 'Exporting…' : 'Export daily detail'}
-            </Button>
+            {canMarkPaid(nextPayment) && (
+              <button
+                type="button"
+                className="shrink-0 rounded-xl bg-white px-3 py-2 text-sm font-semibold text-gray-900 active:bg-gray-200 dark:bg-gray-900 dark:text-gray-100"
+                onClick={() => openMarkPaid(nextPayment)}
+              >
+                Mark paid
+              </button>
+            )}
           </div>
-        </Card>
-      )}
-
-      {canExport && caregiverId && (
-        <Card title="Full records export">
-          <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
-            Every record for {activeCaregiver?.name ?? 'this caregiver'} — schedule, time entries, timesheets,
-            payments, and PTO — bundled into one download.
-          </p>
-          <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => exportFullRecords('json')}
-              disabled={fullExporting !== null}
-            >
-              {fullExporting === 'json' ? 'Exporting…' : 'Export JSON'}
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => exportFullRecords('csv')}
-              disabled={fullExporting !== null}
-            >
-              {fullExporting === 'csv' ? 'Exporting…' : 'Export CSV'}
-            </Button>
-          </div>
-        </Card>
+        </div>
       )}
 
       <Card title="Payments" action={canExport && activePayments.length > 0 && (
@@ -2031,6 +2001,90 @@ export function Pay() {
             </div>
           )}
         </Card>
+      )}
+
+      {((canExport && caregiverId) || (isParentOrCoAdmin && coadminAllowed('approve_timesheet'))) && (
+        <div>
+          <button
+            className="flex w-full items-center justify-between px-1 py-2 text-sm font-semibold text-gray-700 dark:text-gray-300"
+            onClick={() => setShowReports((v) => !v)}
+            aria-expanded={showReports}
+          >
+            <span>Reports, import & export</span>
+            <span className={`text-xs text-gray-400 transition-transform ${showReports ? 'rotate-90' : ''}`}>›</span>
+          </button>
+          {showReports && (
+            <div className="space-y-4">
+              {isParentOrCoAdmin && coadminAllowed('approve_timesheet') && (
+                <Card title="Import timesheets">
+                  <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">Add past timesheets from a CSV file.</p>
+                  <Button variant="secondary" onClick={() => timesheetImportInput.current?.click()} disabled={importingTimesheets}>
+                    {importingTimesheets ? 'Importing…' : 'Choose CSV…'}
+                  </Button>
+                </Card>
+              )}
+              {canExport && caregiverId && (
+                <Card title="Annual summary">
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="w-24">
+                      <Field label="Year">
+                        <input
+                          type="number"
+                          className={inputClass}
+                          value={annualSummaryYear}
+                          onChange={(e) => setAnnualSummaryYear(e.target.value)}
+                        />
+                      </Field>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      onClick={exportAnnualSummary}
+                      disabled={annualSummaryExporting || detailExporting !== null}
+                    >
+                      {annualSummaryExporting ? 'Exporting…' : 'Export totals CSV'}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => exportDetailedRecords(
+                        'payments',
+                        activePayments.filter((payment) => payment.period_start.slice(0, 4) === annualSummaryYear),
+                        `annual-${annualSummaryYear}-daily-detail.csv`
+                      )}
+                      disabled={annualSummaryExporting || detailExporting !== null}
+                    >
+                      {detailExporting === 'payments' ? 'Exporting…' : 'Export daily detail'}
+                    </Button>
+                  </div>
+                </Card>
+              )}
+
+              {canExport && caregiverId && (
+                <Card title="Full records export">
+                  <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+                    Every record for {activeCaregiver?.name ?? 'this caregiver'} — schedule, time entries, timesheets,
+                    payments, and PTO — bundled into one download.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      onClick={() => exportFullRecords('json')}
+                      disabled={fullExporting !== null}
+                    >
+                      {fullExporting === 'json' ? 'Exporting…' : 'Export JSON'}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => exportFullRecords('csv')}
+                      disabled={fullExporting !== null}
+                    >
+                      {fullExporting === 'csv' ? 'Exporting…' : 'Export CSV'}
+                    </Button>
+                  </div>
+                </Card>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {detailTimesheet && (
