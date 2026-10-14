@@ -8,6 +8,33 @@ items that need your decision rather than ones already resolved.
 
 ---
 
+## 2026-10-14 — Pay: generate and approve are separate; hours editable after generating
+
+- **Generate creates a draft.** "Generate draft" calculates the period and
+  saves a `draft` timesheet with no payment record, then opens it. Approve
+  (detail sheet, row button, or swipe right) creates the payment. A
+  parent-generated draft is approved exactly as stored; a nanny submission
+  (no rate yet) is still calculated from records on approval.
+- **Edit hours.** Draft, submitted, and approved-but-unpaid timesheets have
+  an "Edit hours" sheet for worked/PTO/sick/holiday/family-cancellation/
+  unpaid hours, guaranteed hours, rate, reimbursements and adjustment.
+  Overtime, guarantee top-up and gross pay are recalculated on save. On an
+  approved timesheet the open payment is updated to match (or a new one is
+  raised if the only payment was voided). Once a payment is paid or
+  partially paid, use Correct on the payment instead. Each save writes an
+  `edit_hours` audit event.
+- **Duplicate-period message.** Generating checks for an *active* timesheet
+  with the same range first and offers to open it — voiding or archiving a
+  payment doesn't archive its timesheet, which is what the old message
+  hid. If only an archived one matches and the insert still fails, the
+  message now points at migration 0017 not being applied.
+- Migration 0020 limits the nanny's timesheet-update RLS branch to rows the
+  nanny submitted, so a parent's draft can't be changed before approval.
+- The draft reminder now reads as "ready to review and approve" instead of
+  "not submitted".
+
+---
+
 ## 2026-09-23 — UX pass 6/6: Pay leads with the next payment; forms as sheets; exports tucked away
 
 - New "Next payment" summary at the top of Pay (earliest overdue → due →

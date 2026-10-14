@@ -178,11 +178,60 @@ function DailyDetailDay({ day }: { day: DailyBreakdown }) {
   )
 }
 
+// handleGenerateTimesheet checks for an *active* timesheet with the same
+// range before inserting, so a 23505 that still reaches here means only an
+// archived one matches -- i.e. the database is still enforcing the old
+// unique constraint that 0017_timesheet_period_unique_excludes_archived.sql
+// replaces. Say so rather than telling the user to archive something they
+// already archived.
 function timesheetErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && (err as { code?: string }).code === '23505') {
-    return 'A timesheet for this exact date range already exists. Archive it first (see Archived below), or adjust the dates.'
+    return (
+      'An archived timesheet for this exact date range is still blocking a new one. ' +
+      'Apply supabase/migrations/0017_timesheet_period_unique_excludes_archived.sql to the database, then try again.'
+    )
   }
   return errorMessage(err, fallback)
+}
+
+const LOCKED_PAYMENT_STATUSES: readonly string[] = ['paid', 'partially_paid']
+
+// The calculation *inputs* a parent can correct by hand after generating
+// (or approving) a timesheet. Everything derived from them -- overtime,
+// guarantee adjustment, payable hours, gross pay -- is recomputed with
+// calculateTimesheet on save, so the stored row never disagrees with itself.
+type EditHoursField =
+  | 'actual_worked_hours'
+  | 'paid_pto_hours'
+  | 'paid_sick_hours'
+  | 'paid_holiday_hours'
+  | 'family_cancellation_hours'
+  | 'unpaid_time_off_hours'
+  | 'guaranteed_hours'
+  | 'hourly_rate'
+  | 'reimbursements'
+  | 'manual_adjustments'
+
+const EDIT_HOURS_FIELDS: { key: EditHoursField; label: string; step: string; guaranteeOnly?: boolean }[] = [
+  { key: 'actual_worked_hours', label: 'Worked hours', step: '0.01' },
+  { key: 'paid_pto_hours', label: 'PTO hours', step: '0.01' },
+  { key: 'paid_sick_hours', label: 'Sick hours', step: '0.01' },
+  { key: 'paid_holiday_hours', label: 'Holiday hours', step: '0.01' },
+  { key: 'family_cancellation_hours', label: 'Family cancellation hours', step: '0.01' },
+  { key: 'unpaid_time_off_hours', label: 'Unpaid time off hours', step: '0.01' },
+  { key: 'guaranteed_hours', label: 'Guaranteed hours', step: '0.01', guaranteeOnly: true },
+  { key: 'hourly_rate', label: 'Hourly rate ($)', step: '0.01' },
+  { key: 'reimbursements', label: 'Reimbursements ($)', step: '0.01' },
+  { key: 'manual_adjustments', label: 'Manual adjustment ($)', step: '0.01' },
+]
+
+const emptyEditHours = Object.fromEntries(EDIT_HOURS_FIELDS.map((f) => [f.key, '0'])) as Record<EditHoursField, string>
+
+function editHoursFromRecord(t: Pick<Timesheet, EditHoursField>): Record<EditHoursField, string> {
+  return Object.fromEntries(EDIT_HOURS_FIELDS.map((f) => [f.key, String(t[f.key] ?? 0)])) as Record<
+    EditHoursField,
+    string
+  >
 }
 
 // Statuses where money is still owed, i.e. "mark paid"/"void" apply.
@@ -221,6 +270,15 @@ export function Pay() {
   const [error, setError] = useState<string | null>(null)
   const [showArchive, setShowArchive] = useState(false)
   const [pendingUnapproved, setPendingUnapproved] = useState<TimeEntry[]>([])
+  // An active timesheet already covering the exact range being generated --
+  // shown in the generate sheet with a link to open (and edit) it instead.
+  const [duplicateTimesheet, setDuplicateTimesheet] = useState<Timesheet | null>(null)
+  // Edit hours state (string values so inputs can be cleared while typing).
+  const [editingTimesheet, setEditingTimesheet] = useState<Timesheet | null>(null)
+  const [editHours, setEditHours] = useState<Record<EditHoursField, string>>(emptyEditHours)
+  const [editNote, setEditNote] = useState('')
+  const [editSubmitting, setEditSubmitting] = useState(false)
+  const [editRecalculating, setEditRecalculating] = useState(false)
   // Payment correction state
   const [correctingPayment, setCorrectingPayment] = useState<PaymentRecord | null>(null)
   const [correctionAmount, setCorrectionAmount] = useState('')
@@ -518,32 +576,34 @@ export function Pay() {
     }
   }
 
-  function paymentRecordFields(totals: PeriodTotals) {
+  // Payment-record fields copied off a timesheet row as it's stored -- used
+  // wherever the timesheet (possibly hand-edited) is the source of truth,
+  // i.e. approving a parent-generated draft and saving edited hours.
+  function paymentFieldsFromTimesheet(t: Timesheet) {
     return {
-      actual_worked_hours: totals.actualWorkedHours,
-      regular_worked_hours: totals.result.regularWorkedHours,
-      overtime_worked_hours: totals.result.overtimeWorkedHours,
-      guaranteed_hours: totals.result.guaranteedHours,
-      guarantee_adjustment_hours: totals.result.guaranteeAdjustmentHours,
-      payable_regular_hours: totals.result.payableRegularHours,
-      payable_overtime_hours: totals.result.payableOvertimeHours,
-      paid_pto_hours: totals.ptoHours,
-      paid_sick_hours: totals.sickHours,
-      paid_holiday_hours: totals.holidayHours,
-      family_cancellation_hours: totals.cancellationHours,
-      hourly_rate: totals.caregiver.default_hourly_rate,
-      overtime_rate: totals.result.overtimeRate,
-      reimbursements: totals.reimbursements,
-      manual_adjustments: totals.manualAdjustments,
-      // Spec 13.8 "Payment method label" -- carries the caregiver's
-      // configured default method onto the record; editable per-record isn't
-      // built (no screen sets it after generation), matching how hourly_rate
-      // is also just copied at generation time rather than re-editable.
-      payment_method_label: totals.caregiver.payment_method_label,
-      gross_pay_due: totals.result.grossPayDue,
+      actual_worked_hours: t.actual_worked_hours,
+      regular_worked_hours: t.regular_worked_hours,
+      overtime_worked_hours: t.overtime_worked_hours,
+      guaranteed_hours: t.guaranteed_hours,
+      guarantee_adjustment_hours: t.guarantee_adjustment_hours,
+      payable_regular_hours: t.payable_regular_hours,
+      payable_overtime_hours: t.payable_overtime_hours,
+      paid_pto_hours: t.paid_pto_hours,
+      paid_sick_hours: t.paid_sick_hours,
+      paid_holiday_hours: t.paid_holiday_hours,
+      family_cancellation_hours: t.family_cancellation_hours,
+      hourly_rate: t.hourly_rate,
+      overtime_rate: t.overtime_rate,
+      reimbursements: t.reimbursements,
+      manual_adjustments: t.manual_adjustments,
+      gross_pay_due: t.gross_pay_due,
     }
   }
 
+  // Generating only creates a draft with the calculated numbers -- no payment
+  // record. The parent reviews it (and can edit hours) and then approves it
+  // separately, which is what raises the payment. Previously generate and
+  // approve were one step, so a wrong number meant void + archive + redo.
   async function doGenerate(timeEntries: TimeEntry[]) {
     if (!caregiverId || !household || !activeCaregiver) return
     const totals = await computePeriodTotals(
@@ -562,10 +622,12 @@ export function Pay() {
         caregiver_id: caregiverId,
         period_start: periodStart,
         period_end: periodEnd,
-        status: 'approved',
-        approved_at: new Date().toISOString(),
-        approved_by: user?.id ?? null,
+        status: 'draft',
         ...timesheetHourFields(totals),
+        // approveTimesheet treats a null rate as "not calculated yet" (a
+        // nanny submission) and recomputes; a parent-generated draft has been
+        // calculated even when the caregiver has no rate set.
+        hourly_rate: totals.caregiver.default_hourly_rate ?? 0,
       })
       .select()
       .single()
@@ -577,53 +639,53 @@ export function Pay() {
       entityType: 'timesheet',
       entityId: timesheet.id,
       action: 'create',
-      after: { periodStart, periodEnd, grossPayDue: totals.result.grossPayDue },
+      after: { periodStart, periodEnd, status: 'draft', grossPayDue: totals.result.grossPayDue },
     })
-
-    const { error: payError } = await supabase.from('payment_records').insert({
-      caregiver_id: caregiverId,
-      timesheet_id: timesheet.id,
-      period_start: periodStart,
-      period_end: periodEnd,
-      due_date: computeDueDate(periodEnd, activeCaregiver),
-      status: 'due',
-      ...paymentRecordFields(totals),
-    })
-    if (payError) throw payError
 
     setShowForm(false)
     setReimbursements('0')
     setManualAdjustments('0')
     setPendingUnapproved([])
     await loadData(caregiverId)
+    // Land on the new draft so it can be reviewed, edited, and approved.
+    setDetailTimesheetId(timesheet.id)
   }
 
-  // Spec 13.5 Parent Workflow steps 4-6: approving a submitted timesheet
-  // recalculates payable hours/gross pay from the period's records (the
-  // nanny-submitted row only carries raw worked hours) and then creates the
-  // payment record. Before this, a nanny-submitted timesheet had no approval
-  // path at all and simply sat at 'submitted' forever.
+  // Spec 13.5 Parent Workflow steps 4-6: approving a timesheet creates the
+  // payment record. A nanny-submitted row only carries raw worked hours
+  // (hourly_rate is null), so payable hours/gross pay are calculated from the
+  // period's records first. A parent-generated draft was already calculated
+  // at generation and may have been hand-edited since, so it's approved
+  // exactly as stored.
   async function approveTimesheet(timesheet: Timesheet) {
     if (!caregiverId || !household || !activeCaregiver) return
     setApprovingTimesheetId(timesheet.id)
     setError(null)
     try {
-      const { data: entries } = await supabase
-        .from('time_entries')
-        .select('*')
-        .eq('caregiver_id', timesheet.caregiver_id)
-        .is('deleted_at', null)
-        .gte('date', timesheet.period_start)
-        .lte('date', timesheet.period_end)
-      const totals = await computePeriodTotals(
-        timesheet.caregiver_id,
-        activeCaregiver,
-        timesheet.period_start,
-        timesheet.period_end,
-        (entries ?? []) as TimeEntry[],
-        timesheet.reimbursements,
-        timesheet.manual_adjustments
-      )
+      let approved: Timesheet = timesheet
+      if (timesheet.hourly_rate == null) {
+        const { data: entries } = await supabase
+          .from('time_entries')
+          .select('*')
+          .eq('caregiver_id', timesheet.caregiver_id)
+          .is('deleted_at', null)
+          .gte('date', timesheet.period_start)
+          .lte('date', timesheet.period_end)
+        const totals = await computePeriodTotals(
+          timesheet.caregiver_id,
+          activeCaregiver,
+          timesheet.period_start,
+          timesheet.period_end,
+          (entries ?? []) as TimeEntry[],
+          timesheet.reimbursements,
+          timesheet.manual_adjustments
+        )
+        approved = {
+          ...timesheet,
+          ...timesheetHourFields(totals),
+          hourly_rate: totals.caregiver.default_hourly_rate ?? 0,
+        }
+      }
 
       const { error: updateError } = await supabase
         .from('timesheets')
@@ -631,7 +693,9 @@ export function Pay() {
           status: 'approved',
           approved_at: new Date().toISOString(),
           approved_by: user?.id ?? null,
-          ...timesheetHourFields(totals),
+          ...paymentFieldsFromTimesheet(approved),
+          scheduled_hours: approved.scheduled_hours,
+          unpaid_time_off_hours: approved.unpaid_time_off_hours,
         })
         .eq('id', timesheet.id)
       if (updateError) throw updateError
@@ -643,7 +707,7 @@ export function Pay() {
         entityId: timesheet.id,
         action: 'approve',
         before: { status: timesheet.status },
-        after: { status: 'approved', grossPayDue: totals.result.grossPayDue },
+        after: { status: 'approved', grossPayDue: approved.gross_pay_due },
       })
 
       // Re-approving a timesheet that already produced a payment record must
@@ -657,7 +721,10 @@ export function Pay() {
           period_end: timesheet.period_end,
           due_date: computeDueDate(timesheet.period_end, activeCaregiver),
           status: 'due',
-          ...paymentRecordFields(totals),
+          ...paymentFieldsFromTimesheet(approved),
+          // Spec 13.8 "Payment method label" -- the caregiver's configured
+          // default method, copied at creation.
+          payment_method_label: activeCaregiver.payment_method_label,
         })
         if (payError) throw payError
       }
@@ -671,6 +738,190 @@ export function Pay() {
     }
   }
 
+  // Hours can be corrected on a draft, a submitted timesheet, or an approved
+  // one whose payment hasn't been paid yet. Once money has changed hands the
+  // payment's Correct flow is the way to change the amount (spec 13.8: don't
+  // rewrite a paid record). Approved rows also need the approve/payment
+  // permission keys, matching the timesheets_update and
+  // payment_records_update_manager RLS policies (migration 0014).
+  function canEditHours(timesheet: Timesheet) {
+    if (!isParentOrCoAdmin || timesheet.deleted_at || timesheet.status === 'paid' || timesheet.status === 'locked') {
+      return false
+    }
+    const hasPaidPayment = payments.some(
+      (p) => p.timesheet_id === timesheet.id && !p.deleted_at && LOCKED_PAYMENT_STATUSES.includes(p.status)
+    )
+    if (hasPaidPayment) return false
+    if (timesheet.status === 'draft' || timesheet.status === 'submitted') return true
+    return coadminAllowed('approve_timesheet') && coadminAllowed('mark_payment_made')
+  }
+
+  function openEditHours(timesheet: Timesheet) {
+    setDetailTimesheetId(null)
+    setError(null)
+    setEditNote('')
+    setEditingTimesheet(timesheet)
+    setEditHours({
+      ...editHoursFromRecord(timesheet),
+      hourly_rate: String(timesheet.hourly_rate ?? activeCaregiver?.default_hourly_rate ?? 0),
+    })
+    // A nanny submission hasn't been calculated yet (only raw worked hours),
+    // so start the form from the period's records instead of zeros.
+    if (timesheet.hourly_rate == null) recalculateEditFromRecords(timesheet)
+  }
+
+  // Refills the form from the period's approved time entries, leave and
+  // schedule -- the same numbers generating would produce -- keeping the
+  // dollar adjustments already in the form.
+  async function recalculateEditFromRecords(timesheet: Timesheet) {
+    if (!activeCaregiver) return
+    setEditRecalculating(true)
+    setError(null)
+    try {
+      const { data: entries, error: entriesError } = await supabase
+        .from('time_entries')
+        .select('*')
+        .eq('caregiver_id', timesheet.caregiver_id)
+        .is('deleted_at', null)
+        .gte('date', timesheet.period_start)
+        .lte('date', timesheet.period_end)
+      if (entriesError) throw entriesError
+      const totals = await computePeriodTotals(
+        timesheet.caregiver_id,
+        activeCaregiver,
+        timesheet.period_start,
+        timesheet.period_end,
+        (entries ?? []) as TimeEntry[],
+        0,
+        0
+      )
+      setEditHours((prev) => ({
+        ...prev,
+        actual_worked_hours: String(round2(totals.actualWorkedHours)),
+        paid_pto_hours: String(totals.ptoHours),
+        paid_sick_hours: String(totals.sickHours),
+        paid_holiday_hours: String(totals.holidayHours),
+        family_cancellation_hours: String(round2(totals.cancellationHours)),
+        unpaid_time_off_hours: String(totals.unpaidHours),
+        guaranteed_hours: String(totals.result.guaranteedHours),
+        hourly_rate: String(activeCaregiver.default_hourly_rate ?? 0),
+      }))
+    } catch (err) {
+      setError(errorMessage(err, 'Could not recalculate from records.'))
+    } finally {
+      setEditRecalculating(false)
+    }
+  }
+
+  async function handleSaveHours(e: FormEvent) {
+    e.preventDefault()
+    const timesheet = editingTimesheet
+    if (!timesheet || !household || !activeCaregiver || !caregiverId) return
+    const values = {} as Record<EditHoursField, number>
+    for (const f of EDIT_HOURS_FIELDS) {
+      const n = Number(editHours[f.key])
+      if (editHours[f.key].trim() === '' || !Number.isFinite(n)) {
+        setError(`Enter a number for ${f.label.toLowerCase()}.`)
+        return
+      }
+      // Manual adjustment is the one field that may legitimately be negative.
+      if (n < 0 && f.key !== 'manual_adjustments') {
+        setError(`${f.label} can't be negative.`)
+        return
+      }
+      values[f.key] = round2(n)
+    }
+
+    setEditSubmitting(true)
+    setError(null)
+    try {
+      const result = calculateTimesheet({
+        actualWorkedHours: values.actual_worked_hours,
+        paidPtoHours: values.paid_pto_hours,
+        paidSickHours: values.paid_sick_hours,
+        paidHolidayHours: values.paid_holiday_hours,
+        familyCancellationHours: values.family_cancellation_hours,
+        unpaidTimeOffHours: values.unpaid_time_off_hours,
+        guaranteedHoursBase: values.guaranteed_hours,
+        unpaidTimeOffReducesGuarantee: activeCaregiver.unpaid_time_off_reduces_guarantee,
+        ptoCountsTowardGuarantee: activeCaregiver.pto_counts_toward_guarantee,
+        sickCountsTowardGuarantee: activeCaregiver.sick_counts_toward_guarantee,
+        holidayCountsTowardGuarantee: activeCaregiver.holiday_counts_toward_guarantee,
+        overtimeThresholdHours: activeCaregiver.overtime_threshold_hours,
+        overtimeMultiplier: activeCaregiver.overtime_multiplier,
+        hourlyRate: values.hourly_rate,
+        reimbursements: values.reimbursements,
+        manualAdjustments: values.manual_adjustments,
+      })
+      const updated: Timesheet = {
+        ...timesheet,
+        ...values,
+        regular_worked_hours: result.regularWorkedHours,
+        overtime_worked_hours: result.overtimeWorkedHours,
+        guarantee_adjustment_hours: result.guaranteeAdjustmentHours,
+        payable_regular_hours: result.payableRegularHours,
+        payable_overtime_hours: result.payableOvertimeHours,
+        overtime_rate: result.overtimeRate,
+        gross_pay_due: result.grossPayDue,
+      }
+
+      const { error: tsError } = await supabase
+        .from('timesheets')
+        .update({
+          ...paymentFieldsFromTimesheet(updated),
+          unpaid_time_off_hours: updated.unpaid_time_off_hours,
+        })
+        .eq('id', timesheet.id)
+      if (tsError) throw tsError
+
+      // An approved timesheet's unpaid payment follows the edit. If its only
+      // payment was voided (or there's none), approving already happened, so
+      // raise a fresh one rather than leaving the corrected hours unpaid.
+      if (timesheet.status === 'approved' || timesheet.status === 'payment_due') {
+        const livePayments = payments.filter((p) => p.timesheet_id === timesheet.id && !p.deleted_at)
+        const openPayments = livePayments.filter((p) => ['due', 'overdue', 'upcoming'].includes(p.status))
+        for (const p of openPayments) {
+          const { error: payError } = await supabase
+            .from('payment_records')
+            .update(paymentFieldsFromTimesheet(updated))
+            .eq('id', p.id)
+          if (payError) throw payError
+        }
+        if (openPayments.length === 0) {
+          const { error: payError } = await supabase.from('payment_records').insert({
+            caregiver_id: timesheet.caregiver_id,
+            timesheet_id: timesheet.id,
+            period_start: timesheet.period_start,
+            period_end: timesheet.period_end,
+            due_date: computeDueDate(timesheet.period_end, activeCaregiver),
+            status: 'due',
+            ...paymentFieldsFromTimesheet(updated),
+            payment_method_label: activeCaregiver.payment_method_label,
+          })
+          if (payError) throw payError
+        }
+      }
+
+      await logAuditEvent({
+        householdId: household.id,
+        actorUserId: user?.id ?? '',
+        entityType: 'timesheet',
+        entityId: timesheet.id,
+        action: 'edit_hours',
+        before: { ...editHoursFromRecord(timesheet), gross_pay_due: timesheet.gross_pay_due },
+        after: { ...values, gross_pay_due: result.grossPayDue, note: editNote.trim() || undefined },
+      })
+
+      setEditingTimesheet(null)
+      await loadData(caregiverId)
+      setDetailTimesheetId(timesheet.id)
+    } catch (err) {
+      setError(errorMessage(err, 'Could not save hours.'))
+    } finally {
+      setEditSubmitting(false)
+    }
+  }
+
   async function handleGenerateTimesheet(e: FormEvent) {
     e.preventDefault()
     if (!caregiverId || !household || !activeCaregiver) return
@@ -680,7 +931,24 @@ export function Pay() {
     }
     setSubmitting(true)
     setError(null)
+    setDuplicateTimesheet(null)
     try {
+      // Only an *active* timesheet blocks the range -- an archived one is
+      // ignored by the partial unique index from migration 0017.
+      const { data: existing, error: existingError } = await supabase
+        .from('timesheets')
+        .select('*')
+        .eq('caregiver_id', caregiverId)
+        .eq('period_start', periodStart)
+        .eq('period_end', periodEnd)
+        .is('deleted_at', null)
+        .limit(1)
+      if (existingError) throw existingError
+      if (existing && existing.length > 0) {
+        setDuplicateTimesheet(existing[0] as Timesheet)
+        return
+      }
+
       const { data: entries } = await supabase
         .from('time_entries')
         .select('*')
@@ -1352,7 +1620,7 @@ export function Pay() {
       isParentOrCoAdmin &&
       coadminAllowed('approve_timesheet') &&
       !timesheet.deleted_at &&
-      (timesheet.status === 'submitted' || timesheet.status === 'needs_correction')
+      (timesheet.status === 'draft' || timesheet.status === 'submitted' || timesheet.status === 'needs_correction')
     )
   }
 
@@ -1474,7 +1742,7 @@ export function Pay() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">Pay</h1>
         {isParentOrCoAdmin && coadminAllowed('approve_timesheet') && (
-          <Button variant="secondary" onClick={() => { setError(null); setShowForm(true) }}>
+          <Button variant="secondary" onClick={() => { setError(null); setDuplicateTimesheet(null); setShowForm(true) }}>
             + Timesheet
           </Button>
         )}
@@ -1537,7 +1805,7 @@ export function Pay() {
                   type="date"
                   className={dateInputClass}
                   value={periodStart}
-                  onChange={(e) => setPeriodStart(e.target.value)}
+                  onChange={(e) => { setPeriodStart(e.target.value); setDuplicateTimesheet(null) }}
                   required
                 />
               </Field>
@@ -1546,7 +1814,7 @@ export function Pay() {
                   type="date"
                   className={dateInputClass}
                   value={periodEnd}
-                  onChange={(e) => setPeriodEnd(e.target.value)}
+                  onChange={(e) => { setPeriodEnd(e.target.value); setDuplicateTimesheet(null) }}
                   required
                 />
               </Field>
@@ -1615,10 +1883,35 @@ export function Pay() {
                 </div>
               </div>
             )}
+            {duplicateTimesheet && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2 dark:border-amber-500/30 dark:bg-amber-500/10">
+                <p className="text-sm text-amber-800 dark:text-amber-300">
+                  There's already an active timesheet for{' '}
+                  {formatDayRange(duplicateTimesheet.period_start, duplicateTimesheet.period_end)} (
+                  {duplicateTimesheet.status.replace('_', ' ')}). Voiding or archiving its payment doesn't remove
+                  the timesheet itself.
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => {
+                    setShowForm(false)
+                    setDuplicateTimesheet(null)
+                    setDetailTimesheetId(duplicateTimesheet.id)
+                  }}
+                >
+                  Open it to edit or archive
+                </Button>
+              </div>
+            )}
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
             <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? 'Calculating…' : 'Generate & approve'}
+              {submitting ? 'Calculating…' : 'Generate draft'}
             </Button>
+            <p className="text-center text-[11px] text-gray-400 dark:text-gray-500">
+              You can review and edit hours before approving. Approving creates the payment.
+            </p>
           </form>
         </Modal>
       )}
@@ -2137,6 +2430,11 @@ export function Pay() {
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
             {isParentOrCoAdmin && (
               <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-3 dark:border-gray-700">
+                {canEditHours(detailTimesheet) && (
+                  <Button variant="secondary" className="flex-1" onClick={() => openEditHours(detailTimesheet)}>
+                    Edit hours
+                  </Button>
+                )}
                 {canApproveTimesheet(detailTimesheet) && (
                   <Button
                     className="flex-1"
@@ -2170,6 +2468,55 @@ export function Pay() {
               </div>
             )}
           </div>
+        </Modal>
+      )}
+
+      {editingTimesheet && (
+        <Modal title="Edit hours" onClose={() => setEditingTimesheet(null)}>
+          <form onSubmit={handleSaveHours} className="space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {formatDayRange(editingTimesheet.period_start, editingTimesheet.period_end)}
+              </p>
+              <StatusChip status={editingTimesheet.status} />
+            </div>
+            <button
+              type="button"
+              className="text-xs text-blue-600 underline disabled:opacity-50 dark:text-blue-400"
+              disabled={editRecalculating}
+              onClick={() => recalculateEditFromRecords(editingTimesheet)}
+            >
+              {editRecalculating ? 'Recalculating…' : 'Reset hours from time entries & leave'}
+            </button>
+            <div className="grid grid-cols-2 gap-3">
+              {EDIT_HOURS_FIELDS.filter((f) => !f.guaranteeOnly || showGuaranteedHours).map((f) => (
+                <div key={f.key} className="min-w-0">
+                  <Field label={f.label}>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step={f.step}
+                      className={inputClass}
+                      value={editHours[f.key]}
+                      onChange={(e) => setEditHours((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                    />
+                  </Field>
+                </div>
+              ))}
+            </div>
+            <Field label="Note (optional, kept in the audit log)">
+              <input className={inputClass} value={editNote} onChange={(e) => setEditNote(e.target.value)} />
+            </Field>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Overtime, guarantee top-up and gross pay are recalculated from these on save.
+              {(editingTimesheet.status === 'approved' || editingTimesheet.status === 'payment_due') &&
+                ' The unpaid payment for this period is updated to match.'}
+            </p>
+            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+            <Button type="submit" className="w-full" disabled={editSubmitting || editRecalculating}>
+              {editSubmitting ? 'Saving…' : 'Save hours'}
+            </Button>
+          </form>
         </Modal>
       )}
 
