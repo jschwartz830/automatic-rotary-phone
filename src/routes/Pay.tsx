@@ -1695,7 +1695,10 @@ export function Pay() {
               {formatDayRange(p.period_start, p.period_end)}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Due {formatDay(p.due_date)}{showGrossPay ? ` · ${formatMoney(p.gross_pay_due)}` : ' · amount hidden'}
+              Due {formatDay(p.due_date)}
+              {showGrossPay
+                ? ` · ${formatMoney(p.gross_pay_due)} due · ${formatMoney(p.amount_paid ?? 0)} paid`
+                : ' · amount hidden'}
               {showPaymentMethod && formatPaymentMethod(p.payment_method_label) ? ` · ${formatPaymentMethod(p.payment_method_label)}` : ''}
             </p>
             {isNanny ? (
