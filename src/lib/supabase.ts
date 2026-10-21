@@ -23,6 +23,10 @@ export const supabase = createClient(
   isSupabaseConfigured ? supabaseAnonKey : 'placeholder-anon-key',
   {
     auth: {
+      // Both this app and the workout tracker are served from the same
+      // github.io origin and share a Supabase project, so the default storage
+      // key (sb-<project-ref>-auth-token) would make them share one login.
+      storageKey: 'sb-nanny-ledger-auth',
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
