@@ -1,10 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './AuthContext'
+import { errorMessage } from '../lib/errors'
 import type { CaregiverProfile, Household, HouseholdUser } from '../lib/types'
 
 interface HouseholdContextValue {
   loading: boolean
+  // Set when the household lookup failed. Callers must not treat a failed
+  // lookup as "no household" -- that sends the user to onboarding, where they
+  // end up creating a duplicate household.
+  error: string | null
   households: Household[]
   membership: HouseholdUser | null
   household: Household | null
@@ -25,7 +30,11 @@ const HouseholdContext = createContext<HouseholdContextValue | undefined>(undefi
 
 export function HouseholdProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
+  // Supabase hands out a new user object on every auth event (token refresh,
+  // tab refocus), so key the lookup on the id to avoid needless reloads.
+  const userId = user?.id ?? null
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [households, setHouseholds] = useState<Household[]>([])
   const [memberships, setMemberships] = useState<HouseholdUser[]>([])
   const [activeHouseholdId, setActiveHouseholdIdState] = useState<string | null>(
@@ -49,44 +58,57 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refresh = useCallback(async () => {
-    if (!user) {
+    if (!userId) {
       setHouseholds([])
       setMemberships([])
       setCaregiverProfile(null)
+      setError(null)
       setLoading(false)
       return
     }
     setLoading(true)
+    setError(null)
 
-    const { data: membershipRows } = await supabase
-      .from('household_users')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('status', 'active')
-
-    const memberships = (membershipRows ?? []) as HouseholdUser[]
-    setMemberships(memberships)
-
-    const householdIds = memberships.map((m) => m.household_id)
-    if (householdIds.length > 0) {
-      const { data: householdRows } = await supabase
-        .from('households')
+    try {
+      const { data: membershipRows, error: membershipError } = await supabase
+        .from('household_users')
         .select('*')
-        .in('id', householdIds)
-      setHouseholds((householdRows ?? []) as Household[])
-    } else {
-      setHouseholds([])
+        .eq('user_id', userId)
+        .eq('status', 'active')
+      if (membershipError) throw membershipError
+
+      const memberships = (membershipRows ?? []) as HouseholdUser[]
+
+      const householdIds = memberships.map((m) => m.household_id)
+      let householdList: Household[] = []
+      if (householdIds.length > 0) {
+        const { data: householdRows, error: householdError } = await supabase
+          .from('households')
+          .select('*')
+          .in('id', householdIds)
+          .order('created_at')
+        if (householdError) throw householdError
+        householdList = (householdRows ?? []) as Household[]
+      }
+
+      const { data: caregiverRows, error: caregiverError } = await supabase
+        .from('caregiver_profiles')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle()
+      if (caregiverError) throw caregiverError
+
+      setMemberships(memberships)
+      setHouseholds(householdList)
+      setCaregiverProfile((caregiverRows ?? null) as CaregiverProfile | null)
+    } catch (err) {
+      // Keep whatever was loaded before so a transient failure doesn't make
+      // the household vanish mid-session.
+      setError(errorMessage(err, 'Could not load your household.'))
+    } finally {
+      setLoading(false)
     }
-
-    const { data: caregiverRows } = await supabase
-      .from('caregiver_profiles')
-      .select('*')
-      .eq('user_id', user.id)
-      .maybeSingle()
-    setCaregiverProfile((caregiverRows ?? null) as CaregiverProfile | null)
-
-    setLoading(false)
-  }, [user])
+  }, [userId])
 
   useEffect(() => {
     refresh()
@@ -109,6 +131,7 @@ export function HouseholdProvider({ children }: { children: ReactNode }) {
 
   const value: HouseholdContextValue = {
     loading,
+    error,
     households,
     membership,
     household,
