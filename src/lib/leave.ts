@@ -38,7 +38,7 @@ function policyYearStart(policy: LeaveBalancePolicy, today: Date): Date {
 /**
  * Balance computed from the leave_ledger event log (spec §13.7).
  * `balance` = sum of all hours_delta rows for this policy.
- * `usedHours` = sum of negative deltas (used events) in the current policy year.
+ * `usedHours` = net hours used in the current policy year (see below).
  */
 export function computeLeaveBalanceFromLedger(
   policy: LeaveBalancePolicy,
@@ -51,9 +51,34 @@ export function computeLeaveBalanceFromLedger(
   const periodEnd = toIsoDate(new Date(end.getTime() - 1))
 
   const currentBalance = ledgerEntries.reduce((sum, e) => sum + e.hours_delta, 0)
-  const usedInPeriod = ledgerEntries
-    .filter((e) => e.event_date >= periodStart && e.event_date <= periodEnd && e.hours_delta < 0)
-    .reduce((sum, e) => sum + Math.abs(e.hours_delta), 0)
+  const inPeriod = (date: string) => date >= periodStart && date <= periodEnd
+
+  // Rows tied to a leave request are netted per request: editing or archiving
+  // one appends a positive 'reversal' (see PTO.tsx zeroOutLedgerForRequest),
+  // and counting only the negative rows would leave the original hours
+  // "used" forever -- and add them again each time the entry is switched
+  // back to this type. A request's net usage is dated by its latest
+  // used/correction row, i.e. the leave's current start date.
+  const byRequest = new Map<string, LeaveLedgerEntry[]>()
+  let usedInPeriod = 0
+  for (const e of ledgerEntries) {
+    if (e.related_leave_request_id) {
+      const rows = byRequest.get(e.related_leave_request_id) ?? []
+      rows.push(e)
+      byRequest.set(e.related_leave_request_id, rows)
+    } else if (e.hours_delta < 0 && inPeriod(e.event_date)) {
+      usedInPeriod += Math.abs(e.hours_delta)
+    }
+  }
+  for (const rows of byRequest.values()) {
+    const net = rows.reduce((sum, e) => sum + e.hours_delta, 0)
+    if (net >= -0.005) continue
+    const latest = rows
+      .filter((e) => e.event_type === 'used' || e.event_type === 'correction')
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .at(-1)
+    if (inPeriod((latest ?? rows[0]).event_date)) usedInPeriod += -net
+  }
 
   const allowanceHours = policy.annual_allowance_hours
   return {
