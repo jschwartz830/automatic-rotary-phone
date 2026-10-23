@@ -32,10 +32,34 @@ function Gate({ children }: { children: React.ReactNode }) {
   return <HouseholdProvider>{children}</HouseholdProvider>
 }
 
+function LoadError() {
+  const { error, refresh } = useHousehold()
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-3 overflow-y-auto bg-gray-50 px-6 pt-[env(safe-area-inset-top)] text-center text-sm text-gray-500 dark:bg-gray-900 dark:text-gray-400">
+      <p>Couldn't load your household.</p>
+      <p className="text-xs">{error}</p>
+      <button onClick={() => refresh()} className="text-blue-600 underline dark:text-blue-400">
+        Try again
+      </button>
+    </div>
+  )
+}
+
 function RequireHousehold({ children }: { children: React.ReactNode }) {
-  const { loading, household } = useHousehold()
+  const { loading, error, household } = useHousehold()
   if (loading) return <Loading />
-  if (!household) return <Navigate to="/onboarding" replace />
+  if (!household) return error ? <LoadError /> : <Navigate to="/onboarding" replace />
+  return <>{children}</>
+}
+
+// Onboarding is only for users with no household. Without this guard a user
+// who lands here (stale link, back button, failed lookup) can create a
+// duplicate household.
+function RequireNoHousehold({ children }: { children: React.ReactNode }) {
+  const { loading, error, household } = useHousehold()
+  if (loading) return <Loading />
+  if (household) return <Navigate to="/" replace />
+  if (error) return <LoadError />
   return <>{children}</>
 }
 
@@ -52,7 +76,9 @@ function AppRoutes() {
         path="/onboarding"
         element={
           <Gate>
-            <Onboarding />
+            <RequireNoHousehold>
+              <Onboarding />
+            </RequireNoHousehold>
           </Gate>
         }
       />
