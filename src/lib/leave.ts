@@ -35,6 +35,14 @@ function policyYearStart(policy: LeaveBalancePolicy, today: Date): Date {
 }
 
 
+const ALLOWANCE_EVENTS = new Set<LeaveLedgerEntry['event_type']>([
+  'opening_balance',
+  'accrual',
+  'manual_adjustment',
+  'carryover',
+  'expiration',
+])
+
 /**
  * Balance computed from the leave_ledger event log (spec §13.7).
  * `balance` = sum of all hours_delta rows for this policy.
@@ -66,7 +74,9 @@ export function computeLeaveBalanceFromLedger(
       const rows = byRequest.get(e.related_leave_request_id) ?? []
       rows.push(e)
       byRequest.set(e.related_leave_request_id, rows)
-    } else if (e.hours_delta < 0 && inPeriod(e.event_date)) {
+    } else if (e.hours_delta < 0 && inPeriod(e.event_date) && !ALLOWANCE_EVENTS.has(e.event_type)) {
+      // Lowering the allowance (CaregiverDetail writes a negative
+      // manual_adjustment) shrinks what's available; it isn't time taken.
       usedInPeriod += Math.abs(e.hours_delta)
     }
   }
